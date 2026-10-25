@@ -1,0 +1,116 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version tag, matching the app version and release notes
+        required: true
+        default: v0.4.5
+        type: string
+      publish_release:
+        description: Publish the verified files to GitHub Releases
+        default: false
+        type: boolean
+      prerelease:
+        description: Mark this version as a preview
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" --install 'platforms;android-37.0' 'build-tools;37.0.0'
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: Restore the project test signing identity
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo 'The ANDROID_DEBUG_KEYSTORE_BASE64 repository secret is required.' >&2
+            exit 1
+          fi
+          install -d -m 700 "$HOME/.android"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+
+      - name: Test, lint and build the optimized APK
+        shell: bash
+        run: |
+          ./gradlew --no-daemon --console=plain -Dorg.gradle.workers.max=2 \
+            :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
+
+      - name: Verify the APK and package the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs \
+            app/build/outputs/apk/deviceTest/app-deviceTest.apk > "$RUNNER_TEMP/apk-signature.txt"
+          python3 .github/scripts/package_release.py --tag "$RELEASE_TAG" \
+            --signature-report "$RUNNER_TEMP/apk-signature.txt" --output dist/github-release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: HyperPods-X-${{ inputs.release_tag }}
+          path: dist/github-release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="docs/releases/$RELEASE_TAG.md"
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > "$RUNNER_TEMP/release-state.json" 2>/dev/null; then
+            jq -e --arg commit "$GITHUB_SHA" '.isDraft == true and .targetCommitish == $commit' \
+              "$RUNNER_TEMP/release-state.json" > /dev/null || {
+                echo 'Refusing to replace a published release or a draft for a different commit.' >&2
+                exit 1
+              }
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft \
+              --title "HyperPods-X $RELEASE_TAG" --notes-file "$notes" --prerelease="$PRERELEASE"
+          fi
+          gh release upload "$RELEASE_TAG" dist/github-release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE" \
+            --title "HyperPods-X $RELEASE_TAG" --notes-file "$notes"
+          gh release view "$RELEASE_TAG" --json url --jq .url

@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".debug.ListeningPreviewActivity" android:exported="true" android:permission="android.permission.DUMP" />
+        <receiver android:name=".debug.DeviceTestReceiver" android:exported="true" android:permission="android.permission.DUMP" />
+    </application>
+</manifest>
