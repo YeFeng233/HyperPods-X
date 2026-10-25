@@ -18,6 +18,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     buildFeatures { compose = true; buildConfig = true }
+    providers.environmentVariable("HYPERPODS_TEST_KEYSTORE").orNull?.let { path ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(path)
+        }
+    }
     buildTypes {
         release { isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
         create("deviceTest") {

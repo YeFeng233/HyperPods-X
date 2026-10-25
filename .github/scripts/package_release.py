@@ -38,7 +38,7 @@ def main():
     signature = args.signature_report.read_text(encoding="utf-8")
     certificates = set(re.findall(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", signature))
     if {value.lower() for value in certificates} != {expected}:
-        raise ValueError("APK signing certificate does not match this project")
+        raise ValueError(f"APK signing certificate does not match this project: {sorted(certificates)}")
 
     metadata = json.loads((root / "app/build/outputs/apk/deviceTest/output-metadata.json").read_text())
     if metadata["applicationId"] != "com.hyper.podsrx" or metadata["variantName"] != "deviceTest":

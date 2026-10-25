@@ -64,9 +64,17 @@ jobs:
             echo 'The ANDROID_DEBUG_KEYSTORE_BASE64 repository secret is required.' >&2
             exit 1
           fi
-          install -d -m 700 "$HOME/.android"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          keystore="$RUNNER_TEMP/hyperpods-test.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          fingerprint=$(keytool -exportcert -keystore "$keystore" -storepass android \
+            -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)
+          expected=$(tr -d '\r\n' < .github/signing-certificate.sha256)
+          if [ "$fingerprint" != "$expected" ]; then
+            echo 'The restored signing certificate does not match this project.' >&2
+            exit 1
+          fi
+          printf 'HYPERPODS_TEST_KEYSTORE=%s\n' "$keystore" >> "$GITHUB_ENV"
 
       - name: Test, lint and build the optimized APK
         shell: bash
@@ -80,6 +88,7 @@ jobs:
           set -euo pipefail
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs \
             app/build/outputs/apk/deviceTest/app-deviceTest.apk > "$RUNNER_TEMP/apk-signature.txt"
+          cat "$RUNNER_TEMP/apk-signature.txt"
           python3 .github/scripts/package_release.py --tag "$RELEASE_TAG" \
             --signature-report "$RUNNER_TEMP/apk-signature.txt" --output dist/github-release
 
