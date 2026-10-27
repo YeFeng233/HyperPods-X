@@ -41,6 +41,8 @@ public final class HyperPodsModule extends XposedModule {
             }
             try { NativeSpatialControlAdapter.install(this,param.getClassLoader(),preferences); }
             catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native spatial control unavailable",error); }
+            try { NativeSettingsAdapter.install(this,param.getClassLoader(),preferences); }
+            catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native headset settings entry unavailable",error); }
             return;
         }
         if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
