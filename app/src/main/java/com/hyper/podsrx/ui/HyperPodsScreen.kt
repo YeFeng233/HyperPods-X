@@ -212,7 +212,7 @@ private fun MoreSettings(state: PodsState, onOverlay: () -> Unit, onSystemBlueto
         ToggleRow("开盖弹窗", "仅响应已验证的耳机开盖广播", state.popupEnabled) { DeviceRepository.setPopup(it) }
         ToggleRow("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", state.nativePopup) { DeviceRepository.setNativePopup(it) }
         ToggleRow("连接电量卡片", "重新连接时显示真实电量", state.connectionPopup) { DeviceRepository.setConnectionPopup(it) }
-        if (state.nativePopup) RowItem("启用原生弹窗", "在 LSPosed 中授权小米蓝牙作用域") { FrameworkBridge.requestNativeScope() }
+        RowItem("系统原生适配", "授权小米蓝牙与设备互联") { FrameworkBridge.requestNativeScope() }
         RowItem("允许悬浮显示", "原生通道不可用时使用兼容卡片", action = onOverlay)
         RowItem("预览电量卡片") { PodsService.previewPopup() }
         if (state.nativePopup) RowItem("预览超级岛") { PodsService.previewIsland() }
@@ -248,7 +248,7 @@ private fun ConnectionHelp(state: PodsState, onConnect: () -> Unit, onSystemBlue
         }
     }
     Section("自动连接帮助") {
-        Text("系统蓝牙负责音频连接；HyperPods-X 负责读取电量和耳机控制。请允许应用后台运行，并在 LSPosed 中启用系统设置和小米蓝牙作用域。", fontSize = 15.sp, modifier = Modifier.padding(18.dp))
+        Text("系统蓝牙负责音频连接，HyperPods-X 负责电量和耳机控制。请允许应用后台运行，并在 LSPosed 中启用系统设置、小米蓝牙和设备互联作用域。", fontSize = 15.sp, modifier = Modifier.padding(18.dp))
     }
 }
 

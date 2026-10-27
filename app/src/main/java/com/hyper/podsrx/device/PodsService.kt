@@ -87,6 +87,7 @@ class PodsService: Service() {
     private lateinit var spatial:SpatialAudio
     private lateinit var earDetection:EarDetectionController
     private lateinit var conversation:ConversationController
+    private lateinit var nativeControls:NativeControlBridge
     private val systemReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context,intent:Intent) {
             if(intent.action==BluetoothAdapter.ACTION_STATE_CHANGED) {
@@ -115,6 +116,7 @@ class PodsService: Service() {
             runCatching{socket?.close()};reconnect.trySend(Unit)
         })
         spatial.start()
+        nativeControls=NativeControlBridge(this)
         registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{addAction(BluetoothDevice.ACTION_ACL_CONNECTED)},RECEIVER_EXPORTED); receiverRegistered=true
         scope.launch { for(command in commands) {
             val (id,values)=command
@@ -403,6 +405,7 @@ class PodsService: Service() {
     private fun stopScan(){runCatching{scanCallback?.let{scanner?.stopScan(it)}};scanCallback=null;scanner=null;DeviceRepository.update{it.copy(diagnosticScanning=false)}}
     override fun onDestroy() {
         if(instance===this)instance=null
+        nativeControls.close()
         lidHandler.removeCallbacks(confirmLid)
         spatial.close()
         conversation.close()

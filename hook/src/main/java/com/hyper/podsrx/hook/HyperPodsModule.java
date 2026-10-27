@@ -32,6 +32,17 @@ public final class HyperPodsModule extends XposedModule {
     @Override public void onPackageReady(PackageReadyParam param) {
         if (!param.isFirstPackage()) return;
         String pkg = param.getPackageName();
+        if (pkg.equals("com.milink.service")) {
+            if (!processName.equals(pkg) && !processName.equals(pkg+":core") && !processName.equals(pkg+":ui")) return;
+            preferences=getRemotePreferences("device_state");
+            if (processName.equals(pkg+":ui")) {
+                try { NativeControlPanelAdapter.install(this,param.getClassLoader(),preferences); }
+                catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native adaptive control row unavailable",error); }
+            }
+            try { NativeSpatialControlAdapter.install(this,param.getClassLoader(),preferences); }
+            catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native spatial control unavailable",error); }
+            return;
+        }
         if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
@@ -44,6 +55,7 @@ public final class HyperPodsModule extends XposedModule {
                         Application host=(Application)chain.getThisObject();
                         if(pkg.equals(processName)){
                             NativePopupHost.install(host);
+                            try{NativeControlHost.install(HyperPodsModule.this,host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Native control bridge unavailable",error);}
                             try{SpatialHost.install(host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Spatial bridge unavailable",error);}
                             try{ConversationAudioHost.install(host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Conversation bridge unavailable",error);}
                         }
