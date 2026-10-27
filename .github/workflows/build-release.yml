@@ -43,6 +43,14 @@ jobs:
           java-version: '21'
           cache: gradle
 
+      - name: Check out the Glasmio source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NEORUAA/Glasmio
+          ref: 5f1b5214057870228fcb69a3aed8fe2d0575e3c1
+          path: .tooling/Glasmio
+          persist-credentials: false
+
       - name: Install Android SDK components
         shell: bash
         run: |
@@ -51,8 +59,24 @@ jobs:
           set +o pipefail
           yes | "$sdkmanager" --licenses > /dev/null
           set -o pipefail
-          "$sdkmanager" --install 'platforms;android-37.0' 'build-tools;37.0.0'
+          "$sdkmanager" --install 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: Restore the application font
+        env:
+          FONT_URL: ${{ secrets.SF_PRO_FONT_URL }}
+          FONT_SHA256: ${{ vars.SF_PRO_FONT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FONT_URL" ] || ! [[ "$FONT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo 'SF_PRO_FONT_URL and SF_PRO_FONT_SHA256 must identify the SF Pro font used by the app.' >&2
+            exit 1
+          fi
+          font="$RUNNER_TEMP/hyperpods-sf-pro.ttf"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$FONT_URL" --output "$font"
+          printf '%s  %s\n' "$FONT_SHA256" "$font" | sha256sum --check --status
+          printf 'HYPERPODS_SF_PRO=%s\n' "$font" >> "$GITHUB_ENV"
 
       - name: Restore the project test signing identity
         env:
@@ -80,6 +104,7 @@ jobs:
         shell: bash
         run: |
           ./gradlew --no-daemon --console=plain -Dorg.gradle.workers.max=2 \
+            -Pglasmio.source=true -Pglasmio.sourceDir=.tooling/Glasmio \
             :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
 
       - name: Verify the APK and package the release

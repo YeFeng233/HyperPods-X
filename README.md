@@ -2,7 +2,7 @@
 
 HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，不止是一副能听歌的蓝牙耳机。
 
-打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；进入蓝牙设备详情，可以打开耳机的高级设置；听音乐时，可以选择固定空间音频，也可以让真实的耳机姿态参与头部追踪。电量、聆听模式、入耳检测和常用设置，都放在同一套 Miuix 界面里。
+打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；进入耳机设置，可以查看电量、切换聆听模式，管理音频、手势和无障碍选项。模块界面使用 Glasmio 与 SF Pro，文字统一为 0.6sp 字间距，参照 iPhone 的 AirPods 设置布局和操作方式。
 
 这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前版本是 **0.4.5 预览版**。
 
@@ -12,13 +12,13 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 **开盖就能看到耳机。** 模块会识别已绑定耳机的开盖广播，在桌面调用 HyperOS 自带的底部耳机弹窗，在其他应用前台使用超级岛展示电量。左右耳和充电盒电量分别显示；暂时没有新数据时会标明历史状态，不把未知电量显示为 0%。
 
-**设置入口也在系统蓝牙里。** 在耳机的蓝牙设备详情中，可以直接进入 HyperPods-X 高级设置。配对、重命名、AAC、音量同步和通话权限继续由系统管理，耳机相关的控制和状态则由模块补充。
+**系统入口直接打开模块设置。** 已绑定 AirPods 5 的融合设备中心“更多设置”会进入模块的耳机设置页。系统蓝牙详情中的 HyperPods-X 入口继续保留。名称编辑沿用本机蓝牙别名，音量滑块调节当前媒体输出；音频、控制与手势、无障碍和模块选项各有独立页面。
 
 **控制中心可以打开完整耳机面板。** 已绑定的 AirPods 5（A3441）可以在“融合设备中心”使用系统原生页面，查看左右耳和充电盒电量、调节音量，切换通透、自适应、降噪和关闭，并使用响铃查找、空间音频与更多设置入口。使用前，先在媒体卡片中将音频输出切换到这副耳机。噪声控制复用应用已有连接，以耳机真实回读更新；空间音频按钮与应用的固定、关闭模式保持一致。
 
 **日常操作尽量留在耳机上。** 自动入耳检测支持摘下一只暂停、戴回继续，也支持单耳使用。提示音量可以调整，滑动音量已在目标设备上恢复正常。应用只会自动恢复自己暂停的媒体，避免把用户原本暂停的音乐重新放出来。
 
-**聆听模式和高级设置集中管理。** 首页提供通透、自适应和降噪。自适应模式下可以调整偏通透、均衡、偏降噪三档。高级页还包含耳机实际报告并支持写入的 EQ、按压时长、通话按压配置、单耳降噪、个性化音量和入睡暂停等设置。写入后会等待耳机确认，以真实回读为准。
+**聆听模式和高级设置集中管理。** 首页提供关闭、通透模式、自适应和降噪，自适应强度直接在选中项内展开。聆听模式和强度操作立即反馈，后台确认失败或超时才回退到设备状态。音频页包含 EQ、个性化音量和入睡暂停；无障碍页提供按压速度、按住时长、单耳降噪和自适应强度，只展示耳机实际报告的控制。
 
 **对话感知已经接入。** 检测到耳机的讲话事件时，可以降低手机媒体音轨的音量，并在对话结束后恢复，保留 HyperOS 的多应用同时播放设置。轻声讲话的识别仍受耳机事件灵敏度限制，后台和复杂中断场景也还需要继续验证。
 
@@ -44,7 +44,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings`、“小米蓝牙” `com.xiaomi.bluetooth` 和“设备互联” `com.milink.service`。设备互联作用域用于自适应控制和空间音频按钮。更新模块后，重新启动对应宿主进程或重启手机。
 3. 打开应用，授予附近设备、精确位置和通知权限，并允许应用在后台运行。精确位置权限用于接收完整 BLE 广播。
 4. 点击“连接耳机”。之后可以从应用首页，或系统蓝牙 → 耳机详情 → “HyperPods-X 高级设置”进入。
-5. 在“更多设置”中管理开盖弹窗、超级岛、电量卡片和连接诊断。系统原生通道不可用时，兼容电量卡片需要悬浮显示权限。
+5. 在“模块设置”中管理开盖弹窗、超级岛、电量卡片和连接诊断。系统原生通道不可用时，兼容电量卡片需要悬浮显示权限。
 
 当前安装包最低要求 Android API 37。真机测试覆盖 HyperOS `OS4.0.4.0.XPBCNXM` 与 `OS4.0.5.0.XPBCNXM`，已移除精确系统版本门禁，改为检查运行时接口。其他手机、系统版本和耳机型号还没有完整验证，不能将这份适配范围直接扩展到所有 AirPods 或所有 HyperOS 设备。
 
@@ -52,17 +52,27 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 ## 从源码构建
 
-需要 JDK 21、Android SDK Platform 37.0 和 Build Tools 37.0.0。在 `local.properties` 中设置本机 `sdk.dir` 后，运行：
+需要 JDK 21、Android SDK Platform 37.0、Build Tools 37.0.0、NDK 27.1.12297006 和 CMake 3.22.1。在 `local.properties` 中设置本机 SDK 与 SF Pro 路径：
 
-```bash
-./gradlew :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
+```properties
+sdk.dir=/absolute/path/Android/sdk
+glasmio.symbolFont=/absolute/path/SF-Pro.ttf
+glasmio.italicFont=/absolute/path/SF-Pro-Italic.ttf
 ```
 
-Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceTest/`。项目使用 Gradle Wrapper，并锁定 Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20 和 Miuix 0.9.4。
+SF Pro 常规字体为必需输入，需包含界面使用的 SF Symbols 字形；斜体可选。字体只复制到构建目录，不提交到源码。也可通过 `-Pglasmio.symbolFont`、`-Pglasmio.italicFont` 或 `HYPERPODS_SF_PRO`、`HYPERPODS_SF_PRO_ITALIC` 提供。
+
+将 [Glasmio](https://github.com/NEORUAA/Glasmio) 放在同级 `../Glasmio` 目录后运行：
+
+```bash
+./gradlew -Pglasmio.source=true :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
+```
+
+Windows 使用 `gradlew.bat`。可通过 `-Pglasmio.sourceDir=/absolute/path/Glasmio` 指定其他源码位置。当前开发版需要配套 Glasmio 源码中的共享导航、分段控件、音量条、文本输入和 SF 字形目录扩展；库发布后也可使用对应 Maven 构建。构建结果位于 `app/build/outputs/apk/deviceTest/`。项目使用 Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.21 和 Glasmio 0.1.0。
 
 仓库提供 [Build and release](.github/workflows/build-release.yml) 工作流。在 Actions 中手动运行，可以完成单元测试、协议测试、lint、APK 签名验证和源码打包；启用发布选项后，通过检查的 APK、源码 ZIP 和 SHA-256 校验文件会上传到 Releases。签名材料通过仓库加密 Secret 提供，不保存在源码中；维护方法见[发布说明](docs/RELEASING.md)。
 
-当前代码包含 95 项 App 与协议测试。测试和 lint 通过是构建检查，真机功能的验收范围以对应文档为准。
+单元测试覆盖应用与协议逻辑；真机功能的验收范围以对应文档为准。
 
 ## 项目结构与数据
 
@@ -72,6 +82,6 @@ Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceT
 
 ## 致谢与许可
 
-项目参考了 [LibrePods](https://github.com/librepods-org/librepods) 的协议研究与耳机控制实现，以及 [HyperPods](https://github.com/Mo-SeTian/HyperPods) 的小米系统适配思路；界面基于 [Miuix](https://github.com/compose-miuix-ui/miuix)，模块使用 [libxposed](https://github.com/libxposed)。姿态服务发现和数据格式也参考了公开的 RTBuddy、AACP 与头追研究，完整来源见[第三方声明](THIRD_PARTY.md)。
+项目参考了 [LibrePods](https://github.com/librepods-org/librepods) 的协议研究与耳机控制实现，以及 [HyperPods](https://github.com/Mo-SeTian/HyperPods) 的小米系统适配思路；界面基于 [Glasmio](https://github.com/NEORUAA/Glasmio)，模块使用 [libxposed](https://github.com/libxposed)。姿态服务发现和数据格式也参考了公开的 RTBuddy、AACP 与头追研究，完整来源见[第三方声明](THIRD_PARTY.md)。
 
 源码采用 **GPL-3.0-or-later**，详见 [LICENSE](LICENSE)。耳机产品图片的版权与代码许可分开，来源见[素材说明](docs/ARTWORK-SOURCES.md)。HyperPods-X 是独立开发项目，与 Apple、小米没有隶属关系。

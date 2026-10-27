@@ -6,6 +6,8 @@
 
 工作流会安装 JDK 21、Android SDK Platform 37.0 与 Build Tools 37.0.0，然后运行 App 测试、协议测试、Android lint 和经过 R8 优化的 `deviceTest` 构建。任何一项失败都不会发布。通过后先创建草稿，上传文件，最后发布 Release。
 
+界面依赖配套的 Glasmio 源码，包括共享导航、分段控件、音量条、文本输入及 SF 字形目录扩展。工作流已固定对应的 Glasmio 提交，运行前需先将该库提交推送到远端。工作流会自动检出，并安装所需的 NDK 与 CMake。SF Pro 由仓库 Secret `SF_PRO_FONT_URL` 提供 HTTPS 字体下载地址，仓库 Variable `SF_PRO_FONT_SHA256` 提供该文件的 SHA-256。字体下载到运行器临时目录，校验后通过 `HYPERPODS_SF_PRO` 传入构建；缺少字体输入时构建会停止。字体文件不会进入源码 ZIP。
+
 ## 签名
 
 仓库使用 `ANDROID_DEBUG_KEYSTORE_BASE64` 这个 Actions Secret，保存当前项目测试签名文件的 Base64。它用于延续已安装测试包的签名身份，不应写入仓库、日志或 Release 附件。Secret 通过 GitHub 公钥加密后提交；源码只保存公开的证书 SHA-256 指纹，构建时核对 APK 证书，防止意外换用临时签名。

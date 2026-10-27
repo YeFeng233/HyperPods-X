@@ -259,3 +259,13 @@ App 服务仍存活、悬浮权限有效；控制通道重连失败，系统蓝�
 - App **28 项**与协议 **67 项**测试通过，共 **95 项，0 失败、0 错误**。新增覆盖固定/关闭无需校准、待启动不假装头追已运行、模式切换与校准互斥、系统桥接未知时不虚构选中档位，以及追踪退出后的档位显示。Lint 为 **0 错误、18 条提醒**，R8 优化构建和 APK v2 签名验证通过。
 - 原三轴校准文件 SHA-256 仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`。本轮没有重新校准或新增试听，动态听感沿用此前用户确认。
 - 版本 `0.4.5-dev-device-test` / code 11 已安装；归档为 `dist/HyperPods-X-0.4.5-device-test.apk`，SHA-256 `99da1e67ceb5b7690420c536594c53f2880758876b106a336debee8fbeb08d4a`，与手机安装文件一致。
+
+## 2026-10-28 Adaptive controls and optimistic feedback
+
+The connected iPhone 27.2 with AirPods 4 preserves continuous 40% strength. Its expanded selector hides Off and uses a 1:3:1 layout; ordinary modes use four equal cells. The recovered implementation has continuous and three-position capability branches.
+
+On the A3441, a 40% request timed out with the confirmed value remaining 50%. Writes of 0%, 50% and 100% were confirmed. The app selects the three-position branch by the reported model; the reusable component defaults to continuous input. Incoming values remain unchanged and the protocol range remains 0–100.
+
+Mode and strength requests now project immediately and coalesce behind the serialized device writer. Older acknowledgements and failures preserve newer intent; only a failed latest request rolls back. The shared controller survives page navigation and temporary readback reconnects. Application and protocol tests passed (102 tests), as did the library's focused continuous/discrete interaction test. Physical checks confirmed immediate projection before acknowledgement, rapid strength changes across navigation, and restoration to the captured Transparency/50% baseline.
+
+The supplied adaptive launcher assets are used unchanged by the launcher and both notifications. Refreshing SystemUI cleared its stale application-icon cache; the notification then displayed the supplied composed icon.
