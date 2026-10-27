@@ -28,7 +28,7 @@ and overscroll dependencies (Apache-2.0), libxposed API/Service 102.0.0
 GPL-3.0 and Apache-2.0 license texts and this notice are included in the app's
 `assets/licenses/`. Dependency META-INF license/notice resources are merged, not excluded.
 Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.3
-Glasmio: https://github.com/NEORUAA/Glasmio/tree/5f1b5214057870228fcb69a3aed8fe2d0575e3c1
+Glasmio: https://github.com/NEORUAA/Glasmio/tree/5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d
 libxposed: https://github.com/libxposed
 HiddenApiBypass: https://github.com/LSPosed/AndroidHiddenApiBypass
 
@@ -155,3 +155,26 @@ main implementation nor alpha.3 provided a verified sensitivity control; no
 undocumented threshold write was added. Background, interruption and player compatibility tests
 remain pending. No APK, decompiled source, or upstream media-control
 implementation is redistributed with this experiment.
+
+## 0.4.6 Continuous adaptive control writes
+
+The continuous `0x2e` writer is merged from HyperPods-X upstream commit
+`30cc323`, informed by LibrePods' GPL-3.0-or-later
+[`NoiseControlSettings.kt`](https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt),
+commit `80aa7461df414470f379ebdfe540b2e8889fcbe2`, blob
+`7f86743f9b945c95915f581ad4eaecd9aacf5754`. Copyright (C) 2025 LibrePods contributors.
+
+The writer maps continuous input to 0–100, replaces obsolete queued targets,
+and keeps the last sent target separate from device readback. Adaptive writes
+finish their pending stage after socket flush without waiting for an identical
+reply or reconnecting after each position. Other controls retain their existing
+acknowledgement policy. The UI uses Glasmio's existing adaptive slider and
+navigation; the upstream Miuix slider implementation is not included.
+
+On the target phone, the installed LibrePods 2.0.0-alpha.3 sent intermediate
+`0x2e` values 51 through 62 without a matching control reply. A later connection
+still reported 50. A sent slider value therefore does not establish a matching
+readback or measured acoustic effect. HyperPods-X does not copy LibrePods'
+optimistic update into its confirmed device controls. No decompiled UI source
+is redistributed; the public source above documents the adopted write policy.
+The GPL license is included in `LICENSE` and the app's license assets.

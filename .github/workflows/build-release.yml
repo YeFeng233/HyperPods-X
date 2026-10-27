@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag, matching the app version and release notes
         required: true
-        default: v0.4.5
+        default: v0.4.6
         type: string
       publish_release:
         description: Publish the verified files to GitHub Releases
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: NEORUAA/Glasmio
-          ref: 5f1b5214057870228fcb69a3aed8fe2d0575e3c1
+          ref: 5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d
           path: .tooling/Glasmio
           persist-credentials: false
 

@@ -264,8 +264,64 @@ App 服务仍存活、悬浮权限有效；控制通道重连失败，系统蓝�
 
 The connected iPhone 27.2 with AirPods 4 preserves continuous 40% strength. Its expanded selector hides Off and uses a 1:3:1 layout; ordinary modes use four equal cells. The recovered implementation has continuous and three-position capability branches.
 
-On the A3441, a 40% request timed out with the confirmed value remaining 50%. Writes of 0%, 50% and 100% were confirmed. The app selects the three-position branch by the reported model; the reusable component defaults to continuous input. Incoming values remain unchanged and the protocol range remains 0–100.
+On the A3441, a 40% request timed out with the confirmed value remaining 50%. Writes of 0%, 50% and 100% were confirmed. The app initially selected the three-position branch by model. A missing same-value reply does not establish the native capability enum, so the upstream merge removes this model-only restriction and restores continuous 0–100 integer input. Glasmio's optional discrete capability API remains available. Incoming reports stay separate from requested values.
 
-Mode and strength requests now project immediately and coalesce behind the serialized device writer. Older acknowledgements and failures preserve newer intent; only a failed latest request rolls back. The shared controller survives page navigation and temporary readback reconnects. Application and protocol tests passed (102 tests), as did the library's focused continuous/discrete interaction test. Physical checks confirmed immediate projection before acknowledgement, rapid strength changes across navigation, and restoration to the captured Transparency/50% baseline.
+Before this merge, mode and strength requests projected immediately and coalesced behind the serialized device writer, with acknowledgement and timeout handling. The shared controller survived page navigation and temporary readback reconnects. At that revision, application and protocol tests passed (102 tests), as did the library's focused continuous/discrete interaction test. Physical checks confirmed immediate projection before acknowledgement, rapid strength changes across navigation, and restoration to the captured Transparency/50% baseline.
 
 The supplied adaptive launcher assets are used unchanged by the launcher and both notifications. Refreshing SystemUI cleared its stale application-icon cache; the notification then displayed the supplied composed icon.
+
+## Upstream 0.4.6 report (2026-10-28)
+
+The following observations were recorded by upstream commit `30cc323`, before this
+Glasmio integration. Its UI, build counts and APK hash describe that upstream
+revision rather than the merged build.
+
+- The upstream integrated slider derives from LibrePods `NoiseControlSettings.kt`,
+  fixed at commit `80aa7461df414470f379ebdfe540b2e8889fcbe2`. It used Miuix colors
+  and the existing listening glyphs, with source and APK attribution updated.
+- The three-position input restriction was replaced by all 101 integer values
+  from 0 through 100. Increasing the value strengthens cancellation; RTL reverses
+  travel. Dragging streams changed values and coalesces superseded writes. A final
+  return to the reported value still replaces a different unconfirmed target.
+- On the target phone, LibrePods 2.0.0-alpha.3 sent intermediate `0x2e` values
+  51–62 without matching control replies. Reconnecting still reported 50. Its
+  packet format was the same `04 00 04 00 09 00 2e vv 00 00 00`. These observations
+  establish the sending behavior; intermediate acoustic effect and persistence
+  were not measured.
+- Strength writes clear their pending send after the socket flush instead of
+  forcing a 1.2-second reconnect or a 12-second same-value acknowledgement timeout.
+  Sent targets remain separate from confirmed controls and are cleared on send
+  failure, leaving Adaptive mode or disconnection. Other settings keep their
+  existing confirmation flow.
+- Upstream recorded 31 application and 67 protocol tests passing, lint with no
+  errors and 18 existing warnings, and a signed optimized build. Its isolated
+  preview covered 320 dp width, 1.5× font size, RTL and Dark appearance with mock
+  callbacks; that preview did not send hardware commands.
+- Its installed `0.4.6-dev-device-test` / code 12 APK had SHA-256
+  `9700bbdedc7934bd0356b5ec93f777b12614020176ff9da0cc864ead63f60a1e`.
+  The saved calibration SHA-256 remained
+  `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`.
+- Upstream subsequently recorded user acceptance of the slider on 2026-10-28.
+  That feedback did not add matching replies, persistence measurements for every
+  intermediate value, or validation of other headset models.
+
+## Continuous controls in the Glasmio merge
+
+The existing Glasmio page scaffold, shared navigation and adaptive lens remain in
+use. The merge adopts upstream continuous strength dispatch while preserving
+immediate local feedback, shared state across pages and failure recovery. Strength
+send completion is distinct from a matching earbud report; listening-mode changes
+retain their acknowledgement flow.
+
+The merged build passed 41 application tests and 67 protocol tests, with no lint
+errors. The focused Glasmio interaction test also passed, including hidden-caption
+height through hide/reveal animation, visible multiline labels and replacement
+captions. The physical module kept the volume heading at the same position in
+collapsed and expanded states.
+
+Physical UI requests sent 37, 71 and a final return to 50. A separate drag emitted
+seven writes before pointer release; no strength acknowledgement timeout or forced
+reconnect occurred after 13 seconds. Confirmed strength remained 50 while sent
+targets were recorded separately. The captured Transparency/50% baseline was
+restored and leaving Adaptive cleared the sent target. These checks validate
+continuous dispatch, not an acoustic measurement of each intermediate value.

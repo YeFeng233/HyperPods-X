@@ -48,7 +48,7 @@ private fun rememberListeningIntentController(
         val synced = syncListeningIntent(controller.intent, state)
         controller.intent = synced
         nextListeningTarget(synced, state)?.let { target ->
-            val started = startListeningTarget(synced, target)
+            val started = startListeningTarget(synced, target, state.message)
             if (started.inFlight?.target == target) {
                 controller.intent = started
                 if (target.control == 0x0d) modeChange(target.value) else strengthChange(target.value)
@@ -74,28 +74,23 @@ internal fun ListeningControls(
     val controller = LocalListeningIntentController.current
         ?: rememberListeningIntentController(state, onModeChange, onStrengthChange)
     val ui = listeningPresentation(state, intent = controller.intent)
-    var strengthPreview by remember(controller) { mutableStateOf<Float?>(null) }
     GlasmioSegmentedControl(
         items = Controls.listeningChoices.map { it.value to it.label },
         selected = ui.mode,
         onSelected = { requested ->
-            if (ui.canSelectMode(requested) && requested != ui.mode) {
-                strengthPreview = null
+            if (ui.canSelectMode(requested)) {
                 controller.mode(requested)
             }
         },
         adaptiveItem = 4,
         adaptiveValue = adaptiveStrengthFraction(ui.strength),
-        onAdaptiveValueChange = { strengthPreview = it.takeIf { value -> value.isFinite() } },
-        onAdaptiveValueChangeFinished = {
-            val target = strengthPreview?.let { adaptiveStrengthForWrite(it, ui.adaptiveDiscrete) }
-            strengthPreview = null
-            if (ui.strengthEnabled && target != null && target != ui.strength) controller.strength(target)
+        onAdaptiveValueChange = { fraction ->
+            val target = adaptiveStrengthForWrite(fraction)
+            if (ui.strengthEnabled && target != null) controller.strength(target)
         },
         modifier = Modifier.fillMaxWidth(),
         enabled = ui.modeEnabled,
         adaptiveEnabled = ui.strengthEnabled,
-        adaptiveDiscrete = ui.adaptiveDiscrete,
         deferSelection = false,
         hiddenItems = ui.hiddenModes,
         showLabels = true,
@@ -114,18 +109,14 @@ internal fun AdaptiveStrengthControl(
         state, { PodsService.setControl(0x0d, it) }, onStrengthChange,
     )
     val ui = listeningPresentation(state, intent = controller.intent)
-    var strengthPreview by remember(controller) { mutableStateOf<Float?>(null) }
     GlasmioAdaptiveSlider(
         value = adaptiveStrengthFraction(ui.strength),
-        onValueChange = { strengthPreview = it.takeIf { value -> value.isFinite() } },
-        onValueChangeFinished = {
-            val target = strengthPreview?.let { adaptiveStrengthForWrite(it, ui.adaptiveDiscrete) }
-            strengthPreview = null
-            if (ui.strengthEnabled && target != null && target != ui.strength) controller.strength(target)
+        onValueChange = { fraction ->
+            val target = adaptiveStrengthForWrite(fraction)
+            if (ui.strengthEnabled && target != null) controller.strength(target)
         },
         modifier = Modifier.fillMaxWidth(),
         enabled = ui.strengthEnabled,
-        discrete = ui.adaptiveDiscrete,
         deferSelection = false,
         showLabels = true,
         labels = Controls.adaptiveStrengthAnchors.map(::adaptiveStrengthLabel),

@@ -179,7 +179,7 @@ class ListeningControlsTest {
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 46, 100, 0, 0, 0), Aacp.control(0x2e, values))
     }
 
-    @Test fun adaptiveSliderPreservesContinuousReportsAndProtocolValues() {
+    @Test fun continuousSliderPreservesEveryPercentForAllModels() {
         assertEquals(listOf(0, 50, 100), Controls.adaptiveStrengthAnchors)
         assertEquals("较多噪声", adaptiveStrengthLabel(0))
         assertEquals("默认", adaptiveStrengthLabel(50))
@@ -187,26 +187,66 @@ class ListeningControlsTest {
         for (raw in 0..100) {
             val fraction = raw / 100f
             assertEquals(fraction, adaptiveStrengthFraction(raw))
-            assertEquals(if (raw >= 99) 100 else raw / 10 * 10, adaptiveStrengthForWrite(fraction))
+            assertEquals(raw, adaptiveStrengthForWrite(fraction))
         }
-        for (raw in listOf(null, -1, 101)) assertNull(adaptiveStrengthFraction(raw))
-        for (position in -100..1100) {
-            val raw = adaptiveStrengthForWrite(position / 1000f)!!
-            assertTrue(Controls.allowed(0x2e, listOf(raw)))
-            assertEquals(0, raw % 10)
-        }
-        for ((fraction, expected) in listOf(0f to 0, .399f to 30, .4f to 40, .989f to 90, .99f to 100)) {
+        assertEquals((0..100).toSet(), (0..1000).map { adaptiveStrengthForWrite(it / 1000f) }.toSet())
+        for ((fraction, expected) in listOf(-1f to 0, .374f to 37, .375f to 38, .714f to 71, .995f to 100, 2f to 100)) {
             assertEquals(expected, adaptiveStrengthForWrite(fraction))
         }
-        assertEquals(0, adaptiveStrengthForWrite(-1f))
-        assertEquals(100, adaptiveStrengthForWrite(2f))
+        for (raw in listOf(null, -1, 101)) assertNull(adaptiveStrengthFraction(raw))
         for (fraction in listOf(Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY)) {
             assertNull(adaptiveStrengthForWrite(fraction))
         }
+        for (model in listOf("A3441", "A3057", "A3442", "")) {
+            for (value in listOf(37, 71)) {
+                val state = adaptive.copy(model = model, controls = adaptive.controls + (0x2e to listOf(value)))
+                assertEquals(value, listeningPresentation(state).strength)
+                assertEquals(value, adaptiveStrengthForWrite(value / 100f))
+            }
+        }
+    }
+
+    @Test fun intermediateAdaptivePayloadDoesNotRetainPreviousTrailingBytes() {
+        for (value in listOf(37, 71)) {
+            val values = Controls.valuesForWrite(0x2e, value, listOf(50, 9, 8, 7))
+            assertEquals(listOf(value), values)
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 46, value.toByte(), 0, 0, 0), Aacp.control(0x2e, values))
+        }
+    }
+
+    @Test fun returningToReportedStrengthReplacesAnUnconfirmedTarget() {
+        assertFalse(Controls.shouldSendAdaptive(50, 50, null))
+        assertTrue(Controls.shouldSendAdaptive(37, 50, null))
+        assertFalse(Controls.shouldSendAdaptive(37, 50, 37))
+        assertTrue(Controls.shouldSendAdaptive(71, 50, 37))
+        assertTrue(Controls.shouldSendAdaptive(50, 50, 37))
+        assertFalse(Controls.shouldSendAdaptive(50, 50, 50))
+        val first = requestListeningStrength(ListeningIntentState(), 37)
+        assertEquals(first, requestListeningStrength(first, 37))
+        val returned = requestListeningStrength(first, 50)
+        assertEquals(50, listeningPresentation(adaptive, intent = returned).strength)
+        val state = adaptive.copy(adaptiveTarget = 37)
+        val intent = syncListeningIntent(returned, state)
+        assertEquals(50, intent.strength?.value)
+        assertEquals(50, nextListeningTarget(intent, state)?.value)
+    }
+
+    @Test fun presentationPrefersLatestIntentThenSentTargetWithoutChangingReports() {
+        for (pending in listOf(emptySet(), setOf(0x2e))) {
+            val state = adaptive.copy(adaptiveTarget = 37, pending = pending)
+            val ui = listeningPresentation(state)
+            assertEquals(37, ui.strength)
+            assertEquals(50, Controls.adaptiveStrength(state.controls))
+            assertTrue(ui.strengthEnabled)
+            assertEquals(pending.isNotEmpty(), ui.pending)
+            val latest = requestListeningStrength(ListeningIntentState(), 71)
+            assertEquals(71, listeningPresentation(state, intent = latest).strength)
+        }
+        assertEquals(50, listeningPresentation(adaptive.copy(adaptiveTarget = 101)).strength)
     }
 
     @Test fun adaptiveIntentProjectsImmediatelyAndQueuesDefaultOnlyAfterModeAck() {
-        val original = adaptive.copy(controls = adaptive.controls + (0x0d to listOf(3)) + (0x2e to listOf(40)))
+        val original = adaptive.copy(controls = adaptive.controls + (0x0d to listOf(3)) + (0x2e to listOf(37)))
         val idle = ListeningIntentState()
         assertNull(nextListeningTarget(idle, original))
         var intent = requestListeningMode(idle, 4)
@@ -226,10 +266,16 @@ class ListeningControlsTest {
         assertEquals(0x2e, strength.control)
         assertEquals(50, strength.value)
         intent = startListeningTarget(intent, strength)
-        val strengthAck = modeAck.copy(controls = modeAck.controls + (0x2e to listOf(50)))
-        intent = syncListeningIntent(intent, strengthAck)
+        val sending = modeAck.copy(adaptiveTarget = 50, pending = setOf(0x2e))
+        intent = syncListeningIntent(intent, sending)
+        assertNotNull(intent.inFlight)
+        val sent = sending.copy(pending = emptySet())
+        intent = syncListeningIntent(intent, sent)
         assertFalse(intent.hasWork)
-        assertNull(nextListeningTarget(intent, strengthAck))
+        assertEquals(50, listeningPresentation(sent, intent = intent).strength)
+        assertEquals(37, Controls.adaptiveStrength(sent.controls))
+        assertNull(nextListeningTarget(intent, sent))
+        assertEquals(intent, expireListeningTarget(intent, strength, sent))
         assertNull(nextListeningTarget(idle, modeAck))
     }
 
@@ -257,52 +303,115 @@ class ListeningControlsTest {
         assertEquals("", requestListeningMode(intent, 2).modeFailure)
     }
 
-    @Test fun knownA3441UsesDiscreteUiWithoutChangingActualReportsOrProtocolRange() {
-        val known = listeningPresentation(adaptive.copy(model = "A3441", controls = adaptive.controls + (0x2e to listOf(40))))
-        assertTrue(known.adaptiveDiscrete)
-        assertEquals(40, known.strength)
-        assertTrue(Controls.allowed(0x2e, listOf(40)))
-        for (model in listOf("", "A3057", "A3442")) {
-            assertFalse(listeningPresentation(adaptive.copy(model = model, name = "AirPods 5 A3441")).adaptiveDiscrete)
-        }
-        for (position in -100..1100) {
-            assertTrue(adaptiveStrengthForWrite(position / 1000f, true) in listOf(0, 50, 100))
-        }
-        for ((fraction, expected) in listOf(0f to 0, .309f to 0, .31f to 50, .4f to 50, .7f to 50, .701f to 100, 1f to 100)) {
-            assertEquals(expected, adaptiveStrengthForWrite(fraction, true))
-        }
-        assertEquals(40, adaptiveStrengthForWrite(.4f))
-    }
-
-    @Test fun strengthIntentCoalescesAndSurvivesPendingReadbackUntilLatestFailure() {
-        var intent = requestListeningStrength(ListeningIntentState(), 40)
+    @Test fun rapidStrengthChangesKeepTheLatestProjectionAcrossOlderSendCompletion() {
+        var intent = requestListeningStrength(ListeningIntentState(), 37)
         val first = nextListeningTarget(intent, adaptive)!!
         intent = startListeningTarget(intent, first)
-        val reading = adaptive.copy(connected = false, controls = emptyMap(), pending = setOf(0x2e))
-        intent = syncListeningIntent(intent, reading)
-        intent = requestListeningStrength(intent, 100)
-        assertEquals(100, listeningPresentation(reading, intent = intent).strength)
-        val visibleReadback = reading.copy(controls = adaptive.controls)
-        assertTrue(listeningPresentation(visibleReadback, intent = intent).strengthEnabled)
-        val oldAck = adaptive.copy(controls = adaptive.controls + (0x2e to listOf(40)))
-        intent = syncListeningIntent(intent, oldAck)
-        assertEquals(100, listeningPresentation(oldAck, intent = intent).strength)
-        val latest = nextListeningTarget(intent, oldAck)!!
-        intent = startListeningTarget(intent, latest)
-        intent = syncListeningIntent(intent, oldAck.copy(pending = setOf(0x2e)))
-        intent = syncListeningIntent(intent, oldAck.copy(message = "自适应降噪幅度未确认目标值，已保留设备回读结果"))
-        assertEquals(40, listeningPresentation(oldAck, intent = intent).strength)
+        val sendingFirst = adaptive.copy(adaptiveTarget = 37, pending = setOf(0x2e))
+        intent = syncListeningIntent(intent, sendingFirst)
+        intent = requestListeningStrength(intent, 71)
+        assertEquals(71, listeningPresentation(sendingFirst, intent = intent).strength)
+        assertNull(nextListeningTarget(intent, sendingFirst))
+        val sentFirst = sendingFirst.copy(pending = emptySet())
+        intent = syncListeningIntent(intent, sentFirst)
+        assertEquals(71, listeningPresentation(sentFirst, intent = intent).strength)
+        val second = nextListeningTarget(intent, sentFirst)!!
+        assertEquals(71, second.value)
+        intent = startListeningTarget(intent, second)
+        intent = syncListeningIntent(intent, sentFirst.copy(adaptiveTarget = 71, pending = setOf(0x2e)))
+        intent = requestListeningStrength(intent, 50)
+        val sentSecond = adaptive.copy(adaptiveTarget = 71)
+        intent = syncListeningIntent(intent, sentSecond)
+        assertEquals(50, listeningPresentation(sentSecond, intent = intent).strength)
+        val last = nextListeningTarget(intent, sentSecond)!!
+        assertEquals(50, last.value)
+        intent = startListeningTarget(intent, last)
+        assertEquals(intent, expireListeningTarget(intent, first, sentSecond))
+        intent = syncListeningIntent(intent, adaptive.copy(adaptiveTarget = 50))
+        assertFalse(intent.hasWork)
+        assertEquals(50, listeningPresentation(adaptive.copy(adaptiveTarget = 50), intent = intent).strength)
+    }
+
+    @Test fun modeChangesWaitForTheCurrentStrengthWriteButNotItsDeviceEcho() {
+        var intent = requestListeningStrength(ListeningIntentState(), 37)
+        val strength = nextListeningTarget(intent, adaptive)!!
+        intent = startListeningTarget(intent, strength)
+        val sending = adaptive.copy(adaptiveTarget = 37, pending = setOf(0x2e))
+        intent = syncListeningIntent(intent, sending)
+        intent = requestListeningMode(intent, 3)
+        assertEquals(3, listeningPresentation(sending, intent = intent).mode)
+        assertNull(nextListeningTarget(intent, sending))
+        val sent = sending.copy(pending = emptySet())
+        intent = syncListeningIntent(intent, sent)
+        assertEquals(3, nextListeningTarget(intent, sent)?.value)
+        assertEquals(50, Controls.adaptiveStrength(sent.controls))
+    }
+
+    @Test fun strengthFailureRollsBackOnlyTheLatestRequestAndRetryClearsItsNotice() {
+        var intent = requestListeningStrength(ListeningIntentState(), 37)
+        val first = nextListeningTarget(intent, adaptive)!!
+        intent = startListeningTarget(intent, first)
+        intent = syncListeningIntent(intent, adaptive.copy(adaptiveTarget = 37, pending = setOf(0x2e)))
+        intent = requestListeningStrength(intent, 71)
+        val failed = adaptive.copy(message = "设置发送失败：控制通道未连接")
+        intent = syncListeningIntent(intent, failed)
+        assertEquals(71, listeningPresentation(failed, intent = intent).strength)
+        assertEquals("", intent.strengthFailure)
+        val latest = nextListeningTarget(intent, failed)!!
+        intent = startListeningTarget(intent, latest, failed.message)
+        intent = syncListeningIntent(intent, failed)
+        assertNotNull(intent.inFlight)
+        intent = syncListeningIntent(intent, adaptive.copy(adaptiveTarget = 71, pending = setOf(0x2e)))
+        intent = syncListeningIntent(intent, failed)
+        assertEquals(50, listeningPresentation(failed, intent = intent).strength)
         assertTrue(intent.strengthFailure.isNotBlank())
-        assertEquals("", requestListeningStrength(intent, 100).strengthFailure)
+        assertEquals("", requestListeningStrength(intent, 83).strengthFailure)
     }
 
-    @Test fun idleExternalReportsRemainTheDisplayedTruth() {
-        val idle = ListeningIntentState()
-        val updated = adaptive.copy(controls = adaptive.controls + (0x0d to listOf(3)) + (0x2e to listOf(40)))
-        val ui = listeningPresentation(updated, intent = syncListeningIntent(idle, updated))
+    @Test fun modeReadbackReconnectRetainsQueuedStrengthButRealDisconnectRollsBack() {
+        val original = adaptive.copy(controls = adaptive.controls + (0x0d to listOf(3)))
+        var intent = requestListeningMode(ListeningIntentState(), 4)
+        val mode = nextListeningTarget(intent, original)!!
+        intent = startListeningTarget(intent, mode)
+        val reading = original.copy(connected = false, controls = emptyMap(), pending = setOf(0x0d))
+        intent = syncListeningIntent(intent, reading)
+        assertEquals(4, listeningPresentation(reading, intent = intent).mode)
+        assertEquals(50, listeningPresentation(reading, intent = intent).strength)
+        assertNotNull(intent.inFlight)
+        val disconnected = reading.copy(pending = emptySet(), adaptiveTarget = null)
+        intent = syncListeningIntent(intent, disconnected)
+        assertFalse(intent.hasWork)
+        assertFalse(listeningPresentation(disconnected, intent = intent).modeEnabled)
+        assertTrue(intent.modeFailure.isNotBlank())
+    }
+
+    @Test fun stalledStrengthWriteExpiryShowsReportedValueUntilRetry() {
+        var intent = requestListeningStrength(ListeningIntentState(), 37)
+        val target = nextListeningTarget(intent, adaptive)!!
+        intent = startListeningTarget(intent, target)
+        val stalled = adaptive.copy(adaptiveTarget = 37, pending = setOf(0x2e))
+        intent = syncListeningIntent(intent, stalled)
+        intent = expireListeningTarget(intent, target, stalled)
+        val failed = listeningPresentation(stalled, intent = intent)
+        assertEquals(50, failed.strength)
+        assertTrue(failed.strengthNotice.isNotBlank())
+        intent = requestListeningStrength(intent, 71)
+        val retry = listeningPresentation(stalled, intent = intent)
+        assertEquals(71, retry.strength)
+        assertEquals("", retry.strengthNotice)
+    }
+
+    @Test fun immediateDebugAckAndIdleExternalReportsRemainTheDisplayedTruth() {
+        var intent = requestListeningStrength(ListeningIntentState(), 37)
+        val target = nextListeningTarget(intent, adaptive)!!
+        intent = startListeningTarget(intent, target)
+        val ack = adaptive.copy(controls = adaptive.controls + (0x2e to listOf(37)))
+        intent = syncListeningIntent(intent, ack)
+        assertFalse(intent.hasWork)
+        val updated = ack.copy(controls = ack.controls + (0x0d to listOf(3)) + (0x2e to listOf(71)))
+        val ui = listeningPresentation(updated, intent = syncListeningIntent(intent, updated))
         assertEquals(3, ui.mode)
-        assertEquals(40, ui.strength)
-        assertNull(nextListeningTarget(idle, updated))
+        assertEquals(71, ui.strength)
+        assertNull(nextListeningTarget(intent, updated))
     }
-
 }

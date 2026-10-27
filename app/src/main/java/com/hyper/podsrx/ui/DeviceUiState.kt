@@ -5,12 +5,12 @@ import com.hyper.podsrx.device.SpatialState
 import com.hyper.podsrx.device.SpatialMode
 import com.hyper.podsrx.device.PodsState
 import com.hyper.podsrx.device.Controls
-import kotlin.math.floor
+import kotlin.math.roundToInt
 
 internal data class ListeningPresentation(
     val mode: Int?, val modeEnabled: Boolean, val showAdaptive: Boolean,
     val strength: Int?, val strengthEnabled: Boolean, val pending: Boolean,
-    val adaptiveDiscrete: Boolean, val hiddenModes: Set<Int>, val modeNotice: String, val strengthNotice: String,
+    val hiddenModes: Set<Int>, val modeNotice: String, val strengthNotice: String,
 ) {
     fun canSelectMode(requested: Int): Boolean = modeEnabled &&
         requested !in hiddenModes && Controls.listeningChoices.any { it.value == requested }
@@ -22,7 +22,10 @@ internal fun listeningPresentation(
 ): ListeningPresentation {
     val mode = intent?.mode?.value ?: state.controls[0x0d]?.firstOrNull()?.takeIf { it in 1..4 }
         ?: if (intent?.strength != null) 4 else null
-    val strength = intent?.strength?.value ?: Controls.adaptiveStrength(state.controls)
+    val strength = intent?.strength?.value ?: state.adaptiveTarget?.takeIf {
+        it in 0..100 && intent?.strengthFailure.isNullOrBlank()
+    }
+        ?: Controls.adaptiveStrength(state.controls)
     val pending = 0x0d in state.pending || 0x2e in state.pending
     val interactive = state.connected || pending || intent?.hasWork == true
     val modeFailed = intent == null && !pending && state.message.startsWith("聆听模式未确认目标值")
@@ -39,7 +42,6 @@ internal fun listeningPresentation(
         strength = strength,
         strengthEnabled = interactive && mode == 4 && strength != null,
         pending = pending,
-        adaptiveDiscrete = state.model == "A3441",
         hiddenModes = if (mode == 4 || state.controls[0x34]?.firstOrNull() == 2) setOf(1) else emptySet(),
         modeNotice = when {
             intent?.modeFailure?.isNotBlank() == true -> intent.modeFailure
@@ -68,19 +70,15 @@ internal fun adaptiveStrengthLabel(value: Int): String = when (value) {
 internal fun adaptiveStrengthFraction(value: Int?): Float? =
     value?.takeIf { it in 0..100 }?.div(100f)
 
-internal fun adaptiveStrengthForWrite(fraction: Float, discrete: Boolean = false): Int? {
-    if (!fraction.isFinite()) return null
-    val value = fraction.coerceIn(0f, 1f)
-    if (discrete) return when {
-        value < .31f -> 0
-        value > .7f -> 100
-        else -> 50
-    }
-    return if (value >= .99f) 100 else floor(value * 10).toInt() * 10
-}
+internal fun adaptiveStrengthForWrite(fraction: Float): Int? =
+    fraction.takeIf { it.isFinite() }?.let { (it.coerceIn(0f, 1f) * 100).roundToInt() }
 
 internal data class ListeningTarget(val control: Int, val value: Int, val serial: Long)
-internal data class ListeningFlight(val target: ListeningTarget, val sawPending: Boolean = false)
+internal data class ListeningFlight(
+    val target: ListeningTarget,
+    val sawPending: Boolean = false,
+    val initialMessage: String = "",
+)
 internal data class ListeningIntentState(
     val serial: Long = 0,
     val mode: ListeningTarget? = null,
@@ -104,7 +102,7 @@ internal fun requestListeningMode(intent: ListeningIntentState, mode: Int): List
 }
 
 internal fun requestListeningStrength(intent: ListeningIntentState, value: Int): ListeningIntentState {
-    if (value !in 0..100) return intent
+    if (value !in 0..100 || intent.strength?.value == value) return intent
     val serial = intent.serial + 1
     return intent.copy(
         serial = serial,
@@ -117,13 +115,13 @@ internal fun requestListeningStrength(intent: ListeningIntentState, value: Int):
 private fun listeningWriteFailed(state: PodsState, control: Int): Boolean = when (state.message) {
     "耳机控制尚未连接", "请先连接耳机", "请在自适应模式下调整降噪幅度",
     "当前设置或取值尚未开放写入", "请等待自适应模式与降噪幅度读取完成",
-    "请等待降噪幅度确认后再切换模式" -> true
+    "请等待降噪幅度确认后再切换模式", "请等待降噪指令发送完成后再切换模式" -> true
     else -> state.message.startsWith("设置发送失败：") || state.message.startsWith(
         if (control == 0x0d) "聆听模式未确认目标值" else "自适应降噪幅度未确认目标值",
     )
 }
 
-private fun finishListeningFlight(intent: ListeningIntentState, state: PodsState, failed: Boolean): ListeningIntentState {
+private fun finishListeningFlight(intent: ListeningIntentState, failed: Boolean): ListeningIntentState {
     val target = intent.inFlight?.target ?: return intent
     return when {
         target.control == 0x0d && intent.mode == target -> intent.copy(
@@ -154,34 +152,50 @@ internal fun syncListeningIntent(intent: ListeningIntentState, state: PodsState)
         next = next.copy(inFlight = updated)
         if (!pending) {
             val actual = state.controls[flight.target.control]?.firstOrNull()
-            if (actual == flight.target.value) next = finishListeningFlight(next, state, false)
-            else if (updated.sawPending && listeningWriteFailed(state, flight.target.control)) next = finishListeningFlight(next, state, true)
+            val sent = flight.target.control == 0x2e && state.adaptiveTarget == flight.target.value
+            val confirmed = actual == flight.target.value &&
+                (flight.target.control != 0x2e || state.adaptiveTarget == null)
+            when {
+                sent || confirmed -> next = finishListeningFlight(next, false)
+                (updated.sawPending || state.message != flight.initialMessage) &&
+                    listeningWriteFailed(state, flight.target.control) -> next = finishListeningFlight(next, true)
+            }
         }
     }
     if (next.inFlight == null && !busy && state.connected) {
         if (next.mode?.value == state.controls[0x0d]?.firstOrNull()) next = next.copy(mode = null)
-        if (state.controls[0x0d]?.firstOrNull() == 4 && next.strength?.value == Controls.adaptiveStrength(state.controls))
-            next = next.copy(strength = null)
+        if (state.controls[0x0d]?.firstOrNull() == 4 && next.strength?.let {
+                !Controls.shouldSendAdaptive(it.value, Controls.adaptiveStrength(state.controls), state.adaptiveTarget)
+            } == true) next = next.copy(strength = null)
     }
     return next
 }
 
 internal fun nextListeningTarget(intent: ListeningIntentState, state: PodsState): ListeningTarget? {
-    if (intent.inFlight != null || !state.connected || 0x0d in state.pending || 0x2e in state.pending) return null
+    if (intent.inFlight != null || !state.connected || 0x0d in state.pending) return null
     val actualMode = state.controls[0x0d]?.firstOrNull()?.takeIf { it in 1..4 } ?: return null
-    intent.mode?.let { if (it.value != actualMode) return it }
+    intent.mode?.let { if (it.value != actualMode) return it.takeIf { 0x2e !in state.pending } }
     return intent.strength?.takeIf {
-        Controls.canAdjustAdaptive(state.connected, state.controls, state.pending) && it.value != Controls.adaptiveStrength(state.controls)
+        Controls.canAdjustAdaptive(state.connected, state.controls, state.pending) &&
+            Controls.shouldSendAdaptive(it.value, Controls.adaptiveStrength(state.controls), state.adaptiveTarget)
     }
 }
 
-internal fun startListeningTarget(intent: ListeningIntentState, target: ListeningTarget): ListeningIntentState {
+internal fun startListeningTarget(
+    intent: ListeningIntentState,
+    target: ListeningTarget,
+    initialMessage: String = "",
+): ListeningIntentState {
     val desired = if (target.control == 0x0d) intent.mode else intent.strength
-    return if (intent.inFlight == null && desired == target) intent.copy(inFlight = ListeningFlight(target)) else intent
+    return if (intent.inFlight == null && desired == target)
+        intent.copy(inFlight = ListeningFlight(target, initialMessage = initialMessage)) else intent
 }
 
 internal fun expireListeningTarget(intent: ListeningIntentState, target: ListeningTarget, state: PodsState): ListeningIntentState =
-    if (intent.inFlight?.target == target) finishListeningFlight(intent, state, true) else intent
+    if (intent.inFlight?.target == target) {
+        val synced = syncListeningIntent(intent, state)
+        if (synced.inFlight?.target == target) finishListeningFlight(synced, true) else synced
+    } else intent
 
 internal data class BatteryPresentation(
     val label: String,

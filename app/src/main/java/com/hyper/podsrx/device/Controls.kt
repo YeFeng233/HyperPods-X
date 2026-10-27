@@ -28,7 +28,10 @@ object Controls {
 
     fun canAdjustAdaptive(connected: Boolean, controls: Map<Int, List<Int>>, pending: Set<Int>): Boolean =
         connected && controls[0x0d]?.firstOrNull() == 4 && adaptiveStrength(controls) != null &&
-            0x0d !in pending && 0x2e !in pending
+            0x0d !in pending
+
+    fun shouldSendAdaptive(value:Int,reported:Int?,target:Int?):Boolean =
+        value != target && (target != null || value != reported)
 
     fun valuesForWrite(id: Int, value: Int, current: List<Int>): List<Int> =
         // LibrePods sends AUTO_ANC_STRENGTH as one byte; the packet encoder zero-pads it.

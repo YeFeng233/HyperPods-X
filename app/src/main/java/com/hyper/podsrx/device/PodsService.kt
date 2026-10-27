@@ -122,12 +122,12 @@ class PodsService: Service() {
             val (id,values)=command
             if(desired[id]!==command)continue
             if(id==0x2e && DeviceRepository.state.value.controls[0x0d]?.firstOrNull()!=4) {
-                desired.remove(id,command); DeviceRepository.update{it.copy(pending=it.pending-id)}
+                complete(command)
                 DeviceRepository.message("请在自适应模式下调整降噪幅度"); continue
             }
             try {
                 val s=socket ?: throw IOException("控制通道未连接")
-                DeviceRepository.update{it.copy(pending=it.pending+id,message="")}
+                DeviceRepository.update{it.copy(message="")}
                 DeviceRepository.saveDiagnostics()
                 val packet=if(id==EQ_COMMAND)Aacp.equalizer(values)else Aacp.control(id,values)
                 val writtenSession=controlSessionIds[s] ?: 0L
@@ -135,9 +135,19 @@ class PodsService: Service() {
                 traceControl(id,"write",command.token,writtenSession,writtenAt) {
                     "packet=${packet.joinToString(" "){(it.toInt() and 255).toString(16).padStart(2,'0')}}"
                 }
+                if(id==0x2e){
+                    // LibrePods streams these writes without waiting for a matching reply.
+                    // Keep the sent target separate from the earbud's actual control report.
+                    synchronized(desired){
+                        if(desired[id]===command)DeviceRepository.update{it.copy(pending=it.pending-id)}
+                    }
+                    DeviceRepository.saveDiagnostics()
+                    continue
+                }
                 scope.launch {
                     delay(1200)
-                    if(socket===s&&desired[id]===command&&readbackScheduled.compareAndSet(false,true)){
+                    // Keep the control session alive while the adaptive slider is moving.
+                    if(id!=0x2e&&socket===s&&desired[id]===command&&readbackScheduled.compareAndSet(false,true)){
                         scope.launch {
                             try {
                                 readingBack=true
@@ -150,16 +160,15 @@ class PodsService: Service() {
                 }
                 scope.launch {
                     delay(12000)
-                    if(desired.remove(id,command)) {
+                    if(complete(command)) {
                         traceControl(id,"timeout",command.token) {
                             "target=${command.values} actual=${DeviceRepository.state.value.controls[id]}"
                         }
-                        DeviceRepository.update{it.copy(pending=it.pending-id)}
                         DeviceRepository.message("${Controls.all.find{it.id==id}?.title ?: if(id==EQ_COMMAND)"均衡器" else "设置"}未确认目标值，已保留设备回读结果")
                     }
                 }
             } catch(e:Exception) {
-                desired.remove(id,command); DeviceRepository.update{it.copy(pending=it.pending-id)}
+                complete(command)
                 DeviceRepository.message("设置发送失败：${e.message}")
             }
         } }
@@ -181,7 +190,7 @@ class PodsService: Service() {
             DeviceRepository.message("请等待自适应模式与降噪幅度读取完成"); return
         }
         if(id==0x0d && 0x2e in state.pending) {
-            DeviceRepository.message("请等待降噪幅度确认后再切换模式"); return
+            DeviceRepository.message("请等待降噪指令发送完成后再切换模式"); return
         }
         val allowed=if(id==0x24)values.size==4&&values.all{it in 0..255}&&values[1] in 2..3&&state.controls[0x24]?.getOrNull(1) in 2..3
             else if(id==EQ_COMMAND)state.equalizer!=null&&values.size==4&&values[0] in 1..2&&values.drop(1).all{it in 0..100}
@@ -190,16 +199,27 @@ class PodsService: Service() {
             DeviceRepository.message("当前设置或取值尚未开放写入"); return
         }
         val command=Command(id,values.toList(),commandSequence.incrementAndGet())
-        if(desired.putIfAbsent(id,command)!=null)return
-        traceControl(id,"accepted",command.token) { "target=${command.values} actual=${state.controls[id]}" }
-        DeviceRepository.update{it.copy(pending=it.pending+id)}
-        if(id==0x28)conversation.requested(values.first())
-        if(commands.trySend(command).isFailure){desired.remove(id,command);DeviceRepository.update{it.copy(pending=it.pending-id)}}
+        synchronized(desired){
+            if(id==0x2e){
+                if(!Controls.shouldSendAdaptive(values.first(),Controls.adaptiveStrength(DeviceRepository.state.value.controls),desired[id]?.values?.firstOrNull()))return
+                desired[id]=command
+            }else if(desired.putIfAbsent(id,command)!=null)return
+            traceControl(id,"accepted",command.token) { "target=${command.values} actual=${state.controls[id]}" }
+            DeviceRepository.update{it.copy(pending=it.pending+id,adaptiveTarget=if(id==0x2e)values.first()else it.adaptiveTarget)}
+            if(id==0x28)conversation.requested(values.first())
+            if(commands.trySend(command).isFailure)complete(command)
+        }
+    }
+    private fun complete(command:Command):Boolean=synchronized(desired){
+        if(!desired.remove(command.id,command))false else{
+            DeviceRepository.update{it.copy(pending=it.pending-command.id,adaptiveTarget=if(command.id==0x2e)null else it.adaptiveTarget)}
+            true
+        }
     }
     // Only these setting values are logged; never include a device address or other AACP payloads.
     private fun traceControl(id:Int,stage:String,token:Long?=null,
         session:Long=controlSessionSequence.get(),elapsedMs:Long=SystemClock.elapsedRealtime(),details:()->String) {
-        if(id!=0x1f&&id!=0x23&&id!=0x25)return
+        if(id!=0x1f&&id!=0x23&&id!=0x25&&id!=0x2e)return
         DeviceRepository.log("设置诊断 id=0x${id.toString(16)} stage=$stage elapsedMs=$elapsedMs session=$session token=${token ?: "none"} ${details()}")
     }
     private suspend fun connectLoop() {
@@ -258,8 +278,11 @@ class PodsService: Service() {
                 spatial.disconnected()
                 DeviceRepository.log("控制连接：${e.message ?: e.javaClass.simpleName}")
                 val preserve=readingBack
-                DeviceRepository.update{it.copy(connected=false,status=if(preserve)"正在回读耳机设置…"else"等待重连 · ${e.message ?: "连接失败"}",controls=emptyMap(),equalizer=null,pending=if(preserve)it.pending else emptySet(),batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
-                if(!preserve)desired.clear()
+                synchronized(desired){
+                    desired.remove(0x2e)
+                    if(!preserve)desired.clear()
+                    DeviceRepository.update{it.copy(connected=false,status=if(preserve)"正在回读耳机设置…"else"等待重连 · ${e.message ?: "连接失败"}",controls=emptyMap(),equalizer=null,pending=if(preserve)it.pending-0x2e else emptySet(),adaptiveTarget=null,batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
+                }
                 FrameworkBridge.publish(); DeviceRepository.saveDiagnostics()
             } finally {runCatching{current?.close()};if(socket===current)socket=null;current?.let{controlSessionIds.remove(it)}}
             attempts++
@@ -290,13 +313,19 @@ class PodsService: Service() {
                 traceControl(event.id,"readback",expected?.token,session) {
                     "actual=${event.value} target=${expected?.values} matched=${if(expected==null)"n/a" else matched.toString()}"
                 }
-                if(expected!=null&&matched&&desired.remove(event.id,expected)){DeviceRepository.update{it.copy(pending=it.pending-event.id)}}
+                if(expected!=null&&matched)complete(expected)
+                if(event.id==0x0d&&event.value.firstOrNull()!=4){
+                    synchronized(desired){
+                        desired.remove(0x2e)
+                        DeviceRepository.update{it.copy(adaptiveTarget=null,pending=it.pending-0x2e)}
+                    }
+                }
                 if(event.id==0x28)conversation.configured()
             }
             is Event.Equalizer -> {
                 val values=listOf(event.state,event.low,event.mid,event.high)
                 DeviceRepository.update{it.copy(equalizer=values)}
-                desired[EQ_COMMAND]?.let{expected->if(expected.values==values&&desired.remove(EQ_COMMAND,expected)){DeviceRepository.update{it.copy(pending=it.pending-EQ_COMMAND)}}}
+                desired[EQ_COMMAND]?.let{expected->if(expected.values==values)complete(expected)}
             }
             is Event.CardStatus -> {
                 if(DeviceRepository.state.value.cardStatus!=event.flags)DeviceRepository.log("耳机卡片状态 ${event.flags.joinToString(",")}")
@@ -412,7 +441,7 @@ class PodsService: Service() {
         earDetection.close()
         scope.cancel();commands.close();runCatching{socket?.close()};socket=null
         stopScan();popup.close();if(receiverRegistered)unregisterReceiver(systemReceiver)
-        DeviceRepository.update{it.copy(running=false,connected=false,status="耳机服务已停止",controls=emptyMap(),equalizer=null,pending=emptySet(),lidOpen=null,wearing=null,earDetectionStatus="耳机服务已停止",batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
+        DeviceRepository.update{it.copy(running=false,connected=false,status="耳机服务已停止",controls=emptyMap(),equalizer=null,pending=emptySet(),adaptiveTarget=null,lidOpen=null,wearing=null,earDetectionStatus="耳机服务已停止",batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
         FrameworkBridge.publish();DeviceRepository.saveDiagnostics();super.onDestroy()
     }
 }

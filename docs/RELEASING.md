@@ -1,6 +1,6 @@
 # 构建与发布
 
-在 GitHub 的 Actions 中选择 **Build and release**，点击 **Run workflow**，填写与应用版本对应的标签，例如 `v0.4.5`。
+在 GitHub 的 Actions 中选择 **Build and release**，点击 **Run workflow**，填写与应用版本对应的标签，例如 `v0.4.6`。
 
 只想检查和打包时，保留 `publish_release=false`；构建完成后，从该次运行的 Artifacts 下载。需要发布时，启用 `publish_release`。预览版本保留 `prerelease=true`。
 
@@ -27,6 +27,6 @@
 
 ## 更新版本
 
-修改 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`，在 `docs/releases/` 中添加对应标签的 Markdown 发布说明，再提交并推送。比如 `versionName="0.4.5-dev"` 对应 `v0.4.5`；工作流会校验二者一致。
+修改 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`，在 `docs/releases/` 中添加对应标签的 Markdown 发布说明，再提交并推送。比如 `versionName="0.4.6-dev"` 对应 `v0.4.6`；工作流会校验二者一致。
 
 工作流不会覆盖已经发布的同名 Release。重试失败的上传可以继续使用指向相同提交的草稿；内容改变时应使用新的版本标签。
