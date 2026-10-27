@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag, matching the app version and release notes
         required: true
-        default: v0.4.5
+        default: v0.4.6
         type: string
       publish_release:
         description: Publish the verified files to GitHub Releases

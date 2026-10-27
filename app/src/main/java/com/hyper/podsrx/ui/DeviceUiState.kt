@@ -23,7 +23,8 @@ internal fun listeningPresentation(state: PodsState): ListeningPresentation {
         strengthEnabled = Controls.canAdjustAdaptive(state.connected, state.controls, state.pending),
         pending = pending,
         notice = when {
-            pending -> "正在等待耳机确认…"
+            0x0d in state.pending -> "正在等待耳机确认…"
+            0x2e in state.pending -> "正在发送降噪强度…"
             !state.connected -> "连接耳机后可切换聆听模式"
             mode == null -> "等待读取耳机支持的聆听模式"
             mode == 1 -> "耳机当前处于关闭模式，请选择一种聆听模式"
@@ -33,19 +34,17 @@ internal fun listeningPresentation(state: PodsState): ListeningPresentation {
     )
 }
 
-// The integrated LibrePods selector increases raw ANC strength toward the right.
-// Its separate "allowed noise" slider uses the opposite direction, not this one.
+// LibrePods' integrated selector maps thumb travel directly to the 0..100 wire value.
 internal fun adaptiveStrengthAt(fraction: Float): Int {
     require(fraction.isFinite())
-    // This headset confirms 0 / 50 / 100; intermediate writes were not accepted.
-    return Controls.adaptiveStrengths[(fraction.coerceIn(0f, 1f) * 2).roundToInt()]
+    return (fraction.coerceIn(0f, 1f) * 100).roundToInt()
 }
 
 internal fun adaptiveStrengthLabel(value: Int): String = when (value) {
     0 -> "偏通透"
     50 -> "均衡"
     100 -> "偏降噪"
-    else -> value.toString()
+    else -> "$value / 100"
 }
 
 internal data class BatteryPresentation(

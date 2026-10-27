@@ -3,12 +3,8 @@ package com.hyper.podsrx.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -20,16 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.key.*
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.*
@@ -50,19 +39,44 @@ internal fun ListeningControls(
     onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) }
 ) {
     val ui = listeningPresentation(state)
-    var draft by remember(state.address, state.connected, ui.mode, ui.strength, ui.pending) {
+    var draft by remember(state.address) {
         mutableIntStateOf(ui.strength ?: 50)
     }
-    var editing by remember(state.address, state.connected, ui.mode, ui.strength, ui.pending) {
+    var editing by remember(state.address) {
         mutableStateOf(false)
     }
-    val change: (Int) -> Unit = { draft = it; editing = true }
-    val finish = {
-        if (ui.strengthEnabled && draft != ui.strength) onStrengthChange(draft)
-        editing = false
+    var dragging by remember(state.address) { mutableStateOf(false) }
+    val pending = 0x2e in state.pending
+    val submitted = state.adaptiveTarget
+    val submit by rememberUpdatedState(newValue = {
+        // The service deduplicates against the latest target, including same-frame reversals.
+        if (ui.strengthEnabled) onStrengthChange(draft)
+    })
+    LaunchedEffect(state.address, state.connected, ui.mode, ui.strength, pending, submitted, dragging) {
+        if (!state.connected || ui.mode != 4) {
+            editing = false
+            dragging = false
+        } else if (!dragging) {
+            if (submitted != null) {
+                draft = submitted
+                editing = true
+            } else {
+                draft = ui.strength ?: 50
+                editing = false
+            }
+        }
     }
-    val cancel = { draft = ui.strength ?: 50; editing = false }
-    val shownStrength = if (editing) draft else ui.strength
+    val change: (Int) -> Unit = {
+        draft = it
+        editing = true
+        submit()
+    }
+    val finish = { submit() }
+    val cancel = {
+        draft = submitted ?: ui.strength ?: 50
+        editing = submitted != null
+    }
+    val shownStrength = if (editing) draft else submitted ?: ui.strength
     val primary = MiuixTheme.colorScheme.primary
     val secondary = MiuixTheme.colorScheme.onSurfaceSecondary
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) "左" else "右"
@@ -80,7 +94,7 @@ internal fun ListeningControls(
                         val selected = ui.mode == choice.value
                         Column(Modifier.weight(if (choice.value == 4) adaptiveWeight else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (choice.value == 4 && expanded) {
-                                AdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel)
+                                LibrePodsAdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel) { dragging = it }
                                 Text("自适应", fontSize = 15.sp, color = primary, textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(top = 8.dp).clearAndSetSemantics {})
                             } else {
@@ -104,105 +118,27 @@ internal fun ListeningControls(
                     }
                 }
                 if (ui.showAdaptive) {
-                    if (compact) AdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel)
+                    if (compact) LibrePodsAdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel) { dragging = it }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("更通透", fontSize = 12.sp, color = secondary)
                         Text(when {
-                            editing -> "${adaptiveStrengthLabel(draft)} · 松手应用"
+                            pending -> "目标 ${adaptiveStrengthLabel(draft)} · 正在发送"
+                            submitted != null && !dragging -> "${adaptiveStrengthLabel(submitted)} · 已发送"
+                            editing -> "${adaptiveStrengthLabel(draft)} · 正在调节"
                             ui.strength == null -> "降噪幅度未读取"
                             else -> "降噪幅度 · ${adaptiveStrengthLabel(ui.strength)}"
                         }, fontSize = 12.sp, color = primary, textAlign = TextAlign.Center,
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
                         Text("更降噪", fontSize = 12.sp, color = secondary)
                     }
-                    Text("向${direction}滑动增强降噪，支持三档调节。", fontSize = 12.sp, color = secondary,
+                    Text("向${direction}滑动增强降噪，连续调节。", fontSize = 12.sp, color = secondary,
                         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    if (submitted != null) Text("耳机当前回读：${ui.strength?.let { adaptiveStrengthLabel(it) } ?: "等待读取"}", fontSize = 12.sp,
+                        color = secondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 }
                 if (ui.notice.isNotBlank()) Text(ui.notice, fontSize = 12.sp, color = secondary,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite })
             }
         }
-    }
-}
-
-/** A single accessible slider; horizontal drags don't steal vertical page scrolling. */
-@Composable
-private fun AdaptiveSlider(value: Int?, enabled: Boolean, onChange: (Int) -> Unit, onFinish: () -> Unit, onCancel: () -> Unit) {
-    val latestChange by rememberUpdatedState(onChange)
-    val latestFinish by rememberUpdatedState(onFinish)
-    val latestCancel by rememberUpdatedState(onCancel)
-    val latestValue by rememberUpdatedState(value ?: 50)
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val insetPx = with(LocalDensity.current) { 34.dp.toPx() }
-    val primary = MiuixTheme.colorScheme.primary
-    val secondary = MiuixTheme.colorScheme.onSurfaceSecondary
-    val surface = MiuixTheme.colorScheme.surface
-    val thumbColor = primary.copy(alpha = .16f).compositeOver(surface)
-    var focused by remember { mutableStateOf(false) }
-    val updateFromPosition: (Float, Int) -> Unit = { x, width ->
-        val fraction = (x - insetPx) / (width - insetPx * 2).coerceAtLeast(1f)
-        latestChange(adaptiveStrengthAt(if (rtl) 1f - fraction else fraction))
-    }
-    BoxWithConstraints(Modifier.fillMaxWidth().height(68.dp).clip(CircleShape)
-        .background(primary.copy(alpha = if (enabled) .11f else .05f))
-        .then(if (focused) Modifier.border(2.dp, primary, CircleShape) else Modifier)
-        .semantics {
-            contentDescription = "自适应降噪幅度"
-            selected = true
-            stateDescription = if (value == null) "未读取" else "${adaptiveStrengthLabel(value)}，向${if (rtl) "左" else "右"}增强降噪"
-            if (value != null) progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), 0f..100f, 1)
-            if (!enabled) disabled() else setProgress { target ->
-                if (!target.isFinite()) false else {
-                    latestChange(adaptiveStrengthAt(target / 100f)); latestFinish(); true
-                }
-            }
-        }
-        .onFocusChanged { focused = it.isFocused }
-        .onKeyEvent { event ->
-            if (!enabled || event.type != KeyEventType.KeyDown) false else {
-                val next = when (event.key) {
-                    Key.DirectionLeft -> latestValue + if (rtl) 50 else -50
-                    Key.DirectionRight -> latestValue + if (rtl) -50 else 50
-                    Key.DirectionUp -> latestValue + 50
-                    Key.DirectionDown -> latestValue - 50
-                    Key.MoveHome -> 0
-                    Key.MoveEnd -> 100
-                    else -> null
-                }
-                if (next == null) false else {
-                    latestChange(adaptiveStrengthAt(next / 100f)); latestFinish(); true
-                }
-            }
-        }.focusable(enabled)
-        .pointerInput(enabled, rtl, insetPx) {
-            if (enabled) detectHorizontalDragGestures(
-                onDragStart = { updateFromPosition(it.x, size.width) },
-                onHorizontalDrag = { event, _ -> event.consume(); updateFromPosition(event.position.x, size.width) },
-                onDragEnd = { latestFinish() }, onDragCancel = { latestCancel() }
-            )
-        }
-        .pointerInput(enabled, rtl, insetPx) {
-            if (enabled) detectTapGestures { updateFromPosition(it.x, size.width); latestFinish() }
-        }) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            StrengthRing(dotted = true, secondary)
-            Canvas(Modifier.size(4.dp).clearAndSetSemantics {}) { drawCircle(secondary.copy(alpha = .4f)) }
-            StrengthRing(dotted = false, secondary)
-        }
-        if (value != null) Box(Modifier.align(Alignment.CenterStart)
-            .offset(x = 4.dp + (maxWidth - 68.dp) * (value / 100f))
-            .size(60.dp).clip(CircleShape).background(thumbColor)
-            .border(1.5.dp, primary.copy(alpha = if (enabled) .65f else .25f), CircleShape), contentAlignment = Alignment.Center) {
-            ListeningGlyph(4, if (enabled) primary else secondary)
-        }
-    }
-}
-
-@Composable
-private fun StrengthRing(dotted: Boolean, color: Color) {
-    Canvas(Modifier.size(18.dp).clearAndSetSemantics {}) {
-        drawCircle(color, size.minDimension / 2 - 1.dp.toPx(), style = Stroke(1.2.dp.toPx(), cap = StrokeCap.Round,
-            pathEffect = if (dotted) PathEffect.dashPathEffect(floatArrayOf(1.dp.toPx(), 2.7.dp.toPx())) else null))
     }
 }

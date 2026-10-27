@@ -102,5 +102,23 @@ HyperPods-X independently implements its Compose selector and accessible slider,
 only sends on release, and confirms device readback rather than copying the
 upstream optimistic state update. On the target headset, writes of 40 and 60
 remained at 50, whereas 0, 100 and restoration to 50 were confirmed by readback.
-The slider therefore snaps to the three verified values instead of claiming
+That version's slider therefore snaps to the three verified values instead of claiming
 continuous hardware adjustment. No decompiled UI code is redistributed.
+
+## 0.4.6 LibrePods adaptive slider
+
+`ui/LibrePodsAdaptiveSlider.kt` now adapts the integrated slider from the public
+LibrePods `NoiseControlSettings.kt`, under GPL-3.0-or-later:
+https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt
+
+Copyright (C) 2025 LibrePods contributors. Source blob:
+`7f86743f9b945c95915f581ad4eaecd9aacf5754`.
+
+The adaptation retains continuous 0–100 travel/strength mapping, drag handling,
+pressed-thumb animation and live updates. HyperPods-X supplies its Miuix colors,
+existing glyphs, accessibility, keyboard and RTL handling, plus cancellation and
+queued-write coalescing. This replaces the 0.4.2 three-detent implementation.
+Sent targets and actual earbud reports remain separate; missing same-value replies
+do not block further dragging or imply confirmed hardware adjustment.
+No decompiled UI source is redistributed. See the included GPL license and the
+repository's `THIRD_PARTY.md` for attribution and the comparison findings.

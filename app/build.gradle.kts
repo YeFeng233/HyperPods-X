@@ -10,8 +10,8 @@ android {
         applicationId = "com.hyper.podsrx"
         minSdk = 37
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.4.5-dev"
+        versionCode = 12
+        versionName = "0.4.6-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21

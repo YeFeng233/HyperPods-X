@@ -148,3 +148,26 @@ main implementation nor alpha.3 provided a verified sensitivity control; no
 undocumented threshold write was added. Background, interruption and player compatibility tests
 remain pending. No APK, decompiled source, or upstream media-control
 implementation is redistributed with this experiment.
+
+## 0.4.6 LibrePods adaptive slider
+
+`app/src/main/java/com/hyper/podsrx/ui/LibrePodsAdaptiveSlider.kt` adapts the
+integrated adaptive slider from LibrePods' GPL-3.0-or-later
+[`NoiseControlSettings.kt`](https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt),
+commit `80aa7461df414470f379ebdfe540b2e8889fcbe2`, blob
+`7f86743f9b945c95915f581ad4eaecd9aacf5754`. Copyright (C) 2025 LibrePods contributors.
+
+The adaptation retains continuous thumb travel and 0–100 strength mapping,
+drag handling, pressed-thumb animation and immediate updates as the value
+changes. HyperPods-X uses Miuix colors and its existing listening glyphs;
+adds accessibility, keyboard, RTL and cancellation handling; coalesces queued
+control writes; and keeps the sent target separate from device readback.
+It replaces the independent three-detent slider described in the 0.4.2 notes.
+
+On the target phone, the installed LibrePods 2.0.0-alpha.3 sent intermediate
+`0x2e` values 51 through 62 without a matching control reply. A later connection
+still reported 50. A sent slider value therefore does not establish a matching
+readback or measured acoustic effect. HyperPods-X does not copy LibrePods'
+optimistic update into its confirmed device controls. No decompiled UI source
+is redistributed; this component derives from the public source linked above.
+The GPL license is included in `LICENSE` and the app's license assets.

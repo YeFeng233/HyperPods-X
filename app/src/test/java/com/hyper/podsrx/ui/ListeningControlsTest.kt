@@ -56,21 +56,21 @@ class ListeningControlsTest {
 
     @Test fun sliderUsesDirectAncScaleNotInvertedAllowedNoiseScale() {
         assertEquals(0, adaptiveStrengthAt(0f))
-        assertEquals(0, adaptiveStrengthAt(.24f))
-        assertEquals(50, adaptiveStrengthAt(.26f))
+        assertEquals(24, adaptiveStrengthAt(.24f))
+        assertEquals(26, adaptiveStrengthAt(.26f))
         assertEquals(50, adaptiveStrengthAt(.5f))
-        assertEquals(50, adaptiveStrengthAt(.74f))
-        assertEquals(100, adaptiveStrengthAt(.76f))
+        assertEquals(74, adaptiveStrengthAt(.74f))
+        assertEquals(76, adaptiveStrengthAt(.76f))
         assertEquals(100, adaptiveStrengthAt(1f))
         assertEquals(0, adaptiveStrengthAt(-.5f))
         assertEquals(100, adaptiveStrengthAt(1.5f))
-        assertEquals(50, adaptiveStrengthAt(.506f))
+        assertEquals(51, adaptiveStrengthAt(.506f))
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun invalidPointerFractionIsRejected() { adaptiveStrengthAt(Float.NaN) }
 
-    @Test fun disconnectedAndEitherPendingCommandDisableBothControls() {
+    @Test fun pendingStrengthKeepsTheSliderEnabledForNewerTargets() {
         val disconnected = listeningPresentation(adaptive.copy(connected = false))
         assertFalse(disconnected.modeEnabled)
         assertFalse(disconnected.strengthEnabled)
@@ -78,7 +78,7 @@ class ListeningControlsTest {
             val ui = listeningPresentation(adaptive.copy(pending = setOf(id)))
             assertTrue(ui.pending)
             assertFalse(ui.modeEnabled)
-            assertFalse(ui.strengthEnabled)
+            assertEquals(id == 0x2e, ui.strengthEnabled)
             assertEquals(50, ui.strength)
         }
         assertTrue(listeningPresentation(adaptive.copy(pending = setOf(0x28))).strengthEnabled)
@@ -95,14 +95,14 @@ class ListeningControlsTest {
     }
 
     @Test fun strengthBoundsAreWritableAndOtherControlBytesArePreserved() {
-        for (value in listOf(0, 50, 100)) {
+        for (value in 0..100) {
             assertTrue(Controls.allowed(0x2e, listOf(value)))
             assertEquals(value, listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x2e to listOf(value)))).strength)
         }
         assertFalse(Controls.allowed(0x2e, listOf(-1)))
         assertFalse(Controls.allowed(0x2e, listOf(101)))
-        assertFalse(Controls.allowed(0x2e, listOf(40)))
-        assertFalse(Controls.allowed(0x2e, listOf(60)))
+        assertTrue(Controls.allowed(0x2e, listOf(40)))
+        assertTrue(Controls.allowed(0x2e, listOf(60)))
         assertFalse(Controls.allowed(0x2e, emptyList()))
         assertEquals(listOf(20, 80, 0, 0), Controls.valuesForWrite(0x1f, 20, listOf(22, 80, 0, 0)))
     }
@@ -113,11 +113,38 @@ class ListeningControlsTest {
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 46, 100, 0, 0, 0), Aacp.control(0x2e, values))
     }
 
-    @Test fun allSliderPositionsSnapToVerifiedFirmwareDetents() {
-        assertEquals(listOf(0, 50, 100), Controls.adaptiveStrengths)
+    @Test fun continuousPositionsPreserveIntermediateValuesAndStayWithinProtocolBounds() {
+        assertEquals((0..100).toSet(), (0..1000).map { adaptiveStrengthAt(it / 1000f) }.toSet())
         for (position in 0..1000) assertTrue(Controls.allowed(0x2e, listOf(adaptiveStrengthAt(position / 1000f))))
         assertEquals("偏通透", adaptiveStrengthLabel(0))
         assertEquals("均衡", adaptiveStrengthLabel(50))
         assertEquals("偏降噪", adaptiveStrengthLabel(100))
+        assertEquals("37 / 100", adaptiveStrengthLabel(37))
+    }
+
+    @Test fun intermediateAdaptivePayloadDoesNotRetainPreviousTrailingBytes() {
+        val values = Controls.valuesForWrite(0x2e, 37, listOf(50, 9, 8, 7))
+        assertEquals(listOf(37), values)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 46, 37, 0, 0, 0), Aacp.control(0x2e, values))
+    }
+
+    @Test fun returningToReportedStrengthReplacesAnUnconfirmedTarget() {
+        assertFalse(Controls.shouldSendAdaptive(50,50,null))
+        assertTrue(Controls.shouldSendAdaptive(37,50,null))
+        assertFalse(Controls.shouldSendAdaptive(37,50,37))
+        assertTrue(Controls.shouldSendAdaptive(71,50,37))
+        assertTrue(Controls.shouldSendAdaptive(50,50,37))
+        assertFalse(Controls.shouldSendAdaptive(50,50,50))
+    }
+
+    @Test fun sentStrengthNeverReplacesTheReportedDeviceControl() {
+        for(pending in listOf(emptySet(),setOf(0x2e))){
+            val state=adaptive.copy(adaptiveTarget=37,pending=pending)
+            val ui=listeningPresentation(state)
+            assertEquals(50,ui.strength)
+            assertEquals(37,state.adaptiveTarget)
+            assertTrue(ui.strengthEnabled)
+            assertEquals(pending.isNotEmpty(),ui.pending)
+        }
     }
 }
