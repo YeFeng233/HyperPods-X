@@ -22,15 +22,22 @@ Source: https://github.com/librepods-org/librepods/tree/main/android/app/src/mai
 HyperPods was researched for Xiaomi integration ideas. Its old Xposed/Yuki entry and
 bundled artwork were not copied. Source: https://github.com/Mo-SeTian/HyperPods/tree/aap
 
-Runtime dependencies include Miuix 0.9.4 (Apache-2.0), libxposed API/Service 102.0.0
+Runtime dependencies include Glasmio 0.1.0 (Apache-2.0), its Miuix 0.9.3 navigation
+and overscroll dependencies (Apache-2.0), libxposed API/Service 102.0.0
 (Apache-2.0), HiddenApiBypass 6.2 (Apache-2.0), Kotlin, Compose, AndroidX and coroutines.
 GPL-3.0 and Apache-2.0 license texts and this notice are included in the app's
 `assets/licenses/`. Dependency META-INF license/notice resources are merged, not excluded.
-Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.4
+Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.3
+Glasmio: https://github.com/NEORUAA/Glasmio/tree/5f1b5214057870228fcb69a3aed8fe2d0575e3c1
 libxposed: https://github.com/libxposed
 HiddenApiBypass: https://github.com/LSPosed/AndroidHiddenApiBypass
 
-The launcher vector is an original code asset. AirPods 5 product photographs are
+SF Pro and SF Symbols are supplied by the build host as generated application
+assets. They are Apple resources and are not included in the GPL source grant.
+Glasmio's library artifacts do not contain these fonts.
+
+The launcher uses the maintainer-supplied adaptive icon foreground and background.
+AirPods 5 product photographs are
 copyright Apple Inc. and are excluded from this project's GPL grant. Sources and
 the local-test usage note are recorded in `docs/ARTWORK-SOURCES.md`.
 

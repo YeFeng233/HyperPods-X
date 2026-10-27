@@ -170,7 +170,7 @@ class PodsService: Service() {
     override fun onBind(intent:Intent?):IBinder?=null
     private fun notification(text:String):Notification {
         val intent=PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this,"connection").setSmallIcon(R.drawable.ic_headphones)
+        return NotificationCompat.Builder(this,"connection").setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("HyperPods-X · ${DeviceRepository.state.value.name}").setContentText(text)
             .setContentIntent(intent).setOngoing(true).setSilent(true).build()
     }

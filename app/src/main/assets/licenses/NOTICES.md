@@ -22,15 +22,22 @@ Source: https://github.com/librepods-org/librepods/tree/main/android/app/src/mai
 HyperPods was researched for Xiaomi integration ideas. Its old Xposed/Yuki entry and
 bundled artwork were not copied. Source: https://github.com/Mo-SeTian/HyperPods/tree/aap
 
-Runtime dependencies include Miuix 0.9.4 (Apache-2.0), libxposed API/Service 102.0.0
+Runtime dependencies include Glasmio 0.1.0 (Apache-2.0), its Miuix 0.9.3 navigation
+and overscroll dependencies (Apache-2.0), libxposed API/Service 102.0.0
 (Apache-2.0), HiddenApiBypass 6.2 (Apache-2.0), Kotlin, Compose, AndroidX and coroutines.
 GPL-3.0 and Apache-2.0 license texts and this notice are included in the app's
 `assets/licenses/`. Dependency META-INF license/notice resources are merged, not excluded.
-Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.4
+Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.3
+Glasmio: https://github.com/NEORUAA/Glasmio/tree/5f1b5214057870228fcb69a3aed8fe2d0575e3c1
 libxposed: https://github.com/libxposed
 HiddenApiBypass: https://github.com/LSPosed/AndroidHiddenApiBypass
 
-The launcher vector is an original code asset. AirPods 5 product photographs are
+SF Pro and SF Symbols are supplied by the build host as generated application
+assets. They are Apple resources and are not included in the GPL source grant.
+Glasmio's library artifacts do not contain these fonts.
+
+The launcher uses the maintainer-supplied adaptive icon foreground and background.
+AirPods 5 product photographs are
 copyright Apple Inc. and are excluded from this project's GPL grant. Sources and
 the local-test usage note are recorded in `docs/ARTWORK-SOURCES.md`.
 
@@ -104,3 +111,47 @@ upstream optimistic state update. On the target headset, writes of 40 and 60
 remained at 50, whereas 0, 100 and restoration to 50 were confirmed by readback.
 The slider therefore snaps to the three verified values instead of claiming
 continuous hardware adjustment. No decompiled UI code is redistributed.
+
+## Conversation-awareness experiment (in progress)
+
+The conversation-awareness parser and state mapping were cross-checked against
+the original LibrePods `main` implementation and the same locally inspected
+`2.0.0-alpha.3` APK identified above. Sources inspected on 2026-10-26:
+
+- [`bluetooth/AACPManager.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/AACPManager.kt),
+  [`data/Packets.kt`](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/data/Packets.kt),
+  [`services/AirPodsService.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt),
+  and [`utils/MediaController.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/utils/MediaController.kt).
+  The original implementation uses control ID `0x28`, event opcode `0x4b`,
+  status byte 9 in the common ten-byte packet, active states 1/2 and end
+  states 6/8/9.
+- APK classes `h90`, `ni.j`, and `i.e` confirm control values 1=on and 2=off;
+  `n52` and `i` retain opcode `0x4b` and payload offset 3 (packet offset 9).
+  The `yw1` service collector also handles active state 3 and end state 7.
+  Its `d52` media adapter directly adjusts `STREAM_MUSIC`; HyperPods-X does
+  not copy that volume-write and restore strategy.
+- APK initializer `i.f`, packet serializer `j.d`, and opcode/type classes
+  `h70` / `k` inform the AACP 1.3 handshake
+  (`00 00 04 00 01 00 03 00 00 00 00 00 00 00 00 00`),
+  source-capabilities payload `D7 00 00 00 00 00 00 00`, all-notifications
+  subscription, and 200 ms initialization spacing. The model/feature tables
+  `v4` / `yn` list A3441 among the AirPods 5 models with conversation awareness.
+- The public [AACP dissector](https://github.com/pabloaul/apple-wireshark/blob/main/plugins/aacp/aacp_parse_message.lua)
+  informs the little-endian payload length and subtype layout. HyperPods-X
+  independently implements bounded framing, subtype validation, connection
+  generations, duplicate handling, and cleanup policy.
+
+The target headset has produced real subtype-1 events, including states
+1/2/3/4/6/7/8/9. State 4 remains an unclassified observation; its presence is
+not treated as evidence for an additional start or end mapping. Receiving
+events does not establish working media attenuation. The Android transient
+audio-focus trial was ineffective with the user's retained HyperOS concurrent
+media setting. The replacement uses an independently implemented, scoped
+VolumeShaper bridge. Its first foreground trial has user-confirmed attenuation
+and restoration without volume jumps. Instrumented event-to-host submission
+was 5–24 ms at start and 3–6 ms at end; these are not acoustic latency measurements.
+The user narrowed the issue to quiet-speech sensitivity. Neither the inspected
+main implementation nor alpha.3 provided a verified sensitivity control; no
+undocumented threshold write was added. Background, interruption and player compatibility tests
+remain pending. No APK, decompiled source, or upstream media-control
+implementation is redistributed with this experiment.

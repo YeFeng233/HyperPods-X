@@ -19,3 +19,4 @@ hs_err_pid*.log
 *.key
 *.hprof
 __pycache__/
+.DS_Store

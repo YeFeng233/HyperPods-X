@@ -5,8 +5,8 @@ data class ControlSpec(val id: Int,val title: String,val group: String,val choic
 
 object Controls {
     private fun choices(vararg labels:Pair<Int,String>)=labels.map{Choice(it.first,it.second)}
-    val listeningChoices = choices(3 to "通透", 4 to "自适应", 2 to "降噪")
-    val adaptiveStrengths = listOf(0, 50, 100)
+    val listeningChoices = choices(1 to "关闭", 3 to "通透模式", 4 to "自适应", 2 to "降噪")
+    val adaptiveStrengthAnchors = listOf(0, 50, 100)
     val all=listOf(
         ControlSpec(0x0d,"聆听模式","声音与聆听",choices(1 to "关闭",2 to "降噪",3 to "通透",4 to "自适应")),
         ControlSpec(0x1b,"单耳降噪","声音与聆听",toggle=true),
@@ -37,7 +37,6 @@ object Controls {
     fun allowed(id:Int,values:List<Int>):Boolean {
         val spec=all.find{it.id==id} ?: return false
         return spec.writable && values.size in 1..4 && values.all{it in 0..255} && when {
-            id == 0x2e -> values[0] in adaptiveStrengths
             spec.toggle -> values[0] in 1..2
             spec.range != null -> values[0] in spec.range
             else -> spec.choices.any{it.value==values[0]}
