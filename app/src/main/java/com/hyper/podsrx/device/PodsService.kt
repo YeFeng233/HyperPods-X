@@ -504,6 +504,7 @@ class PodsService: Service() {
         for(message in messages){
         val status=ProximityCodec.decode(message,DeviceRepository.keys.get(address,4))?:continue
         DeviceRepository.update{it.copy(trustedBroadcasts=it.trustedBroadcasts+1,identityReady=true)}
+        DeviceRepository.product(status.modelId)
         val now=SystemClock.elapsedRealtime()
         val capturedAt=result.timestampNanos/1000000
         if(!lid.observe(status.lidOpen,capturedAt,now))continue

@@ -30,7 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hyper.podsrx.BuildConfig
-import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
@@ -167,7 +166,7 @@ private fun MiuixDevicePage(onConnect: () -> Unit, onSystemBluetooth: () -> Unit
 @Composable
 private fun Hero(state: PodsState) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(painterResource(R.drawable.airpods5_pair), "AirPods 5 双耳透明产品图", contentScale = ContentScale.Fit,
+        Image(painterResource(state.headset.pairArtwork), "${state.headset.name} 双耳透明产品图", contentScale = ContentScale.Fit,
             modifier = Modifier.size(width = 230.dp, height = 218.dp).padding(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(if (state.connected) ChargingGreen else MiuixTheme.colorScheme.onSurfaceSecondary))

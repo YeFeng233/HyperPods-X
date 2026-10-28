@@ -289,7 +289,7 @@ private fun CallControlChoices(state: PodsState, action: String) {
 
 @Composable
 private fun BatterySettings(state: PodsState) {
-    Section("AirPods 5") {
+    Section(state.headset.name) {
         listOf(4 to "左 AirPod", 2 to "右 AirPod", 8 to "充电盒").forEachIndexed { index, (id, title) ->
             val battery = batteryPresentation(state.batteries[id])
             GlasmioListRow(title = title, subtitle = battery.note.takeIf { it == "充电中" || it == "上次更新" },

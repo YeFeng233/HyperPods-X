@@ -34,6 +34,7 @@ final class NativePopupHost {
                 PendingIntent target = request.getParcelableExtra("target", PendingIntent.class);
                 if (target == null || !APP.equals(target.getCreatorPackage())) return;
                 try {
+                    HeadsetModels.Model headset = HeadsetModels.of(request.getStringExtra("model"), request.getIntExtra("product", -1));
                     String address=request.getStringExtra("address");
                     if(!request.getBooleanExtra("preview",false))reconnectProfiles(host,address);
                     boolean home=false;
@@ -54,6 +55,8 @@ final class NativePopupHost {
                                 .putExtra("headset_addresses",address).putExtra("headset_extra_data",new int[]{-60,1,0,16,0,1})
                                 .putExtra("device_name_over_write",(request.getBooleanExtra("preview",false)?"弹窗预览 · ":"")+request.getStringExtra("name"))
                                 .putExtra("hyperpods_preview",request.getBooleanExtra("preview",false))
+                                .putExtra("hyperpods_model",request.getStringExtra("model"))
+                                .putExtra("hyperpods_product",request.getIntExtra("product",-1))
                                 .putExtra("hyperpods_target",target);
                         for(String key:new String[]{"left","right","box","box_history","charging"})dialog.putExtra("native_"+key,request.getIntExtra("native_"+key,-1));
                         dialog.putExtra("native_connected",request.getBooleanExtra("native_connected",false));
@@ -62,8 +65,8 @@ final class NativePopupHost {
                         setResultCode(1);return;
                     }
                     JSONObject params = new JSONObject();
-                    params.put("left", area("airpods5_left", percentage(request.getIntExtra("native_left", -1))));
-                    params.put("right", area("airpods5_right", percentage(request.getIntExtra("native_right", -1))));
+                    params.put("left", area(headset.artwork + "_left", percentage(request.getIntExtra("native_left", -1))));
+                    params.put("right", area(headset.artwork + "_right", percentage(request.getIntExtra("native_right", -1))));
                     Class<?> controller = Class.forName("com.xiaomi.dist.statusbar.StatusBarController", false, host.getClassLoader());
                     String category = (String) controller.getField("CATEGORY_VIDEO_TEXT_TEXT_VIDEO").get(null);
                     Bundle bundle = new Bundle();

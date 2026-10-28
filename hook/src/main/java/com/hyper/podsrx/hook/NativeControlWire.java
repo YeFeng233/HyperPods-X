@@ -12,7 +12,7 @@ public final class NativeControlWire {
     public static boolean isCurrentTarget(String target, String bound, String model,
             boolean enabled, boolean connected, long heartbeat, long now) {
         return target != null && bound != null && !bound.isEmpty() &&
-            target.equalsIgnoreCase(bound) && "A3441".equals(model) && enabled && connected &&
+            target.equalsIgnoreCase(bound) && HeadsetModels.nativeControls(model) && enabled && connected &&
             heartbeat >= 0 && now >= heartbeat && now - heartbeat <= 30_000;
     }
 

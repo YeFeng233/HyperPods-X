@@ -127,7 +127,7 @@ final class NativeAirPodsDialogAdapter {
                     int mask=value(request,preferences,"charging",0);
                     return new String[]{level(request,preferences,"left"),level(request,preferences,"right"),level(request,preferences,"box"),
                             "false","false",String.valueOf((mask&1)!=0),String.valueOf((mask&2)!=0),String.valueOf((mask&4)!=0),
-                            request.getStringExtra("headset_addresses"),connected(request,preferences)?"2":"0","AirPods 5"};
+                            request.getStringExtra("headset_addresses"),connected(request,preferences)?"2":"0",headset(request,preferences).name};
                 }
             } catch(Exception | LinkageError error) { report("getAirPodsState",error); }
             return result;
@@ -136,16 +136,18 @@ final class NativeAirPodsDialogAdapter {
             Object result=chain.proceed();
             if(!ReloadLifecycle.isActive())return result;
             try {
-                if(Boolean.TRUE.equals(result)&&request(chain.getThisObject(),preferences)!=null){
+                Intent request=Boolean.TRUE.equals(result)?request(chain.getThisObject(),preferences):null;
+                if(request!=null){
                     Object owner=chain.getThisObject();
                     Activity host=(Activity)field(owner,"mActivityContext").get(owner);
+                    HeadsetModels.Model headset=headset(request,preferences);
                     Context artwork=host.createPackageContext(APP,0);
-                    Drawable buds=artwork.getDrawable(artwork.getResources().getIdentifier("airpods5_pair","drawable",APP));
-                    Drawable box=artwork.getDrawable(artwork.getResources().getIdentifier("airpods5_case","drawable",APP));
+                    Drawable buds=artwork.getDrawable(artwork.getResources().getIdentifier(headset.artwork+"_pair","drawable",APP));
+                    Drawable box=artwork.getDrawable(artwork.getResources().getIdentifier(headset.artwork+"_case","drawable",APP));
                     Drawable[] icons=(Drawable[])field(owner,"mHeadsetIconDrawable").get(owner);
                     java.util.Arrays.fill(icons,buds);
                     field(owner,"mHeadsetBoxIconDrawable").set(owner,box);
-                    DiagnosticLog.i("HyperPods-X","Native AirPods dialog uses AirPods 5 artwork");
+                    DiagnosticLog.i("HyperPods-X","Native AirPods dialog uses "+headset.name+" artwork");
                 }
             } catch(Exception | LinkageError error) { report("initParameter",error); }
             return result;
@@ -380,6 +382,12 @@ final class NativeAirPodsDialogAdapter {
         int value="box".equals(key)?boxLevel(request,preferences):value(request,preferences,key,-1);
         return validLevel(value)?String.valueOf(value):"-";
     }
+    /** The module's launch names the product; the ROM's own launch for the bound device uses the published state. */
+    private static HeadsetModels.Model headset(Intent request,SharedPreferences preferences){
+        String model=request.hasExtra("hyperpods_model")?request.getStringExtra("hyperpods_model"):preferences.getString("panel_model","");
+        int product=request.hasExtra("hyperpods_product")?request.getIntExtra("hyperpods_product",-1):preferences.getInt("panel_product",-1);
+        return HeadsetModels.of(model,product);
+    }
     private static boolean validLevel(int level){return level>=0&&level<=100;}
     private static int boxLevel(Intent request,SharedPreferences preferences){
         int current=value(request,preferences,"box",-1);
@@ -389,7 +397,7 @@ final class NativeAirPodsDialogAdapter {
     private static void populate(Object info,Intent request,SharedPreferences preferences)throws Exception{
         Class<?> type=info.getClass();
         type.getMethod("setDevice",String.class).invoke(info,request.getStringExtra("headset_addresses"));
-        type.getMethod("setDeviceModel",String.class).invoke(info,"AirPods 5");
+        type.getMethod("setDeviceModel",String.class).invoke(info,headset(request,preferences).name);
         type.getMethod("setConnectState",int.class).invoke(info,connected(request,preferences)?2:0);
         type.getMethod("setLeftBattery",int.class).invoke(info,value(request,preferences,"left",-1));
         type.getMethod("setRightBattery",int.class).invoke(info,value(request,preferences,"right",-1));

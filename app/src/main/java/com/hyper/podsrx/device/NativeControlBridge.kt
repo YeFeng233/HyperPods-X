@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import com.hyper.podsrx.hook.HeadsetModels
 import com.hyper.podsrx.hook.NativeControlWire
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,7 +82,7 @@ class NativeControlReceiver : BroadcastReceiver() {
         val age = SystemClock.elapsedRealtime() - intent.getLongExtra("created", -1)
         if (age !in 0..2_000) return
         val state = DeviceRepository.state.value
-        if (!state.connected || state.controlRefreshUntil != 0L || state.model != "A3441" ||
+        if (!state.connected || state.controlRefreshUntil != 0L || !HeadsetModels.nativeControls(state.model) ||
             !state.address.equals(intent.getStringExtra("address"), true)) return
         val value = intent.getIntExtra("value", -1)
         when (intent.getStringExtra("command")) {

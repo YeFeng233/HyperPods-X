@@ -4,6 +4,9 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.InsetDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,8 +15,8 @@ import android.os.SystemClock;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 import android.widget.ImageView;
+import android.widget.TextView;
 import io.github.libxposed.api.XposedModule;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -44,6 +47,10 @@ final class NativeControlPanelAdapter {
     private final Method artwork;
     private final Field nativeItems;
     private final Class<?> detailType;
+    private final Method updateState;
+    private final Field headsetIcon;
+    private String cardArtworkName;
+    private Drawable.ConstantState cardArtwork;
     private final Field ancSection;
     private final Field sectionOwner;
     private final Field currentNativeMode;
@@ -116,6 +123,18 @@ final class NativeControlPanelAdapter {
         updateMode.setAccessible(true);
         artwork = detailType.getDeclaredMethod("C", deviceInfo.getReturnType());
         artwork.setAccessible(true);
+        // a0() sets the card image from a single generic AirPods drawable on every state update.
+        // Without it the card keeps that drawable; the controls do not depend on it.
+        Method state = null;
+        Field icon = null;
+        try {
+            state = detailType.getDeclaredMethod("a0");
+            icon = onlyField(detailType, ImageView.class, false);
+        } catch (ReflectiveOperationException error) {
+            DiagnosticLog.w("HyperPods-X", "Native headset card artwork unavailable", error);
+        }
+        updateState = icon == null ? null : state;
+        headsetIcon = icon;
     }
 
     private static Field onlyField(Class<?> owner, Class<?> type, boolean mutable) throws ReflectiveOperationException {
@@ -147,6 +166,19 @@ final class NativeControlPanelAdapter {
                 DiagnosticLog.w("HyperPods-X", "Native AirPods artwork unavailable", error);
             }
             return chain.proceed();
+        });
+        if (adapter.updateState != null) module.hook(adapter.updateState).intercept(chain -> {
+            Object result = chain.proceed();
+            if (!adapter.active()) return result;
+            try {
+                View detail = (View) chain.getThisObject();
+                Object info = adapter.deviceInfo.invoke(detail);
+                String target = info == null ? null : (String) adapter.address.get(info);
+                if (adapter.freshTarget(target)) adapter.applyCardArtwork(detail);
+            } catch (ReflectiveOperationException | PackageManager.NameNotFoundException | RuntimeException error) {
+                DiagnosticLog.w("HyperPods-X", "Native headset card artwork unavailable", error);
+            }
+            return result;
         });
         module.hook(adapter.selectItem).intercept(chain -> {
             if (!adapter.active()) return chain.proceed();
@@ -251,6 +283,39 @@ final class NativeControlPanelAdapter {
             DiagnosticLog.i("HyperPods-X", "Native panel target: " + state);
         }
         return matches;
+    }
+
+    /**
+     * The bound headset's own pair artwork, decoded once per product and shared across card updates.
+     * The card sizes its image by height. The ROM's AirPods icon is a 560 px square whose earbuds span
+     * 298 px across, so the edge-to-edge pair is centered in a square with the same proportion.
+     */
+    private Drawable cardArtwork(Context host) throws PackageManager.NameNotFoundException {
+        String name = HeadsetModels.of(preferences.getString("panel_model", ""),
+            preferences.getInt("panel_product", -1)).artwork + "_pair";
+        if (!name.equals(cardArtworkName)) {
+            Context module = host.createPackageContext(NativeControlWire.APP, 0);
+            int id = module.getResources().getIdentifier(name, "drawable", NativeControlWire.APP);
+            Drawable drawable = id == 0 ? null : module.getDrawable(id);
+            cardArtwork = drawable == null ? null : drawable.getConstantState();
+            cardArtworkName = name;
+        }
+        if (cardArtwork == null) return null;
+        Drawable pair = cardArtwork.newDrawable(host.getResources());
+        int width = pair.getIntrinsicWidth(), height = pair.getIntrinsicHeight();
+        if (width <= 0 || height <= 0) return pair;
+        int side = Math.max(Math.round(width * 560f / 298f), height);
+        int horizontal = (side - width) / 2, vertical = (side - height) / 2;
+        return new InsetDrawable(pair, horizontal, vertical, side - width - horizontal, side - height - vertical);
+    }
+
+    /** Returns false when the module artwork is unavailable and the card keeps the ROM's image. */
+    private boolean applyCardArtwork(View detail) throws ReflectiveOperationException, PackageManager.NameNotFoundException {
+        if (headsetIcon == null) return false;
+        Drawable drawable = cardArtwork(detail.getContext());
+        if (drawable == null || !(headsetIcon.get(detail) instanceof ImageView icon)) return false;
+        icon.setImageDrawable(drawable);
+        return true;
     }
 
     private int confirmedMode(View detail) throws ReflectiveOperationException {
@@ -400,7 +465,15 @@ final class NativeControlPanelAdapter {
         if (detailType.isInstance(view)) {
             refresh(view);
             Object info = deviceInfo.invoke(view);
-            if (info != null && freshTarget((String) address.get(info))) {
+            boolean bound = info != null && freshTarget((String) address.get(info));
+            boolean applied = false;
+            if (bound) {
+                try { applied = applyCardArtwork(view); }
+                catch (PackageManager.NameNotFoundException error) {
+                    DiagnosticLog.w("HyperPods-X", "Native headset card artwork unavailable", error);
+                }
+            }
+            if (bound && !applied) {
                 int id = view.getResources().getIdentifier("device_item", "id", view.getContext().getPackageName());
                 View icon = id == 0 ? null : view.findViewById(id);
                 int drawable = (int) artwork.invoke(view, info);

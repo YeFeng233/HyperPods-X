@@ -62,7 +62,7 @@ class PopupController(private val context:Context) {
         val title=label(DeviceRepository.state.value.name,22,Color.rgb(25,28,35)).apply{setTypeface(typeface,Typeface.BOLD)}
         root.addView(title)
         root.addView(label("HyperPods-X · $reason",13,Color.GRAY))
-        root.addView(ImageView(context).apply{setImageResource(R.drawable.airpods5_pair);scaleType=ImageView.ScaleType.FIT_CENTER},LinearLayout.LayoutParams(-1,dp(140)))
+        root.addView(ImageView(context).apply{setImageResource(DeviceRepository.state.value.headset.pairArtwork);scaleType=ImageView.ScaleType.FIT_CENTER},LinearLayout.LayoutParams(-1,dp(140)))
         val batteries=label("",17,Color.rgb(40,43,50)).apply{setPadding(0,dp(22),0,dp(22))}
         root.addView(batteries)
         val row=LinearLayout(context)

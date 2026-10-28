@@ -42,6 +42,7 @@ object FrameworkBridge {
                 ?.putInt("native_box_history",s.batteries[8]?.level?:-1)
                 ?.putInt("native_charging",listOf(4 to 1,2 to 2,8 to 4).sumOf{(id,mask)->if(s.batteries[id]?.let{it.current&&it.charging}==true)mask else 0})
                 ?.putString("panel_model", s.model)
+                ?.putInt("panel_product", s.product)
                 ?.putInt("panel_anc", s.controls[0x0d]?.firstOrNull() ?: 0)
                 ?.putBoolean("panel_anc_available", 0x0d in s.controls)
                 ?.putBoolean("panel_anc_pending", 0x0d in s.pending)

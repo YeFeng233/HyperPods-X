@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.LogRedactor
 import androidx.core.content.ContextCompat
+import com.hyper.podsrx.hook.HeadsetModels
 import com.hyper.podsrx.protocol.Battery
 import com.hyper.podsrx.protocol.Event
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,8 +43,10 @@ data class PodsState(
     ,val conversation:ConversationState=ConversationState()
     ,val adaptiveTarget:Int?=null
     ,val controlRefreshUntil:Long=0L
+    ,val product:Int=-1
 ) {
     val displayName:String get()=localName.ifBlank{name}
+    val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
 }
 object DeviceRepository {
     lateinit var app: Application
@@ -57,7 +60,7 @@ object DeviceRepository {
         keys = SecureKeys(app)
         val p = app.getSharedPreferences("app", Context.MODE_PRIVATE)
         update { it.copy(address = p.getString("address", "")!!, name = p.getString("name", "AirPods")!!,
-            popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),nativePopup=p.getBoolean("nativePopup",true)) }
+            popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),nativePopup=p.getBoolean("nativePopup",true),product=p.getInt("product",-1)) }
         val history=app.getSharedPreferences("battery_history",0)
         if(history.getString("address",null)==state.value.address){
             val last=mutableMapOf<Int,Reading>()
@@ -113,7 +116,7 @@ object DeviceRepository {
     @Suppress("MissingPermission")
     fun bind(device: BluetoothDevice) {
         if (state.value.running) stop()
-        app.getSharedPreferences("app",Context.MODE_PRIVATE).edit().putString("address",device.address).putString("name",device.name ?: "AirPods").apply()
+        app.getSharedPreferences("app",Context.MODE_PRIVATE).edit().putString("address",device.address).putString("name",device.name ?: "AirPods").remove("product").apply()
         update { PodsState(name=device.name ?: "AirPods", address=device.address,framework=it.framework,frameworkApi=it.frameworkApi,popupEnabled=it.popupEnabled,earAutomation=it.earAutomation,connectionPopup=it.connectionPopup,nativePopup=it.nativePopup) }
         refreshLocalName()
         FrameworkBridge.publish()
@@ -138,6 +141,11 @@ object DeviceRepository {
     }
     fun setNativePopup(enabled:Boolean) {
         app.getSharedPreferences("app",0).edit().putBoolean("nativePopup",enabled).apply();update{it.copy(nativePopup=enabled)};FrameworkBridge.publish()
+    }
+    /** The verified advertisement names the product before the first AACP session of this run. */
+    fun product(id:Int) {
+        if(state.value.product==id)return
+        app.getSharedPreferences("app",0).edit().putInt("product",id).apply();update{it.copy(product=id)};FrameworkBridge.publish()
     }
     fun setEarAutomation(enabled:Boolean) {
         app.getSharedPreferences("app",0).edit().putBoolean("earAutomation",enabled).apply(); update{it.copy(earAutomation=enabled)}

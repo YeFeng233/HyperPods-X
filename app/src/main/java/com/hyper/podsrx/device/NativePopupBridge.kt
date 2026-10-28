@@ -29,6 +29,7 @@ object NativePopupBridge {
             val request=Intent("${context.packageName}.SHOW_NATIVE_POPUP").setPackage(HOST)
                 .putExtra("address",state.address).putExtra("name",state.name)
                 .putExtra("preview",preview).putExtra("island",island)
+                .putExtra("model",state.model).putExtra("product",state.product)
                 .putExtra("native_connected",state.connected)
                 .putExtra("native_left",state.batteries[4]?.takeIf{it.current}?.level?:-1)
                 .putExtra("native_right",state.batteries[2]?.takeIf{it.current}?.level?:-1)

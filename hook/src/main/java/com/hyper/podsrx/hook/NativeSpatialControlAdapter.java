@@ -141,7 +141,7 @@ final class NativeSpatialControlAdapter {
         if (!active()) return false;
         long age = SystemClock.elapsedRealtime() - preferences.getLong("panel_heartbeat", -1);
         return device != null && age >= 0 && age <= 30000 && preferences.getBoolean("enabled", false) &&
-            preferences.getBoolean("native_connected", false) && "A3441".equals(preferences.getString("panel_model", "")) &&
+            preferences.getBoolean("native_connected", false) && HeadsetModels.nativeControls(preferences.getString("panel_model", "")) &&
             device.getAddress().equalsIgnoreCase(preferences.getString("address", ""));
     }
 
