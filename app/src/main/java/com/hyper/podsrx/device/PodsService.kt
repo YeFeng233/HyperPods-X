@@ -11,6 +11,7 @@ import android.os.*
 import androidx.core.app.NotificationCompat
 import com.hyper.podsrx.MainActivity
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.LidWire
 import com.hyper.podsrx.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -67,18 +68,44 @@ class PodsService: Service() {
     @Volatile private var scanOnlyUntil=0L
     private var scanner:BluetoothLeScanner?=null
     private var scanCallback:ScanCallback?=null
+    private var liveCallback:ScanCallback?=null
     private var receiverRegistered=false
-    private val lid=LidSession()
+    private var relayed=false
+    private val relayReceiver=object:BroadcastReceiver() {
+        override fun onReceive(context:Context,intent:Intent) {
+            // Only the Bluetooth host may speak for the stack's Apple scan path.
+            if(intent.action!=LidWire.ACTION||sentFromUid!=Process.BLUETOOTH_UID)return
+            val result=intent.getParcelableExtra(LidWire.EXTRA_RESULT,ScanResult::class.java)?:return
+            if(!relayed){relayed=true;DeviceRepository.log("已接入系统实时 Apple 广播通道")}
+            advertisement(result,source="系统通道")
+        }
+    }
+    // Relayed advertisements arrive tens of milliseconds apart and closes are no longer missed, so
+    // every observed reopen is real and a short settle still rides out a wobbling lid.
+    private val lid=LidSession(cooldownMs=0,settleMs=300)
     private val lidHandler=Handler(Looper.getMainLooper())
+    // The popup starts with the first open sample so its process launch overlaps the settle;
+    // a lid that wobbles shut inside it closes the popup again.
     private val confirmLid=Runnable {
         if(lid.confirm(SystemClock.elapsedRealtime())){
             DeviceRepository.log("开盖状态已稳定")
             if(socket==null)reconnect.trySend(Unit)
-            if(DeviceRepository.state.value.popupEnabled)popup.show()
             DeviceRepository.saveDiagnostics()
         }
     }
+    // A close can reach the dialog's process before the dialog listens for it; repeat it briefly.
+    private val closeToken=Any()
+    private var screenOnAt=Long.MIN_VALUE/2
+    // Main thread only. The control channel connects seconds before audio can play, so the
+    // connection card waits for both the earbuds' batteries and an A2DP connection.
     private var connectionCardShown=false
+    private var batteriesReady=false
+    private var audioReady=false
+    private fun showConnectionCard() {
+        if(connectionCardShown||!batteriesReady||!audioReady)return
+        connectionCardShown=true
+        if(DeviceRepository.state.value.connectionPopup&&DeviceRepository.state.value.lidOpen!=true)popup.show("耳机已连接")
+    }
     private val seenOpcodes=mutableSetOf<Int>()
     private val seenAdvertisements=mutableSetOf<String>()
     private var lastScanSnapshot=0L
@@ -97,6 +124,20 @@ class PodsService: Service() {
             } else if(intent.action==BluetoothDevice.ACTION_ACL_CONNECTED) {
                 val device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice::class.java)
                 if(device?.address.equals(DeviceRepository.state.value.address,true)&&socket==null)reconnect.trySend(Unit)
+            } else if(intent.action==BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED) {
+                val device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice::class.java)
+                if(!device?.address.equals(DeviceRepository.state.value.address,true))return
+                audioReady=intent.getIntExtra(BluetoothProfile.EXTRA_STATE,0)==BluetoothProfile.STATE_CONNECTED
+                showConnectionCard()
+            } else if(intent.action==Intent.ACTION_SCREEN_OFF) {
+                // A popup cannot be seen with the screen off, so the scans stop. The lid may move
+                // unseen meanwhile; forget it so the next open is a fresh transition.
+                stopScan()
+                lidHandler.removeCallbacks(confirmLid);lidHandler.removeCallbacksAndMessages(closeToken)
+                lid.reset();DeviceRepository.update{it.copy(lidOpen=null)}
+            } else if(intent.action==Intent.ACTION_SCREEN_ON) {
+                screenOnAt=SystemClock.elapsedRealtime()
+                startScan()
             }
         }
     }
@@ -118,7 +159,11 @@ class PodsService: Service() {
         })
         spatial.start()
         nativeControls=NativeControlBridge(this)
-        registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{addAction(BluetoothDevice.ACTION_ACL_CONNECTED)},RECEIVER_EXPORTED); receiverRegistered=true
+        registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED);addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            addAction(Intent.ACTION_SCREEN_OFF);addAction(Intent.ACTION_SCREEN_ON)
+        },RECEIVER_EXPORTED)
+        registerReceiver(relayReceiver,IntentFilter(LidWire.ACTION),RECEIVER_EXPORTED); receiverRegistered=true
         scope.launch { for(command in commands) {
             val (id,values)=command
             if(desired[id]!==command)continue
@@ -267,7 +312,7 @@ class PodsService: Service() {
                 val wasReadback=readingBack
                 readingBack=false
                 DeviceRepository.log("经典 L2CAP 通道已连接")
-                connectionCardShown=wasReadback
+                lidHandler.post{connectionCardShown=wasReadback;batteriesReady=false}
                 DeviceRepository.update{it.copy(status="正在读取耳机状态…",connected=true)}
                 conversation.connected()
                 val output=opened.outputStream
@@ -328,10 +373,7 @@ class PodsService: Service() {
         when(event) {
             is Event.Batteries -> {
                 DeviceRepository.batteries(event.values,true)
-                if(!connectionCardShown&&event.values.any{it.component in setOf(2,4)&&it.level!=null&&it.connected}){
-                    connectionCardShown=true
-                    if(DeviceRepository.state.value.connectionPopup&&DeviceRepository.state.value.lidOpen!=true)popup.show("耳机已连接")
-                }
+                if(event.values.any{it.component in setOf(2,4)&&it.level!=null&&it.connected})lidHandler.post{batteriesReady=true;showConnectionCard()}
             }
             is Event.Control -> {
                 DeviceRepository.update{it.copy(controls=it.controls+(event.id to event.value),
@@ -392,6 +434,7 @@ class PodsService: Service() {
     }
     private fun startScan(diagnostic:Boolean=false) {
         if(scanCallback!=null||!DeviceRepository.permissionsGranted())return
+        if(!diagnostic&&!getSystemService(PowerManager::class.java).isInteractive)return
         val adapter=getSystemService(BluetoothManager::class.java).adapter ?: return
         if(!adapter.isEnabled)return
         scanner=adapter.bluetoothLeScanner
@@ -414,13 +457,25 @@ class PodsService: Service() {
             .setLegacy(true).setPhy(BluetoothDevice.PHY_LE_1M).setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT).setReportDelay(500).build(),callback)}
             .onFailure{scanCallback=null;DeviceRepository.log("扫描启动失败：${it.javaClass.simpleName}")}
+        // The stack hands Apple advertisements from regular scans to the ROM provider, which the
+        // module relays at once; this scan keeps the radio listening while the ROM pauses its own.
+        if(!diagnostic){
+            val live=object:ScanCallback(){
+                override fun onScanResult(type:Int,result:ScanResult){if(liveCallback===this)advertisement(result,source="实时扫描")}
+                override fun onScanFailed(errorCode:Int){DeviceRepository.log("实时扫描错误 $errorCode");liveCallback=null}
+            }
+            liveCallback=live
+            runCatching{scanner?.startScan(listOf(filter),ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setLegacy(true).setReportDelay(0).build(),live)}
+                .onFailure{liveCallback=null;DeviceRepository.log("实时扫描启动失败：${it.javaClass.simpleName}")}
+        }
         if(diagnostic)scope.launch{delay(120000);if(scanCallback===callback){
             DeviceRepository.log("广播诊断结束：$diagnosticRecords 条；厂商/长度 ${diagnosticShapes.joinToString(" ")}")
             DeviceRepository.saveDiagnostics()
             stopScan();startScan()
         }}
     }
-    private fun advertisement(result:ScanResult,diagnostic:Boolean=false) {
+    private fun advertisement(result:ScanResult,diagnostic:Boolean=false,source:String="批量扫描") {
         val record=result.scanRecord?:return
         val address=DeviceRepository.state.value.address
         val irk=DeviceRepository.keys.get(address,1)
@@ -452,23 +507,41 @@ class PodsService: Service() {
         val now=SystemClock.elapsedRealtime()
         val capturedAt=result.timestampNanos/1000000
         if(!lid.observe(status.lidOpen,capturedAt,now))continue
-        if(DeviceRepository.state.value.lidOpen!=status.lidOpen)DeviceRepository.log("已验证盒盖：${if(status.lidOpen)"打开"else"关闭"} · 广播延迟 ${now-capturedAt}ms")
+        val previous=DeviceRepository.state.value.lidOpen
+        val changed=previous!=status.lidOpen
+        // The first state heard right after the screen turns on was not seen opening; it is a baseline.
+        val baseline=previous==null&&now-screenOnAt<1500
+        if(changed)DeviceRepository.log("已验证盒盖：${if(status.lidOpen)"打开"else"关闭"} · 广播延迟 ${now-capturedAt}ms · $source")
         DeviceRepository.update{it.copy(lidOpen=status.lidOpen)}
         DeviceRepository.batteries(status.batteries,status.precise)
+        if(!status.lidOpen){
+            popup.close(animated=true)
+            if(changed){
+                NativePopupBridge.close(this)
+                for(delay in longArrayOf(700,1500))lidHandler.postDelayed({
+                    if(DeviceRepository.state.value.lidOpen==false)NativePopupBridge.close(this)
+                },closeToken,delay)
+            }
+        }
         lidHandler.removeCallbacks(confirmLid)
-        lid.confirmationDelay(now)?.let{lidHandler.postDelayed(confirmLid,it)}
+        val settle=lid.confirmationDelay(now)
+        if(status.lidOpen&&changed){
+            lidHandler.removeCallbacksAndMessages(closeToken)
+            if(settle!=null&&!baseline&&DeviceRepository.state.value.popupEnabled)popup.show()
+        }
+        settle?.let{lidHandler.postDelayed(confirmLid,it)}
         }
     }
-    private fun stopScan(){runCatching{scanCallback?.let{scanner?.stopScan(it)}};scanCallback=null;scanner=null;DeviceRepository.update{it.copy(diagnosticScanning=false)}}
+    private fun stopScan(){runCatching{scanCallback?.let{scanner?.stopScan(it)}};runCatching{liveCallback?.let{scanner?.stopScan(it)}};scanCallback=null;liveCallback=null;scanner=null;DeviceRepository.update{it.copy(diagnosticScanning=false)}}
     override fun onDestroy() {
         if(instance===this)instance=null
         if (::nativeControls.isInitialized) nativeControls.close()
-        lidHandler.removeCallbacks(confirmLid)
+        lidHandler.removeCallbacks(confirmLid);lidHandler.removeCallbacksAndMessages(closeToken)
         spatial.close()
         conversation.close()
         earDetection.close()
         scope.cancel();commands.close();runCatching{socket?.close()};socket=null
-        stopScan();popup.close();if(receiverRegistered)unregisterReceiver(systemReceiver)
+        stopScan();popup.close();if(receiverRegistered){unregisterReceiver(systemReceiver);unregisterReceiver(relayReceiver)}
         DeviceRepository.update{it.copy(running=false,connected=false,status="耳机服务已停止",controls=emptyMap(),equalizer=null,pending=emptySet(),adaptiveTarget=null,lidOpen=null,wearing=null,earDetectionStatus="耳机服务已停止",batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
         FrameworkBridge.publish();DeviceRepository.saveDiagnostics();super.onDestroy()
     }

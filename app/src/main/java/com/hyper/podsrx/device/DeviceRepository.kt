@@ -131,13 +131,13 @@ object DeviceRepository {
     }
     fun stop() { app.stopService(Intent(app,PodsService::class.java)) }
     fun setPopup(enabled:Boolean) {
-        app.getSharedPreferences("app",0).edit().putBoolean("popup",enabled).apply(); update{it.copy(popupEnabled=enabled)}
+        app.getSharedPreferences("app",0).edit().putBoolean("popup",enabled).apply(); update{it.copy(popupEnabled=enabled)}; FrameworkBridge.publish()
     }
     fun setConnectionPopup(enabled:Boolean) {
         app.getSharedPreferences("app",0).edit().putBoolean("connectionPopup",enabled).apply();update{it.copy(connectionPopup=enabled)}
     }
     fun setNativePopup(enabled:Boolean) {
-        app.getSharedPreferences("app",0).edit().putBoolean("nativePopup",enabled).apply();update{it.copy(nativePopup=enabled)}
+        app.getSharedPreferences("app",0).edit().putBoolean("nativePopup",enabled).apply();update{it.copy(nativePopup=enabled)};FrameworkBridge.publish()
     }
     fun setEarAutomation(enabled:Boolean) {
         app.getSharedPreferences("app",0).edit().putBoolean("earAutomation",enabled).apply(); update{it.copy(earAutomation=enabled)}

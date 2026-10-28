@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import com.hyper.podsrx.DeviceSettingsActivity
+import com.hyper.podsrx.hook.LidWire
 
 object NativePopupBridge {
     private const val HOST="com.xiaomi.bluetooth"
@@ -45,5 +46,9 @@ object NativePopupBridge {
             DeviceRepository.log("原生提示请求失败：${error.javaClass.simpleName}")
             complete(false)
         }
+    }
+    /** Slides out the bound device's headset dialog as soon as the lid closes. */
+    fun close(context:Context) {
+        runCatching{context.sendBroadcast(Intent(LidWire.CLOSE_POPUP).setPackage(HOST).addFlags(Intent.FLAG_RECEIVER_FOREGROUND))}
     }
 }

@@ -20,6 +20,7 @@ final class NativePopupHost {
     private static final String APP = "com.hyper.podsrx";
     static final String ACTION = APP + ".SHOW_NATIVE_POPUP";
     static final String PERMISSION = APP + ".permission.NATIVE_POPUP";
+    private static final String DIALOG = "com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity";
     private static boolean registered;
 
     static void install(Context context) {
@@ -38,10 +39,16 @@ final class NativePopupHost {
                     boolean home=false;
                     java.util.List<ActivityManager.RunningTaskInfo> tasks=host.getSystemService(ActivityManager.class).getRunningTasks(1);
                     if(!tasks.isEmpty()&&tasks.get(0).topActivity!=null)home="com.miui.home".equals(tasks.get(0).topActivity.getPackageName());
+                    // The ROM's lid launch may already be showing this state; do not stack a second popup.
+                    if(!request.getBooleanExtra("preview",false)&&!tasks.isEmpty()&&tasks.get(0).topActivity!=null
+                            &&DIALOG.equals(tasks.get(0).topActivity.getClassName())){
+                        DiagnosticLog.i("HyperPods-X","Headset dialog already showing; skipped a second popup");
+                        setResultCode(1);return;
+                    }
                     if(!request.getBooleanExtra("island",false)&&(home||request.getBooleanExtra("preview",false))){
                         if(!BluetoothAdapter.checkBluetoothAddress(address))return;
                         Intent dialog=new Intent("com.android.bluetooth.FAST_CONNECT_DEVICE_AIRPODS")
-                                .setClassName("com.xiaomi.bluetooth","com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity")
+                                .setClassName("com.xiaomi.bluetooth",DIALOG)
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                                 .putExtra(BluetoothDevice.EXTRA_DEVICE,host.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address))
                                 .putExtra("headset_addresses",address).putExtra("headset_extra_data",new int[]{-60,1,0,16,0,1})

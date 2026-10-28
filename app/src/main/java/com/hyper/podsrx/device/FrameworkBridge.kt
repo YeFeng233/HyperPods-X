@@ -57,6 +57,7 @@ object FrameworkBridge {
                 ?.putInt("panel_left_wearing", sideWearing)
                 ?.putInt("panel_right_wearing", sideWearing)
                 ?.putLong("panel_heartbeat", SystemClock.elapsedRealtime())
+                ?.putBoolean("replace_system_popup",s.running&&s.popupEnabled&&s.nativePopup)
                 ?.putBoolean("enabled", true)?.apply()
         }
     }

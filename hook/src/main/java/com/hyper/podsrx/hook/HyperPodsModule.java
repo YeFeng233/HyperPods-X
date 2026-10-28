@@ -151,6 +151,10 @@ public final class HyperPodsModule extends XposedModule {
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
             NativePopupHost.install(host);
+            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); }
+            catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
+            try { LidRelayHost.install(this, host.getClassLoader(), preferences); }
+            catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
             try { NativeControlHost.install(this, host, preferences); }
             catch (Throwable error) { installationFailure("Native control bridge", error); }
             try { SpatialHost.install(host, preferences); }
@@ -165,14 +169,16 @@ public final class HyperPodsModule extends XposedModule {
                     catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error); }
                 }
                 @Override public void onActivityCreated(Activity activity, Bundle saved) {
-                    if (ReloadLifecycle.isActive()) NativeAirPodsDialogAdapter.autoDismiss(activity);
+                    if (!ReloadLifecycle.isActive()) return;
+                    NativeAirPodsDialogAdapter.autoDismiss(activity);
+                    NativeAirPodsDialogAdapter.followLid(activity, preferences);
                 }
                 @Override public void onActivityStarted(Activity activity) {}
                 @Override public void onActivityResumed(Activity activity) { onActivityPreCreated(activity, null); }
                 @Override public void onActivityPaused(Activity activity) {}
                 @Override public void onActivityStopped(Activity activity) {}
                 @Override public void onActivitySaveInstanceState(Activity activity, Bundle out) {}
-                @Override public void onActivityDestroyed(Activity activity) {}
+                @Override public void onActivityDestroyed(Activity activity) { NativeAirPodsDialogAdapter.stopFollowingLid(activity); }
             };
             host.registerActivityLifecycleCallbacks(callbacks);
             ReloadLifecycle.add(() -> host.unregisterActivityLifecycleCallbacks(callbacks));
