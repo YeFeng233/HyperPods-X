@@ -126,9 +126,12 @@ final class NativeAirPodsDialogAdapter {
             } catch(Exception | LinkageError error) { report("setConnectSuccessLayoutDetail",error); }
             return result;
         });
-        // A display request never initiates another pairing/control connection.
+        // Keep the ROM connection callback intact for real lid events: its
+        // CachedBluetoothDevice.connect(true) restores the A2DP/HFP profiles.
+        // A preview must remain presentation-only and never connect the device.
         module.hook(pair).intercept(chain->{
-            return request(chain.getThisObject(),preferences)!=null?null:chain.proceed();
+            Intent request=request(chain.getThisObject(),preferences);
+            return request!=null&&request.getBooleanExtra("hyperpods_preview",false)?null:chain.proceed();
         });
         installed.add(loader);
         android.util.Log.i("HyperPods-X","Native AirPods dialog adapter ready");

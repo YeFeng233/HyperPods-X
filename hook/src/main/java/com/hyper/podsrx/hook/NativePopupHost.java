@@ -32,11 +32,12 @@ final class NativePopupHost {
                 PendingIntent target = request.getParcelableExtra("target", PendingIntent.class);
                 if (target == null || !APP.equals(target.getCreatorPackage())) return;
                 try {
+                    String address=request.getStringExtra("address");
+                    if(!request.getBooleanExtra("preview",false))reconnectProfiles(host,address);
                     boolean home=false;
                     java.util.List<ActivityManager.RunningTaskInfo> tasks=host.getSystemService(ActivityManager.class).getRunningTasks(1);
                     if(!tasks.isEmpty()&&tasks.get(0).topActivity!=null)home="com.miui.home".equals(tasks.get(0).topActivity.getPackageName());
                     if(!request.getBooleanExtra("island",false)&&(home||request.getBooleanExtra("preview",false))){
-                        String address=request.getStringExtra("address");
                         if(!BluetoothAdapter.checkBluetoothAddress(address))return;
                         Intent dialog=new Intent("com.android.bluetooth.FAST_CONNECT_DEVICE_AIRPODS")
                                 .setClassName("com.xiaomi.bluetooth","com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity")
@@ -79,6 +80,23 @@ final class NativePopupHost {
         }, new IntentFilter(ACTION), PERMISSION, new Handler(Looper.getMainLooper()), Context.RECEIVER_EXPORTED);
         registered = true;
         android.util.Log.i("HyperPods-X", "Native headset popup bridge ready");
+    }
+
+    /** The ROM's fast-connect service owns the privileged CachedBluetoothDevice path. */
+    private static void reconnectProfiles(Context context,String address){
+        if(!BluetoothAdapter.checkBluetoothAddress(address))return;
+        try{
+            Class<?> serviceType=Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService",false,context.getClassLoader());
+            Object service=serviceType.getMethod("getInstance").invoke(null);
+            if(service==null){android.util.Log.w("HyperPods-X","Fast-connect service is not ready for profile reconnect");return;}
+            BluetoothDevice device=context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
+            Object cached=serviceType.getMethod("getCachedDevice",BluetoothDevice.class).invoke(service,device);
+            if(cached==null){android.util.Log.w("HyperPods-X","Cached AirPods device is not ready for profile reconnect");return;}
+            cached.getClass().getMethod("connect",boolean.class).invoke(cached,true);
+            android.util.Log.i("HyperPods-X","Requested ROM A2DP/HFP reconnect for AirPods");
+        }catch(ReflectiveOperationException|RuntimeException error){
+            android.util.Log.w("HyperPods-X","ROM A2DP/HFP reconnect unavailable",error);
+        }
     }
 
     private static String percentage(int level) {
