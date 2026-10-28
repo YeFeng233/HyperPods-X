@@ -33,6 +33,9 @@ class BatteryLedger {
         return expired
     }
 
+    /** Restarts every reading's age, as when the screen comes back on after the scans were stopped. */
+    fun touch(now: Long) { readings = readings.mapValues { it.value.copy(updated = now) } }
+
     fun content(): Map<Int, Reading> = readings.content()
 
     fun clear() { readings = emptyMap() }

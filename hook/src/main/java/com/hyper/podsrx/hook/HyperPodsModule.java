@@ -82,7 +82,7 @@ public final class HyperPodsModule extends XposedModule {
         }
         if (pkg.equals("com.milink.service")) {
             if (!processName.equals(pkg) && !processName.equals(pkg+":core") && !processName.equals(pkg+":ui")) return;
-            preferences=getRemotePreferences("device_state");
+            preferences=HubReader.remote();
             if (processName.equals(pkg+":ui")) {
                 try { NativeControlPanelAdapter.install(this,loader,preferences); }
                 catch (Throwable error) { installationFailure("Native adaptive control row", error); }
@@ -97,8 +97,8 @@ public final class HyperPodsModule extends XposedModule {
             // The battery widget's provider lives in its own process.
             if (!processName.equals(pkg + ".remote")) return;
             installDiagnosticBridge();
-            preferences = getRemotePreferences("device_state");
-            try { WidgetBatteryHost.install(this, loader, preferences); }
+            preferences = HubReader.remote();
+            try { WidgetBatteryHost.install(this, loader, (HubReader) preferences); }
             catch (Throwable error) { installationFailure("Widget headset battery", error); }
             return;
         }
@@ -106,7 +106,8 @@ public final class HyperPodsModule extends XposedModule {
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
             try {
-                preferences=getRemotePreferences("device_state");
+                // The hub reads the app's configuration; everything else reads the hub.
+                preferences=pkg.equals(processName)?getRemotePreferences("device_state"):HubReader.remote();
                 if (runningApp != null) installBluetooth(runningApp, pkg);
                 else {
                     Class<?> app = Class.forName("com.android.bluetooth.ble.MiuiApplication", false, loader);
@@ -120,7 +121,7 @@ public final class HyperPodsModule extends XposedModule {
             return;
         }
         try {
-            preferences = getRemotePreferences("device_state");
+            preferences = HubReader.remote();
             listener = (p, key) -> { if (ReloadLifecycle.isActive()) main.post(this::refreshSummary); };
             preferences.registerOnSharedPreferenceChangeListener(listener);
             try {
@@ -159,21 +160,20 @@ public final class HyperPodsModule extends XposedModule {
         bluetoothInstalled = true;
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
-            NativePopupHost.install(host);
+            SharedPreferences config = preferences;
+            try { preferences = HubHost.install(this, host, config).reader; }
+            catch (Throwable error) { installationFailure("State hub", error); }
             try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); }
             catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
-            try { HubHost.install(this, host, preferences); }
-            catch (Throwable error) { installationFailure("State hub", error); }
-            try { LidRelayHost.install(this, host.getClassLoader(), preferences); }
+            try { LidRelayHost.install(this, host.getClassLoader()); }
             catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
             try { NativeControlHost.install(this, host, preferences); }
             catch (Throwable error) { installationFailure("Native control bridge", error); }
-            try { SpatialHost.install(host, preferences); }
+            // The bound address is configuration; the spatial and conversation bridges need nothing live.
+            try { SpatialHost.install(host, config); }
             catch (Throwable error) { installationFailure("Spatial bridge", error); }
-            try { ConversationAudioHost.install(host, preferences); }
+            try { ConversationAudioHost.install(host, config); }
             catch (Throwable error) { installationFailure("Conversation bridge", error); }
-            try { WidgetRelayHost.install(host, preferences); }
-            catch (Throwable error) { installationFailure("Widget battery relay", error); }
         } else {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {

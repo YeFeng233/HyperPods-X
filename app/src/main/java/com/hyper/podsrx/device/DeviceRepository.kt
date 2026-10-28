@@ -35,7 +35,6 @@ data class PodsState(
     ,val equalizer: List<Int>? = null, val proximityCandidates: Int = 0, val identityMatches: Int = 0
     ,val cardStatus: List<Int> = emptyList()
     ,val connectionPopup: Boolean = true
-    ,val diagnosticScanning:Boolean=false
     ,val lidOpen:Boolean?=null
     ,val nativePopup:Boolean=true
     ,val nativePopupStatus:String="等待原生弹窗连接"
@@ -52,6 +51,9 @@ data class PodsState(
 ) {
     val displayName:String get()=localName.ifBlank{name}
     val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
+    /** The hub's link and the scan it runs, for the diagnostics page. */
+    val hubSummary:String get()=hub?.let{h->"$hubStatus · "+when(h.scanMode){
+        HubBundles.SCAN_LIVE->"实时扫描";HubBundles.SCAN_IDLE->"省电扫描";else->"扫描已停止"}}?:hubStatus
 }
 object DeviceRepository {
     lateinit var app: Application
@@ -76,8 +78,8 @@ object DeviceRepository {
         val clean = LogRedactor.limitUtf8(LogRedactor.redact(text), 7500)
         update { it.copy(log = (it.log + clean).takeLast(30)) }
     }
-    fun permissionsGranted() = listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.ACCESS_FINE_LOCATION)
-        .all { ContextCompat.checkSelfPermission(app,it) == PackageManager.PERMISSION_GRANTED }
+    // The Bluetooth host scans for the app, so only the control channel needs a permission.
+    fun permissionsGranted() = ContextCompat.checkSelfPermission(app,Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
     @Suppress("MissingPermission")
     fun refreshLocalName() {
         val address=state.value.address
@@ -160,23 +162,21 @@ object DeviceRepository {
             changed=result.content()!=s.batteries.content()
             s.copy(batteries=result)
         }
-        // A repeat only refreshes the times; the control bridge's heartbeat keeps the hosts current.
-        if(changed){FrameworkBridge.publish(); saveDiagnostics()}
+        // A repeat only refreshes the times.
+        if(changed)saveDiagnostics()
     }
     /**
-     * Drops readings nothing has refreshed within [maxAgeMs]; returns whether any were dropped. The
-     * control channel reports only changes, so its readings count as fresh until [controlFreshAt].
+     * Takes the hub's merged readings, lid and counters; the hub hears the advertisements and ages
+     * the readings. Its times are on the host's elapsed clock and become wall times here.
      */
-    fun expireBatteries(maxAgeMs:Long, controlFreshAt:Long):Boolean {
-        val now=System.currentTimeMillis()
-        var expired=false
-        update { s ->
-            val kept=BatteryLedger.kept(s.batteries,maxAgeMs,controlFreshAt,now)
-            expired=kept.size!=s.batteries.size
-            if(expired)s.copy(batteries=kept) else s
-        }
-        if(expired){FrameworkBridge.publish();saveDiagnostics()}
-        return expired
+    fun hub(h:HubBundles.State) {
+        val offset=System.currentTimeMillis()-android.os.SystemClock.elapsedRealtime()
+        val readings=h.readings.mapValues{it.value.copy(updated=it.value.updated+offset)}
+        update{it.copy(hub=h,batteries=if(h.address.equals(it.address,true))readings else it.batteries,
+            lidOpen=when(h.lid){HubBundles.LID_OPEN->true;HubBundles.LID_CLOSED->false;else->null},
+            broadcasts=h.broadcasts,trustedBroadcasts=h.trusted,proximityCandidates=h.candidates,identityMatches=h.matches)}
+        if(h.product>=0)product(h.product)
+        saveDiagnostics()
     }
     fun batterySummary():String = listOf(4 to "左",2 to "右",8 to "盒").joinToString(" · ") { (id,label) ->
         val b=state.value.batteries[id]

@@ -37,7 +37,7 @@ import kotlin.coroutines.resume
  * The app's side of the Bluetooth host's state hub. Pushes the AACP session and the proximity keys
  * as they change; the hub's callbacks are the only thing it listens to. Nothing here is periodic.
  */
-class HubClient(context:Context) {
+class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean)->Unit) {
     private val context=context.applicationContext
     private val main=Handler(Looper.getMainLooper())
     // One transaction at a time, in the order they were asked for.
@@ -51,7 +51,6 @@ class HubClient(context:Context) {
     private var backoffMs=MIN_BACKOFF_MS
     private val popupCredential=PendingIntent.getActivity(this.context,21,Intent(this.context,DeviceSettingsActivity::class.java)
         .putExtra("device_address",DeviceRepository.state.value.address),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    // A separate request code from NativeControlBridge's, which cancels its own on close.
     private val controlTarget=PendingIntent.getBroadcast(this.context,26,
         Intent(this.context,NativeControlReceiver::class.java).setAction(NativeControlWire.COMMAND),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
@@ -65,9 +64,8 @@ class HubClient(context:Context) {
             data.enforceInterface(HubWire.CALLBACK_DESCRIPTOR)
             val payload=data.readBundle(javaClass.classLoader)?:return true
             when(code) {
-                HubWire.ON_STATE -> DeviceRepository.update{it.copy(hub=HubBundles.State.from(payload))}
-                // The hub drives the lid once it owns the scans; until then the app's own path does.
-                HubWire.ON_LID, HubWire.ON_POPUP_RESULT -> Unit
+                HubWire.ON_STATE -> DeviceRepository.hub(HubBundles.State.from(payload))
+                HubWire.ON_LID -> onLid(payload.getInt("event"),payload.getBoolean("nativeShown"))
             }
             return true
         }
@@ -94,6 +92,18 @@ class HubClient(context:Context) {
 
     fun pushKeys() { scope.launch{sendKeys()} }
 
+    /** The hub shows the native popup or island; [onResult] runs on the main thread. */
+    fun requestPopup(preview:Boolean,island:Boolean,onResult:(Boolean)->Unit) {
+        scope.launch {
+            val binder=hub
+            val shown=binder!=null&&runCatching{
+                val (status,reply)=transact(binder,HubWire.REQUEST_POPUP,HubBundles.popupRequest(preview,island))
+                status==HubWire.OK&&reply.getBoolean("shown")
+            }.getOrDefault(false)
+            main.post{onResult(shown)}
+        }
+    }
+
     fun close() {
         closed=true
         runCatching{context.unregisterReceiver(readyReceiver)}
@@ -109,7 +119,7 @@ class HubClient(context:Context) {
         if(closed||hub!=null)return
         retry?.cancel()
         val binder=handshake()
-        if(binder==null){scheduleRetry("状态中心未就绪，请检查小米蓝牙作用域");return}
+        if(binder==null){wakeHost();scheduleRetry("状态中心未就绪，请检查小米蓝牙作用域");return}
         val (status,reply)=runCatching{transact(binder,HubWire.HELLO,
             HubBundles.Hello(HubWire.VERSION,callback,DeviceRepository.state.value.address,popupCredential,controlTarget).toBundle())}
             .getOrElse{scheduleRetry("状态中心握手失败：${it.javaClass.simpleName}");return}
@@ -125,7 +135,8 @@ class HubClient(context:Context) {
         val recipient=IBinder.DeathRecipient{scope.launch{if(hub===binder){drop();connect()}}}
         if(runCatching{binder.linkToDeath(recipient,0)}.isFailure){scheduleRetry("状态中心已退出");return}
         hub=binder;hubDeath=recipient;backoffMs=MIN_BACKOFF_MS
-        DeviceRepository.update{it.copy(hub=HubBundles.State.from(reply),hubStatus="已连接状态中心")}
+        DeviceRepository.update{it.copy(hubStatus="已连接状态中心")}
+        DeviceRepository.hub(HubBundles.State.from(reply))
         DeviceRepository.log("已连接蓝牙宿主状态中心")
         sendKeys()
         pushControl()
@@ -145,6 +156,15 @@ class HubClient(context:Context) {
                     },main,0,null,null)
             }.onFailure{if(continuation.isActive)continuation.resume(null)}
         }
+    }
+
+    /**
+     * A force-stopped host stays down and receives no broadcasts, and with its scans gone the stack
+     * has no Apple advertisement to hand its provider. Reaching that provider starts the process; the
+     * hub then refuses this caller and announces HUB_READY, which reconnects at once.
+     */
+    private fun wakeHost() {
+        runCatching{context.contentResolver.call(android.net.Uri.parse(HubWire.PROVIDER_URI),HubWire.STATE_METHOD,null,null)}
     }
 
     private fun scheduleRetry(status:String) {

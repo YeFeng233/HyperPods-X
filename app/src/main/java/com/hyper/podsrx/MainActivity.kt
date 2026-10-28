@@ -34,7 +34,7 @@ open class MainActivity:ComponentActivity() {
     }
     private fun connect() {
         if(DeviceRepository.permissionsGranted())DeviceRepository.start()
-        else permissionRequest.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.POST_NOTIFICATIONS))
+        else permissionRequest.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.POST_NOTIFICATIONS))
     }
     private fun openSystemBluetooth() {
         val address=DeviceRepository.state.value.address

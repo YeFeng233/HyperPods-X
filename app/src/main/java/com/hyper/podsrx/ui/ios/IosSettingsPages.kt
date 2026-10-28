@@ -402,6 +402,7 @@ private fun LazyListScope.DiagnosticsSettings(state: PodsState) {
             InfoRow("模块框架", state.framework)
             InfoRow("控制通道", if (state.connected) "已连接" else "未连接")
             InfoRow("原生弹窗", if (state.nativePopup) state.nativePopupStatus else "已关闭")
+            InfoRow("状态中心", state.hubSummary)
             InfoRow("绑定身份", if (state.identityReady) "已确认" else "等待密钥")
             InfoRow("广播 / 已验证", "${state.broadcasts} / ${state.trustedBroadcasts}")
             InfoRow("邻近广播 / 身份匹配", "${state.proximityCandidates} / ${state.identityMatches}")
@@ -418,5 +419,4 @@ private fun LazyListScope.DiagnosticsSettings(state: PodsState) {
             }
         }
     }
-    item("diagnosticScan") { Action("2 分钟广播诊断", Modifier.fillMaxWidth()) { PodsService.diagnoseScan() } }
 }

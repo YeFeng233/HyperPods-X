@@ -325,7 +325,8 @@ final class NativeAirPodsDialogAdapter {
                     if(LidWire.CLOSE_POPUP.equals(intent.getAction())&&!activity.isFinishing())activity.finish();
                 }
             };
-            activity.registerReceiver(receiver,new IntentFilter(LidWire.CLOSE_POPUP),NativePopupHost.PERMISSION,main,Context.RECEIVER_EXPORTED);
+            // Sent by the hub in this package's main process, which shares this uid.
+            activity.registerReceiver(receiver,new IntentFilter(LidWire.CLOSE_POPUP),null,main,Context.RECEIVER_NOT_EXPORTED);
             lidWatchers.put(activity,receiver);
         } catch(RuntimeException | LinkageError error) { report("followLid",error); }
     }

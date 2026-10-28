@@ -29,8 +29,6 @@ class DeviceTestReceiver:BroadcastReceiver() {
                 resultCode=1
                 resultData=result.toString()
             }
-            "scan" -> PodsService.diagnoseScan()
-            "scan_only" -> PodsService.diagnoseScan(isolated=true)
             "preview" -> PodsService.previewPopup()
             "reconnect" -> PodsService.reconnect()
             "control" -> PodsService.setControl(intent.getIntExtra("id",-1),intent.getIntExtra("value",-1))

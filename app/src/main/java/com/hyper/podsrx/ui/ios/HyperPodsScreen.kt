@@ -88,9 +88,9 @@ internal fun IosSettingsScreen(
     val volume by volumeController.state.collectAsState()
     DisposableEffect(volumeController) { onDispose { volumeController.close() } }
     val view = LocalView.current
-    DisposableEffect(state.diagnosticScanning, state.spatial.calibrationMode) {
+    DisposableEffect(state.spatial.calibrationMode) {
         val previous = view.keepScreenOn
-        view.keepScreenOn = state.diagnosticScanning || state.spatial.calibrationMode
+        view.keepScreenOn = state.spatial.calibrationMode
         onDispose { view.keepScreenOn = previous }
     }
     val firstPage = when (initialPage) {

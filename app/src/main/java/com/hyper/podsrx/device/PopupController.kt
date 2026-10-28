@@ -27,8 +27,11 @@ import com.hyper.podsrx.DeviceSettingsActivity
 import com.hyper.podsrx.R
 import kotlinx.coroutines.*
 
-/** The overlay is native Android so it does not invent an Activity lifecycle in a Service. */
-class PopupController(private val context:Context) {
+/**
+ * The overlay is native Android so it does not invent an Activity lifecycle in a Service. The
+ * native popup and island belong to the Bluetooth host's hub; [native] asks it for one.
+ */
+class PopupController(private val context:Context,private val native:(preview:Boolean,island:Boolean,onResult:(Boolean)->Unit)->Unit) {
     private val handler=Handler(Looper.getMainLooper())
     private val windows=context.getSystemService(WindowManager::class.java)
     private var view:View?=null
@@ -45,12 +48,21 @@ class PopupController(private val context:Context) {
         if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
         close()
         val request=generation
-        if(DeviceRepository.state.value.nativePopup)NativePopupBridge.show(context,preview,reason=="超级岛预览") nativeResult@{shown->
+        if(DeviceRepository.state.value.nativePopup)native(preview,reason=="超级岛预览") nativeResult@{shown->
             if(request!=generation)return@nativeResult
+            DeviceRepository.update{it.copy(nativePopupStatus=if(shown)"已提交系统原生耳机提示"else"原生通道未就绪，使用兼容卡片")}
             if(!preview&&reason=="充电盒已打开"&&DeviceRepository.state.value.lidOpen!=true)return@nativeResult
             if(shown)DeviceRepository.log("已提交 HyperOS 原生耳机提示：$reason")else showOverlay(reason)
             DeviceRepository.saveDiagnostics()
         } else showOverlay(reason)
+    } }
+    /** The hub showed no native popup for this lid opening; the card or a notification stands in. */
+    fun showFallback(reason:String="充电盒已打开") { handler.post {
+        if(DeviceRepository.state.value.lidOpen!=true)return@post
+        lastAutomatic=android.os.SystemClock.elapsedRealtime()
+        if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
+        close()
+        showOverlay(reason)
     } }
     private fun showOverlay(reason:String) {
         if(!Settings.canDrawOverlays(context)||context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return}

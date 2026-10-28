@@ -1,6 +1,5 @@
 package com.hyper.podsrx.hook;
 
-import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -8,15 +7,15 @@ import java.lang.reflect.Method;
 
 /**
  * The security center battery widget only counts a headset the system reports as connected.
- * While none is, its headset slot shows the bound AirPods from the readings the app keeps live
- * from the case advertisements, including with the lid closed.
+ * While none is, its headset slot shows the bound AirPods from the hub's readings, which the case
+ * advertisements keep live with the lid closed and without the app.
  */
 final class WidgetBatteryHost {
     private static final String PROVIDER = "com.miui.securitycenter.WidgetProvider";
     private static final String QUERY = "getWearableAndHeadSetData";
     private static final String COLUMN = "headsetBattery";
 
-    static void install(HyperPodsModule module, ClassLoader loader, SharedPreferences preferences) throws Exception {
+    static void install(HyperPodsModule module, ClassLoader loader, HubReader hub) throws Exception {
         Class<?> provider = Class.forName(PROVIDER, false, loader);
         Method query = provider.getDeclaredMethod("query", Uri.class, String[].class, String.class, String[].class, String.class);
         module.hook(query).intercept(chain -> {
@@ -24,7 +23,11 @@ final class WidgetBatteryHost {
             if (!ReloadLifecycle.isActive() || !(result instanceof Cursor)) return result;
             try {
                 Uri uri = (Uri) chain.getArg(0);
-                if (uri != null && QUERY.equals(uri.getLastPathSegment())) return withHeadset((Cursor) result, preferences);
+                if (uri == null || !QUERY.equals(uri.getLastPathSegment())) return result;
+                // The widget asks right after the hub's refresh broadcast; read the hub now rather
+                // than race its change notice.
+                hub.pull();
+                return withHeadset((Cursor) result, hub);
             } catch (Exception | LinkageError error) {
                 DiagnosticLog.w("HyperPods-X", "Widget headset battery skipped", error);
             }
@@ -33,8 +36,9 @@ final class WidgetBatteryHost {
         DiagnosticLog.i("HyperPods-X", "Widget headset battery ready");
     }
 
-    private static Cursor withHeadset(Cursor cursor, SharedPreferences preferences) {
-        int level = preferences.getBoolean("enabled", false) ? preferences.getInt("widget_headset", -1) : -1;
+    private static Cursor withHeadset(Cursor cursor, HubReader hub) {
+        HubBundles.State state = hub.state();
+        int level = state.address.isEmpty() ? -1 : WidgetDriver.headsetLevel(state.readings);
         int column = cursor.getColumnIndex(COLUMN);
         boolean replace = level >= 0 && level <= 100 && column >= 0 && cursor.moveToFirst() && cursor.getInt(column) < 0;
         if (!replace) {

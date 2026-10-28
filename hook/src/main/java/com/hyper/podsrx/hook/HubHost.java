@@ -1,7 +1,11 @@
 package com.hyper.podsrx.hook;
 
 import android.app.BroadcastOptions;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.ScanResult;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -17,36 +21,55 @@ import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import com.hyper.podsrx.protocol.Battery;
 import com.hyper.podsrx.protocol.BatteryLedger;
+import com.hyper.podsrx.protocol.CaseThrottle;
+import com.hyper.podsrx.protocol.Proximity;
+import com.hyper.podsrx.protocol.Reading;
 import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
 
 /**
  * The one live state of the bound headset, kept in the persistent Bluetooth host so it outlives
- * the app. The app reaches it through a versioned Binder; other hosts pull a snapshot through the
- * ROM's headset data provider and hear a dataless broadcast when it changes.
+ * the app. It scans, decodes and follows the lid itself and drives the popup, the island and the
+ * widget; the app only adds the AACP session. The app reaches it through a versioned Binder; other
+ * hosts pull a snapshot through the ROM's headset data provider and hear a dataless broadcast when
+ * it changes.
  */
-final class HubHost extends Binder {
+final class HubHost extends Binder implements ScanEngine.Listener, AdvertisementParser.Sink, LidController.Actions {
     private static final String TAG = "HyperPods-X";
     /** Changes inside this window reach consumers as one. */
     private static final long NOTIFY_WINDOW_MS = 250;
+    /** Out of range, nothing refreshes the readings; past this age they are hidden. */
+    private static final long STALE_READING_MS = 60_000;
     private static final String[] CONSUMERS = {"com.xiaomi.bluetooth", "com.milink.service", "com.miui.securitycenter", "com.android.settings"};
     private static final int PER_USER_RANGE = 100000;
 
-    /** The provider hook outlives nothing but this generation; null once it retires. */
+    /** The provider hook and the relay outlive nothing but this generation; null once it retires. */
     private static volatile HubHost instance;
 
     private final Context context;
     private final SharedPreferences preferences;
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final int appUid;
     private final int milinkUid;
     private final KeyVault keys;
+    private final ScanEngine scan;
+    private final AdvertisementParser parser = new AdvertisementParser();
+    private final LidController lid = new LidController(this);
+    private final WidgetDriver widget;
+    private final CaseThrottle caseThrottle = new CaseThrottle(CaseThrottle.REFRESH_MS);
+    /** The hub's own view for the adapters in this process. */
+    final HubReader reader = HubReader.local(() -> this.state);
     private BroadcastReceiver receiver;
 
     // Guarded by this.
     private final BatteryLedger ledger = new BatteryLedger();
     private HubBundles.Control control = HubBundles.Control.DISCONNECTED;
-    private String address;
+    /** Written under the lock, read anywhere. */
+    private volatile String address;
+    private int product = -1;
     private IBinder callback;
     private IBinder.DeathRecipient death;
     private PendingIntent popupCredential, controlTarget;
@@ -59,7 +82,7 @@ final class HubHost extends Binder {
     private HubBundles.State announced = HubBundles.State.EMPTY;
     private boolean notifyPending;
 
-    static void install(HyperPodsModule module, Context context, SharedPreferences preferences) throws Exception {
+    static HubHost install(HyperPodsModule module, Context context, SharedPreferences preferences) throws Exception {
         HubHost host = new HubHost(context, preferences);
         ReloadLifecycle.add(host::close);
         host.receiver = new BroadcastReceiver() {
@@ -73,17 +96,16 @@ final class HubHost extends Binder {
                 setResultCode(1);
             }
         };
-        context.registerReceiver(host.receiver, new IntentFilter(HubWire.CONNECT), HubWire.PERMISSION, host.handler, Context.RECEIVER_EXPORTED);
-        try {
-            hookProvider(module, context.getClassLoader());
-        } catch (Exception | LinkageError error) {
-            host.close();
-            throw error;
-        }
+        context.registerReceiver(host.receiver, new IntentFilter(HubWire.CONNECT), HubWire.PERMISSION, host.main, Context.RECEIVER_EXPORTED);
+        hookProvider(module, context.getClassLoader());
+        try { hookAirCore(module, context.getClassLoader()); }
+        catch (Exception | LinkageError error) { DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error); }
         instance = host;
+        host.scan.start();
         host.publish();
         host.announceReady();
         DiagnosticLog.i(TAG, "State hub ready");
+        return host;
     }
 
     private HubHost(Context context, SharedPreferences preferences) throws PackageManager.NameNotFoundException {
@@ -97,8 +119,33 @@ final class HubHost extends Binder {
         keys = new KeyVault(context);
         address = preferences.getString("address", "");
         if (address.isEmpty()) address = keys.address();
+        scan = new ScanEngine(context, this);
+        widget = new WidgetDriver(context);
         attachInterface(null, HubWire.DESCRIPTOR);
     }
+
+    /** The current generation's hub, or null. */
+    static HubHost current() { return instance; }
+
+    /** Relayed from the ROM's Apple scan path on a binder thread. */
+    static void relay(ScanResult result) {
+        HubHost hub = instance;
+        if (hub != null) hub.main.post(() -> hub.onResult(result, "系统通道"));
+    }
+
+    /** Whether advertisements can be attributed: bound, with the identity key. */
+    @Override public boolean bound() {
+        String bound = address;
+        return !bound.isEmpty() && keys.get(bound, KeyVault.IRK) != null;
+    }
+
+    @Override public synchronized boolean controlConnected() {
+        return callback != null && control.connected;
+    }
+
+    @Override public String address() { return address; }
+
+    synchronized PendingIntent controlTarget() { return controlTarget; }
 
     /** Other hosts pull the snapshot here; it reads one volatile reference and never blocks. */
     private static void hookProvider(HyperPodsModule module, ClassLoader loader) throws Exception {
@@ -116,6 +163,31 @@ final class HubHost extends Binder {
         });
     }
 
+    /**
+     * The ROM opens its own AACP channel 2 s after HFP connects for headsets its cloud list
+     * supports, Pro 3 among them. The headset reports its settings only to the channel opened last,
+     * so that channel starved the app's, at once or in the middle of a session. While the app is
+     * alive the bound headset is its alone; without the app the ROM keeps its own controls.
+     */
+    private static void hookAirCore(HyperPodsModule module, ClassLoader loader) throws Exception {
+        Class<?> storage = Class.forName("com.xiaomi.bluetooth.modules.airlibrary.db.AirLocalStorage", false, loader);
+        Method support = storage.getDeclaredMethod("isFeatureSupport", Context.class, BluetoothDevice.class, String.class);
+        module.hook(support).intercept(chain -> {
+            if (!ReloadLifecycle.isActive() || !"ConnectL2cap".equals(chain.getArg(2))) return chain.proceed();
+            try {
+                HubHost hub = instance;
+                BluetoothDevice device = (BluetoothDevice) chain.getArg(1);
+                if (hub != null && device != null && device.getAddress().equalsIgnoreCase(hub.address) && hub.state.appAlive) {
+                    DiagnosticLog.i(TAG, "Kept the ROM's AACP channel off the app's headset");
+                    return false;
+                }
+            } catch (Throwable error) {
+                DiagnosticLog.w(TAG, "ROM AACP channel guard skipped", error);
+            }
+            return chain.proceed();
+        });
+    }
+
     private boolean mayRead(int uid) {
         int app = uid % PER_USER_RANGE;
         return app == Process.SYSTEM_UID || app == Process.BLUETOOTH_UID || (milinkUid >= 0 && uid == milinkUid);
@@ -130,7 +202,10 @@ final class HubHost extends Binder {
             receiver = null;
         }
         unlinkCallback();
-        handler.removeCallbacksAndMessages(null);
+        scan.close();
+        lid.close();
+        widget.close();
+        main.removeCallbacksAndMessages(null);
     }
 
     /** A running app reconnects at once instead of waiting out its backoff. */
@@ -149,23 +224,140 @@ final class HubHost extends Binder {
         return options.toBundle();
     }
 
+    // Advertisements and the lid (main thread)
+
+    @Override public void onResult(ScanResult result, String source) {
+        if (closed) return;
+        String bound = address;
+        parser.parse(result, bound, keys.get(bound, KeyVault.IRK), keys.get(bound, KeyVault.ENC), source, this);
+        publish();
+    }
+
+    @Override public void proximity(Proximity status, long capturedAt, String source) {
+        scan.heard();
+        synchronized (this) { product = status.getModelId(); }
+        if (!lid.observe(status.getLidOpen(), capturedAt, source)) return;
+        synchronized (this) { ledger.apply(status.getBatteries(), status.getPrecise(), false, SystemClock.elapsedRealtime()); }
+    }
+
+    @Override public void caseStatus(List<Battery> values) {
+        scan.heard();
+        long now = SystemClock.elapsedRealtime();
+        if (!caseThrottle.admit(values, now)) return;
+        synchronized (this) { ledger.apply(values, true, false, now); }
+    }
+
+    @Override public void opened() {
+        boolean shown = false;
+        boolean wanted = preferences.getBoolean("popup_enabled", true);
+        boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
+        if (wanted && preferences.getBoolean("native_popup", true) && !locked) {
+            try { shown = PopupDriver.show(context, popupRequest(false, false)); }
+            catch (Throwable error) { DiagnosticLog.w(TAG, "Native headset popup unavailable", error); }
+        } else PopupDriver.reconnectProfiles(context, address);
+        // Without a native popup the app shows its own card, if it is running.
+        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
+        publish();
+    }
+
+    @Override public void confirmed() {
+        // The app reconnects its control channel if it has none.
+        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CONFIRMED, false));
+    }
+
+    @Override public void closed(boolean changed, boolean repeat) {
+        if (changed) PopupDriver.close(context);
+        if (changed && !repeat) {
+            callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CLOSED, false));
+            publish();
+        }
+    }
+
+    // Scan engine (main thread)
+
+    @Override public void onScreen(boolean on) {
+        lid.screen(on);
+        // Nothing was heard with the scans off; the readings age again from now.
+        if (on) synchronized (this) { ledger.touch(SystemClock.elapsedRealtime()); }
+        publish();
+    }
+
+    @Override public void onTick() {
+        long now = SystemClock.elapsedRealtime();
+        boolean expired;
+        synchronized (this) {
+            // The control channel reports batteries only when they change, so its readings age only
+            // once it drops, counted from that moment.
+            long controlFreshAt = controlConnected() ? now : controlLostAt;
+            expired = ledger.expire(STALE_READING_MS, controlFreshAt, now);
+        }
+        if (expired) DiagnosticLog.i(TAG, "Hub hid readings unheard for " + STALE_READING_MS / 1000 + " s");
+        publish();
+        // The widget forgets the grip on a launcher restart; this repeats it slowly.
+        widget.update(state);
+    }
+
+    @Override public void onModeChanged(int mode) {
+        DiagnosticLog.i(TAG, "Hub live scan " + (mode == HubBundles.SCAN_LIVE ? "live" : mode == HubBundles.SCAN_IDLE ? "idle" : "off"));
+        publish();
+    }
+
+    @Override public void onLinked() {}
+
+    // Popups
+
+    private PopupDriver.Request popupRequest(boolean preview, boolean island) {
+        HubBundles.State s = state;
+        String name = s.control.name;
+        if (name.isEmpty()) {
+            try { name = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(s.address).getAlias(); }
+            catch (RuntimeException unavailable) { name = null; }
+        }
+        PendingIntent target;
+        synchronized (this) { target = popupCredential; }
+        // A host restart forgets the app's credential; the settings page opens the same way.
+        if (target == null) target = PendingIntent.getActivity(context, 0, new Intent()
+            .setClassName(HubWire.APP, HubWire.APP + ".DeviceSettingsActivity").putExtra("device_address", s.address),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Map<Integer, Reading> r = s.readings;
+        int charging = (charging(r, 4) ? 1 : 0) | (charging(r, 2) ? 2 : 0) | (charging(r, 8) ? 4 : 0);
+        return new PopupDriver.Request(s.address, name == null || name.isEmpty() ? "AirPods" : name, s.control.model, s.product,
+            preview, island, s.controlAlive(), level(r, 4), level(r, 2), level(r, 8), charging, target);
+    }
+
+    private static int level(Map<Integer, Reading> readings, int component) {
+        Reading reading = readings.get(component);
+        return reading == null || reading.getLevel() == null ? -1 : reading.getLevel();
+    }
+
+    private static boolean charging(Map<Integer, Reading> readings, int component) {
+        Reading reading = readings.get(component);
+        return reading != null && reading.getLevel() != null && reading.getCharging();
+    }
+
     // State
 
-    private synchronized void publish() {
-        if (closed) return;
-        boolean bound = !address.isEmpty();
-        boolean replace = bound && preferences.getBoolean("popup_enabled", true) && preferences.getBoolean("native_popup", true);
-        HubBundles.State previous = state;
-        state = new HubBundles.State(address, ledger.getReadings(), previous.lid, preferences.getInt("panel_product", -1),
-            control, callback != null, replace, previous.scanMode,
-            previous.broadcasts, previous.trusted, previous.candidates, previous.matches);
-        handler.post(this::scheduleNotify);
+    private void publish() {
+        HubBundles.State next;
+        synchronized (this) {
+            if (closed) return;
+            boolean bound = !address.isEmpty();
+            boolean replace = bound && preferences.getBoolean("popup_enabled", true) && preferences.getBoolean("native_popup", true);
+            Boolean open = lid.open();
+            int lidState = open == null ? HubBundles.LID_UNKNOWN : open ? HubBundles.LID_OPEN : HubBundles.LID_CLOSED;
+            int model = product >= 0 ? product : preferences.getInt("panel_product", -1);
+            next = new HubBundles.State(address, ledger.getReadings(), lidState, model, control, callback != null, replace,
+                scan.mode(), parser.broadcasts, parser.trusted, parser.candidates, parser.matches);
+            state = next;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) scheduleNotify();
+        else main.post(this::scheduleNotify);
     }
 
     private void scheduleNotify() {
         if (notifyPending || closed) return;
         notifyPending = true;
-        handler.postDelayed(() -> {
+        main.postDelayed(() -> {
             notifyPending = false;
             HubBundles.State current = state;
             if (closed || current.sameContent(announced)) return;
@@ -183,9 +375,15 @@ final class HubHost extends Binder {
                 DiagnosticLog.w(TAG, "Hub change notice failed: " + consumer, error);
             }
         }
+        reader.changed();
+        widget.update(current);
+        callApp(HubWire.ON_STATE, current.toBundle());
+    }
+
+    private void callApp(int code, Bundle payload) {
         IBinder target;
         synchronized (this) { target = callback; }
-        if (target != null) send(target, HubWire.ON_STATE, current.toBundle());
+        if (target != null) send(target, code, payload);
     }
 
     /** Oneway, so a stuck app never holds the host's main thread. */
@@ -212,12 +410,15 @@ final class HubHost extends Binder {
         death = null;
     }
 
-    private synchronized void appDied(IBinder dead) {
-        if (closed || callback != dead) return;
-        unlinkCallback();
-        loseControl();
+    private void appDied(IBinder dead) {
+        synchronized (this) {
+            if (closed || callback != dead) return;
+            unlinkCallback();
+            loseControl();
+        }
         DiagnosticLog.i(TAG, "App left the hub");
         publish();
+        scan.refresh();
     }
 
     /** The control channel's readings start to age from now; its live fields no longer hold. */
@@ -231,6 +432,7 @@ final class HubHost extends Binder {
         address = next;
         keys.forgetUnless(next);
         ledger.clear();
+        product = -1;
         DiagnosticLog.i(TAG, "Hub bound to a new headset");
     }
 
@@ -271,6 +473,7 @@ final class HubHost extends Binder {
                     ledger.apply(next.batteries, true, true, SystemClock.elapsedRealtime());
                 }
                 publish();
+                scan.refresh();
                 return HubWire.OK;
             }
             case HubWire.PUSH_KEYS: {
@@ -282,6 +485,7 @@ final class HubHost extends Binder {
                     if (pushed.enc != null) keys.put(address, KeyVault.ENC, pushed.enc);
                 }
                 publish();
+                scan.refresh();
                 return HubWire.OK;
             }
             case HubWire.GET_STATE:
@@ -289,12 +493,15 @@ final class HubHost extends Binder {
                 return HubWire.OK;
             case HubWire.GET_DIAGNOSTICS:
                 response.putInt("scanMode", state.scanMode);
+                response.putInt("scanStarts", scan.starts());
                 response.putBundle("capabilities", new Bundle());
                 return HubWire.OK;
-            case HubWire.REQUEST_POPUP:
-                // The popup driver joins once the hub owns the lid.
-                response.putString("status", "unsupported");
-                return HubWire.FAILED;
+            case HubWire.REQUEST_POPUP: {
+                if (state.address.isEmpty()) return HubWire.FAILED;
+                PopupDriver.Request popup = popupRequest(request.getBoolean("preview"), request.getBoolean("island"));
+                response.putBoolean("shown", PopupDriver.show(context, popup));
+                return HubWire.OK;
+            }
             default:
                 return HubWire.FAILED;
         }
@@ -321,6 +528,7 @@ final class HubHost extends Binder {
             bind(hello.address);
         }
         publish();
+        scan.refresh();
         response.putAll(state.toBundle());
         DiagnosticLog.i(TAG, "App joined the hub");
         return HubWire.OK;

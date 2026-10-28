@@ -1,6 +1,7 @@
 package com.hyper.podsrx.device
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,8 +31,6 @@ import java.util.concurrent.atomic.AtomicLong
 @SuppressLint("MissingPermission")
 class ControlSession(private val context:Context,private val scope:CoroutineScope,private val listener:Listener) {
     interface Listener {
-        /** The channel stays closed until then, so a broadcast diagnosis hears the headset alone. */
-        fun pausedUntil():Long
         fun onOpened(wasReadback:Boolean)
         fun onEvent(event:Event,session:Long)
         fun onSpatialPacket(packet:ByteArray)
@@ -64,6 +64,33 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     })
 
     val isOpen:Boolean get()=socket!=null
+    /** Follows the ACL broadcasts; used where the stack cannot be asked. */
+    @Volatile private var linked=false
+
+    /** Whether HFP or A2DP is up on the current link; null until a link is seen coming up. */
+    @Volatile private var audio:Boolean?=null
+    @Volatile private var linkedAt=0L
+
+    /** The bound headset's ACL came up or went down. */
+    fun linkChanged(up:Boolean) {
+        linked=up
+        audio=false
+        if(!up)return
+        linkedAt=SystemClock.elapsedRealtime()
+        reconnect.trySend(Unit)
+        scope.launch{delay(AUDIO_WAIT_MS);reconnect.trySend(Unit)}
+    }
+
+    /** HFP or A2DP connected to the bound headset. */
+    fun audioConnected() { audio=true;reconnect.trySend(Unit) }
+
+    /**
+     * Opening the control channel without an ACL makes the phone page the headset. On a lid opening
+     * that page held up the headset's own connection and the audio profiles by about 10 s, and with
+     * the lid shut it paged for nothing; so the channel opens only on a link the headset made.
+     */
+    private fun linkUp(device:BluetoothDevice):Boolean =
+        runCatching{HiddenApiBypass.invoke(BluetoothDevice::class.java,device,"isConnected") as Boolean}.getOrDefault(linked)
 
     fun start() {
         scope.launch{sendLoop()}
@@ -190,12 +217,6 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
         var attempts=0
         var silentRetries=0
         while(scope.isActive) {
-            val pause=listener.pausedUntil()-SystemClock.elapsedRealtime()
-            if(pause>0){
-                DeviceRepository.update{it.copy(status="广播诊断中 · 暂缓控制连接")}
-                withTimeoutOrNull(pause.coerceAtMost(30000)){reconnect.receive()}
-                continue
-            }
             var current:BluetoothSocket?=null
             var watchdog:Job?=null
             val silent=AtomicBoolean(false)
@@ -203,7 +224,21 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 val adapter=context.getSystemService(BluetoothManager::class.java).adapter ?: throw IOException("蓝牙不可用")
                 if(!adapter.isEnabled)throw IOException("蓝牙已关闭")
                 val target=adapter.getRemoteDevice(DeviceRepository.state.value.address)
-                if(adapter.isDiscovering)adapter.cancelDiscovery()
+                if(!linkUp(target)){
+                    DeviceRepository.update{it.copy(status="等待耳机连接")}
+                    reconnect.receive()
+                    continue
+                }
+                // A channel opened before the audio profiles heard no settings for 5-20 s. A link
+                // whose audio never comes, such as one serving another phone, opens it anyway.
+                val audioWait=linkedAt+AUDIO_WAIT_MS-SystemClock.elapsedRealtime()
+                if(audio==false&&audioWait>0){
+                    DeviceRepository.update{it.copy(status="等待耳机音频连接")}
+                    withTimeoutOrNull(audioWait){reconnect.receive()}
+                    continue
+                }
+                // Needs BLUETOOTH_SCAN, which the app no longer asks for.
+                runCatching{if(adapter.isDiscovering)adapter.cancelDiscovery()}
                 DeviceRepository.update{
                     val refresh=it.controlRefreshUntil>SystemClock.elapsedRealtime()
                     it.copy(status="建立耳机控制连接…",connected=false,
@@ -293,5 +328,6 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     private companion object {
         const val SILENT_HANDSHAKE_MS=5000L
         const val SILENT_RETRIES=3
+        const val AUDIO_WAIT_MS=3000L
     }
 }
