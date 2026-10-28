@@ -318,4 +318,4 @@ App 服务仍存活、悬浮权限有效；控制通道重连失败，系统蓝�
 
 - 排查确认开盖广播与 AACP 控制链路均可建立，但此前原生提示适配拦截了 HyperOS 快连组件的 `CachedBluetoothDevice.connect(true)`，因此系统 A2DP/HFP profile 没有被拉起。
 - 真实开盖请求恢复系统 profile 连接；预览请求仍保持展示-only。超级岛路径也通过 `MiuiFastConnectService` 请求已绑定设备恢复 A2DP/HFP。
-- 用户在目标真机安装 `0.4.10-dev-device-test` 后确认：**开盖自动回连功能正常**。
+- 用户在版本升级前，已于目标真机安装包含此修复的 `0.4.9-dev-device-test` 并确认：**开盖自动回连功能正常**。本次以 0.4.10 发布相同修复及 PR #1 图标。
