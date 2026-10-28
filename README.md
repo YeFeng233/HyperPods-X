@@ -6,7 +6,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前版本是 **0.4.6 预览版**。
 
-[下载 Releases](https://github.com/NEORUAA/HyperPods-X/releases) · [构建记录](https://github.com/NEORUAA/HyperPods-X/actions/workflows/build-release.yml) · [真机测试记录](docs/TEST-REPORT.md)
+[下载 Releases](https://github.com/YeFeng233/HyperPods-X/releases) · [构建记录](https://github.com/YeFeng233/HyperPods-X/actions/workflows/build-release.yml) · [真机测试记录](docs/TEST-REPORT.md)
 
 <table>
   <tr><th>耳机设置</th><th>融合设备中心</th></tr>
@@ -48,7 +48,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 ## 安装与使用
 
-1. 从 [Releases](https://github.com/NEORUAA/HyperPods-X/releases) 下载 APK，先在系统蓝牙中配对耳机。当前发布的是经过 R8 优化的 `deviceTest` 预览包。
+1. 从 [Releases](https://github.com/YeFeng233/HyperPods-X/releases) 下载 APK，先在系统蓝牙中配对耳机。当前发布的是经过 R8 优化的 `deviceTest` 预览包。
 2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings`、“小米蓝牙” `com.xiaomi.bluetooth` 和“设备互联” `com.milink.service`。设备互联作用域用于自适应控制和空间音频按钮。更新模块后，重新启动对应宿主进程或重启手机。
 3. 打开应用，授予附近设备、精确位置和通知权限，并允许应用在后台运行。精确位置权限用于接收完整 BLE 广播。
 4. 点击“连接耳机”。之后可以从应用首页，或系统蓝牙 → 耳机详情 → “HyperPods-X 高级设置”进入。
