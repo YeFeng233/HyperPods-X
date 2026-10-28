@@ -103,6 +103,7 @@ android {
 }
 dependencies {
     implementation(project(":core:protocol"))
+    implementation(project(":core:wire"))
     implementation(project(":hook"))
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")

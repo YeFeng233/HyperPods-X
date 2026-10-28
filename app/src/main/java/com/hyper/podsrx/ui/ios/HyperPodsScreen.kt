@@ -407,7 +407,6 @@ private fun BatteryCircle(battery: BatteryPresentation, label: String, compact: 
         Text(if (compact) "$label ${battery.label}" else battery.label,
             style = if (compact) GlasmioTheme.textStyles.footnote else GlasmioTheme.textStyles.body,
             color = colors.secondaryContent, maxLines = 1)
-        if (battery.note == "上次更新") Text("上次更新", style = GlasmioTheme.textStyles.caption2, color = colors.tertiaryContent)
     }
 }
 

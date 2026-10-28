@@ -1,6 +1,6 @@
 package com.hyper.podsrx.ui
 
-import com.hyper.podsrx.device.Reading
+import com.hyper.podsrx.protocol.Reading
 import com.hyper.podsrx.device.SpatialState
 import com.hyper.podsrx.device.SpatialMode
 import com.hyper.podsrx.device.PodsState
@@ -59,12 +59,11 @@ internal fun batteryPresentation(reading: Reading?): BatteryPresentation {
         label = level?.let { "${if (reading.precise) "" else "≈"}$it%" } ?: "—",
         note = when {
             level == null -> "未读取"
-            !reading.current -> "上次更新"
             reading.charging -> "充电中"
             else -> ""
         },
         level = level,
-        charging = level != null && reading.current && reading.charging
+        charging = level != null && reading.charging
     )
 }
 

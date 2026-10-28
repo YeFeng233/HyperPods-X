@@ -98,20 +98,32 @@ final class NativePopupHost {
         DiagnosticLog.i("HyperPods-X", "Native headset popup bridge ready");
     }
 
-    /** The ROM's fast-connect service owns the privileged CachedBluetoothDevice path. */
+    /**
+     * The ROM's fast-connect service owns the privileged CachedBluetoothDevice path, but it only
+     * runs where the ROM enables that feature. Without it the stack connects the profiles itself.
+     */
     private static void reconnectProfiles(Context context,String address){
         if(!BluetoothAdapter.checkBluetoothAddress(address))return;
+        BluetoothDevice device=context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
         try{
             Class<?> serviceType=Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService",false,context.getClassLoader());
             Object service=serviceType.getMethod("getInstance").invoke(null);
-            if(service==null){DiagnosticLog.w("HyperPods-X","Fast-connect service is not ready for profile reconnect");return;}
-            BluetoothDevice device=context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
-            Object cached=serviceType.getMethod("getCachedDevice",BluetoothDevice.class).invoke(service,device);
-            if(cached==null){DiagnosticLog.w("HyperPods-X","Cached AirPods device is not ready for profile reconnect");return;}
-            cached.getClass().getMethod("connect",boolean.class).invoke(cached,true);
-            DiagnosticLog.i("HyperPods-X","Requested ROM A2DP/HFP reconnect for AirPods");
+            Object cached=service==null?null:serviceType.getMethod("getCachedDevice",BluetoothDevice.class).invoke(service,device);
+            if(cached!=null){
+                cached.getClass().getMethod("connect",boolean.class).invoke(cached,true);
+                DiagnosticLog.i("HyperPods-X","Requested ROM A2DP/HFP reconnect for AirPods");
+                return;
+            }
         }catch(ReflectiveOperationException|RuntimeException error){
             DiagnosticLog.w("HyperPods-X","ROM A2DP/HFP reconnect unavailable",error);
+        }
+        // An ACL the app opened for its control channel never brings the audio profiles with it;
+        // on 2509FPN0BC they followed about 30 s later. The host holds BLUETOOTH_PRIVILEGED.
+        try{
+            Object status=BluetoothDevice.class.getMethod("connect").invoke(device);
+            DiagnosticLog.i("HyperPods-X","Requested stack A2DP/HFP connect for AirPods: "+status);
+        }catch(ReflectiveOperationException|RuntimeException error){
+            DiagnosticLog.w("HyperPods-X","Stack A2DP/HFP connect unavailable",error);
         }
     }
 

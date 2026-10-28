@@ -12,15 +12,18 @@ import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.LogRedactor
 import androidx.core.content.ContextCompat
 import com.hyper.podsrx.hook.HeadsetModels
+import com.hyper.podsrx.hook.HubBundles
 import com.hyper.podsrx.protocol.Battery
+import com.hyper.podsrx.protocol.BatteryLedger
 import com.hyper.podsrx.protocol.Event
+import com.hyper.podsrx.protocol.Reading
+import com.hyper.podsrx.protocol.content
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
 import java.io.File
 
-data class Reading(val level: Int?, val charging: Boolean, val precise: Boolean, val updated: Long, val current: Boolean)
 data class PodsState(
     val name: String = "AirPods", val address: String = "", val model: String = "", val firmware: String = "",
     val status: String = "准备连接耳机", val connected: Boolean = false, val running: Boolean = false,
@@ -44,6 +47,8 @@ data class PodsState(
     ,val adaptiveTarget:Int?=null
     ,val controlRefreshUntil:Long=0L
     ,val product:Int=-1
+    ,val hub:HubBundles.State?=null
+    ,val hubStatus:String="状态中心未连接"
 ) {
     val displayName:String get()=localName.ifBlank{name}
     val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
@@ -61,13 +66,8 @@ object DeviceRepository {
         val p = app.getSharedPreferences("app", Context.MODE_PRIVATE)
         update { it.copy(address = p.getString("address", "")!!, name = p.getString("name", "AirPods")!!,
             popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),nativePopup=p.getBoolean("nativePopup",true),product=p.getInt("product",-1)) }
-        val history=app.getSharedPreferences("battery_history",0)
-        if(history.getString("address",null)==state.value.address){
-            val last=mutableMapOf<Int,Reading>()
-            for(id in listOf(2,4,8))if(history.contains("level_$id"))last[id]=Reading(history.getInt("level_$id",0),false,
-                history.getBoolean("precise_$id",false),history.getLong("updated_$id",0),false)
-            update{it.copy(batteries=last)}
-        }
+        // The case advertises its status even with the lid closed, so readings are never restored from disk.
+        app.deleteSharedPreferences("battery_history")
     }
     fun update(block: (PodsState) -> PodsState) { mutable.update(block) }
     fun message(text: String) { update { it.copy(message = text) }; log(text);saveDiagnostics() }
@@ -151,28 +151,36 @@ object DeviceRepository {
         app.getSharedPreferences("app",0).edit().putBoolean("earAutomation",enabled).apply(); update{it.copy(earAutomation=enabled)}
         PodsService.earAutomationChanged()
     }
-    fun batteries(values:List<Battery>, precise:Boolean, current:Boolean=true) {
+    /** Merges by the rules shared with the Bluetooth host; see [BatteryLedger.merged]. */
+    fun batteries(values:List<Battery>, precise:Boolean, control:Boolean=false) {
         val now=System.currentTimeMillis()
+        var changed=false
         update { s ->
-            val result=s.batteries.toMutableMap()
-            for(b in values) {
-                val old=result[b.component]
-                if(b.level!=null) {
-                    // A recent precise control report wins over a coarse advertisement.
-                    if (!precise && old?.precise==true && now-old.updated<30000) continue
-                    result[b.component]=Reading(b.level,b.charging,precise,now,current && b.connected)
-                } else if(old!=null) result[b.component]=old.copy(current=false)
-            }
+            val result=BatteryLedger.merged(s.batteries,values,precise,control,now)
+            changed=result.content()!=s.batteries.content()
             s.copy(batteries=result)
         }
-        val editor=app.getSharedPreferences("battery_history",0).edit().putString("address",state.value.address)
-        for((id,b)in state.value.batteries)if(b.level!=null){editor.putInt("level_$id",b.level).putBoolean("precise_$id",b.precise).putLong("updated_$id",b.updated)}
-        editor.apply()
-        FrameworkBridge.publish(); saveDiagnostics()
+        // A repeat only refreshes the times; the control bridge's heartbeat keeps the hosts current.
+        if(changed){FrameworkBridge.publish(); saveDiagnostics()}
+    }
+    /**
+     * Drops readings nothing has refreshed within [maxAgeMs]; returns whether any were dropped. The
+     * control channel reports only changes, so its readings count as fresh until [controlFreshAt].
+     */
+    fun expireBatteries(maxAgeMs:Long, controlFreshAt:Long):Boolean {
+        val now=System.currentTimeMillis()
+        var expired=false
+        update { s ->
+            val kept=BatteryLedger.kept(s.batteries,maxAgeMs,controlFreshAt,now)
+            expired=kept.size!=s.batteries.size
+            if(expired)s.copy(batteries=kept) else s
+        }
+        if(expired){FrameworkBridge.publish();saveDiagnostics()}
+        return expired
     }
     fun batterySummary():String = listOf(4 to "左",2 to "右",8 to "盒").joinToString(" · ") { (id,label) ->
         val b=state.value.batteries[id]
-        "$label ${b?.level?.let { "${if(b.precise) "" else "约"}$it%${if(b.current) "" else "（上次）"}" } ?: "—"}"
+        "$label ${b?.level?.let { "${if(b.precise) "" else "约"}$it%" } ?: "—"}"
     }
     fun diagnosticSnapshot(): JSONObject {
         val s=state.value
@@ -191,7 +199,14 @@ object DeviceRepository {
                 .put("pending",s.pending.joinToString(",")).put("message",s.message).put("log",s.log.joinToString("\n"))
                 .put("adaptiveTarget",s.adaptiveTarget)
                 .put("controlRefreshUntil",s.controlRefreshUntil)
+                .put("hubStatus",s.hubStatus).put("hub",s.hub?.let{hubDiagnostic(it)})
     }
+    /** What the hub holds, side by side with the app's own readings while both paths run. */
+    private fun hubDiagnostic(h:HubBundles.State):JSONObject = JSONObject()
+        .put("appAlive",h.appAlive).put("controlConnected",h.control.connected).put("replaceSystemPopup",h.replaceSystemPopup)
+        .put("lid",h.lid).put("product",h.product).put("scanMode",h.scanMode)
+        .put("batteries",h.readings.entries.joinToString(" "){(id,r)->"$id:${r.level}${if(r.charging)"+" else ""}${if(r.control)"c" else ""}"})
+        .put("broadcasts",h.broadcasts).put("trusted",h.trusted).put("candidates",h.candidates).put("matches",h.matches)
     @Synchronized fun saveDiagnostics() {
         runCatching {
             val json=diagnosticSnapshot()

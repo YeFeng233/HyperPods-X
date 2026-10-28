@@ -22,7 +22,7 @@ import java.util.Map;
  * without the batch-scan report delay, while the module's own scan keeps the radio listening.
  */
 final class LidRelayHost {
-    private static final String PROVIDER = "com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider";
+    static final String PROVIDER ="com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider";
     private static boolean relayed;
 
     static void install(HyperPodsModule module, ClassLoader loader, SharedPreferences preferences) throws Exception {

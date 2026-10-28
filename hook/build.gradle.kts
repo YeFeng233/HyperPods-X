@@ -8,4 +8,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 }
-dependencies { compileOnly("io.github.libxposed:api:102.0.0") }
+dependencies {
+    compileOnly("io.github.libxposed:api:102.0.0")
+    implementation(project(":core:wire"))
+    // The module runs from the app's APK, whose dex already carries these and the Kotlin stdlib.
+    implementation(project(":core:protocol"))
+}

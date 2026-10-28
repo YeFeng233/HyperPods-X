@@ -30,17 +30,22 @@ object FrameworkBridge {
         // establish which physical side is wearing the earbud.
         val wearCount = s.wearing?.inEarCount ?: -1
         val sideWearing = when (wearCount) { 0 -> 0; 2 -> 1; else -> -1 }
+        val widget = WidgetBridge.slots(s)
         runCatching {
             service?.getRemotePreferences("device_state")?.edit()
                 ?.putString("address", s.address)
                 ?.putString("summary", DeviceRepository.batterySummary())
                 ?.putLong("updated",System.currentTimeMillis())
                 ?.putBoolean("native_connected",s.connected)
-                ?.putInt("native_left",s.batteries[4]?.takeIf{it.current}?.level?:-1)
-                ?.putInt("native_right",s.batteries[2]?.takeIf{it.current}?.level?:-1)
-                ?.putInt("native_box",s.batteries[8]?.takeIf{it.current}?.level?:-1)
+                ?.putInt("native_left",s.batteries[4]?.level?:-1)
+                ?.putInt("native_right",s.batteries[2]?.level?:-1)
+                ?.putInt("native_box",s.batteries[8]?.level?:-1)
                 ?.putInt("native_box_history",s.batteries[8]?.level?:-1)
-                ?.putInt("native_charging",listOf(4 to 1,2 to 2,8 to 4).sumOf{(id,mask)->if(s.batteries[id]?.let{it.current&&it.charging}==true)mask else 0})
+                ?.putInt("native_charging",listOf(4 to 1,2 to 2,8 to 4).sumOf{(id,mask)->if(s.batteries[id]?.charging==true)mask else 0})
+                ?.putInt("widget_headset",widget.headset)
+                ?.putInt("widget_case",widget.case)
+                ?.putBoolean("widget_case_charging",widget.charging)
+                ?.putLong("widget_seq",widget.sequence)
                 ?.putString("panel_model", s.model)
                 ?.putInt("panel_product", s.product)
                 ?.putInt("panel_anc", s.controls[0x0d]?.firstOrNull() ?: 0)
@@ -59,12 +64,16 @@ object FrameworkBridge {
                 ?.putInt("panel_right_wearing", sideWearing)
                 ?.putLong("panel_heartbeat", SystemClock.elapsedRealtime())
                 ?.putBoolean("replace_system_popup",s.running&&s.popupEnabled&&s.nativePopup)
+                // Configuration the state hub decides from, without needing the app alive.
+                ?.putBoolean("popup_enabled",s.popupEnabled)
+                ?.putBoolean("native_popup",s.nativePopup)
                 ?.putBoolean("enabled", true)?.apply()
         }
+        WidgetBridge.deliver(widget)
     }
     fun requestNativeScope() {
         val bound = service ?: return DeviceRepository.message("请先在 LSPosed 中启用 HyperPods-X")
-        bound.requestScope(listOf("com.android.settings","com.xiaomi.bluetooth","com.milink.service"),object:XposedService.OnScopeEventListener{
+        bound.requestScope(listOf("com.android.settings","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
             override fun onScopeRequestApproved(approved:MutableList<String>){
                 DeviceRepository.message("作用域已授权，正在检查宿主加载状态")
                 HostReloadCoordinator.onScopeApproved(bound, approved)

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.SystemClock
 import com.hyper.podsrx.hook.HeadsetModels
 import com.hyper.podsrx.hook.NativeControlWire
+import com.hyper.podsrx.protocol.content
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,7 +34,7 @@ class NativeControlBridge(context: Context) {
     init {
         scope.launch {
             DeviceRepository.state.map {
-                listOf(it.address, it.model, it.connected, it.running, it.batteries,
+                listOf(it.address, it.model, it.connected, it.running, it.batteries.content(),
                     it.controls[0x0d], 0x0d in it.pending, it.controls[0x0a],
                     it.controls[0x1b], it.controls[0x34], it.spatial.mode, it.spatial.modeChanging,
                     it.spatial.bridge, it.spatial.capable, it.spatial.route, it.wearing, it.controlRefreshUntil)

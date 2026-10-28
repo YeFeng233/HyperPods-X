@@ -292,7 +292,7 @@ private fun BatterySettings(state: PodsState) {
     Section(state.headset.name) {
         listOf(4 to "左 AirPod", 2 to "右 AirPod", 8 to "充电盒").forEachIndexed { index, (id, title) ->
             val battery = batteryPresentation(state.batteries[id])
-            GlasmioListRow(title = title, subtitle = battery.note.takeIf { it == "充电中" || it == "上次更新" },
+            GlasmioListRow(title = title, subtitle = battery.note.takeIf { it == "充电中" },
                 detail = battery.label, showTopSeparator = index > 0,
                 trailing = { BatteryGlyph(battery) })
         }
@@ -324,7 +324,7 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
     item("systemIntegration") {
         val hostRestart by HostRestartCoordinator.state.collectAsState()
         Section("系统集成") {
-            RowItem("系统原生适配", "在 LSPosed 中授权系统设置、小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
+            RowItem("系统原生适配", "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
             RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
                 enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
             RowItem("悬浮显示权限", action = onOverlay)

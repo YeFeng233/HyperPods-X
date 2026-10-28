@@ -93,6 +93,15 @@ public final class HyperPodsModule extends XposedModule {
             catch (Throwable error) { installationFailure("Native headset settings entry", error); }
             return;
         }
+        if (pkg.equals("com.miui.securitycenter")) {
+            // The battery widget's provider lives in its own process.
+            if (!processName.equals(pkg + ".remote")) return;
+            installDiagnosticBridge();
+            preferences = getRemotePreferences("device_state");
+            try { WidgetBatteryHost.install(this, loader, preferences); }
+            catch (Throwable error) { installationFailure("Widget headset battery", error); }
+            return;
+        }
         if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
@@ -153,6 +162,8 @@ public final class HyperPodsModule extends XposedModule {
             NativePopupHost.install(host);
             try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); }
             catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
+            try { HubHost.install(this, host, preferences); }
+            catch (Throwable error) { installationFailure("State hub", error); }
             try { LidRelayHost.install(this, host.getClassLoader(), preferences); }
             catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
             try { NativeControlHost.install(this, host, preferences); }
@@ -161,6 +172,8 @@ public final class HyperPodsModule extends XposedModule {
             catch (Throwable error) { installationFailure("Spatial bridge", error); }
             try { ConversationAudioHost.install(host, preferences); }
             catch (Throwable error) { installationFailure("Conversation bridge", error); }
+            try { WidgetRelayHost.install(host, preferences); }
+            catch (Throwable error) { installationFailure("Widget battery relay", error); }
         } else {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
@@ -274,9 +287,7 @@ public final class HyperPodsModule extends XposedModule {
         if (preference == null || preferences == null) return;
         try {
             String summary = preferences.getString("summary", "查看耳机电量与高级设置");
-            if (System.currentTimeMillis() - preferences.getLong("updated", 0) > 60000) summary = "上次读取 · " + summary;
-            preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference,
-                    summary);
+            preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference, summary);
         } catch (Throwable ignored) { /* a destroyed settings page is harmless */ }
     }
     private static Object call(Object target, String name) throws Exception { return target.getClass().getMethod(name).invoke(target); }
