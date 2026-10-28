@@ -190,7 +190,12 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         DeviceRepository.update{it.copy(hubStatus=status)}
         val wait=backoffMs
         backoffMs=(backoffMs*2).coerceAtMost(MAX_BACKOFF_MS)
-        retry=scope.launch{delay(wait);connect()}
+        retry=scope.launch{
+            delay(wait)
+            // connect() cancels any pending retry; this attempt is already running.
+            retry=null
+            connect()
+        }
     }
 
     private fun drop() {

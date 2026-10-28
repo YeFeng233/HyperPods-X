@@ -48,7 +48,11 @@ def main():
         raise ValueError("APK version does not match the source")
 
     totals = dict(tests=0, failures=0, errors=0, skipped=0)
-    for results in (root / "app/build/test-results/testDebugUnitTest", root / "core/protocol/build/test-results/test"):
+    for results in (
+        root / "app/build/test-results/testDebugUnitTest",
+        root / "core/protocol/build/test-results/test",
+        root / "core/wire/build/test-results/testDebugUnitTest",
+    ):
         suites = list(results.glob("TEST-*.xml"))
         if not suites:
             raise ValueError(f"Test reports missing: {results.relative_to(root)}")

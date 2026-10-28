@@ -1,10 +1,10 @@
 # 构建与发布
 
-在 GitHub 的 Actions 中选择 **Build and release**，点击 **Run workflow**，填写与应用版本对应的标签，例如 `v0.4.6`。
+在 GitHub 的 Actions 中选择 **Build and release**，点击 **Run workflow**，填写与应用版本对应的标签，例如 `v0.5.0`。
 
 只想检查和打包时，保留 `publish_release=false`；构建完成后，从该次运行的 Artifacts 下载。需要发布时，启用 `publish_release`。预览版本保留 `prerelease=true`。
 
-工作流会安装 JDK 21、Android SDK Platform 37.0 与 Build Tools 37.0.0，执行 `scripts/prepare-ui.py --fonts` 准备固定提交的 Glasmio 源码和经过摘要校验的 SFWindows 字体，然后运行 App 测试、协议测试、Android lint 和经过 R8 优化的 `deviceTest` 构建。Glasmio 原生渲染需要 NDK 27.1.12297006 与 CMake 3.22.1，由 Android 构建工具按需安装。任何一项失败都不会发布。通过后先创建草稿，上传文件，最后发布 Release。
+工作流会安装 JDK 21、Android SDK Platform 37.0 与 Build Tools 37.0.0，执行 `scripts/prepare-ui.py --fonts` 准备固定提交的 Glasmio 源码和经过摘要校验的 SFWindows 字体，然后运行 App 测试、协议测试、`core:wire` 通信测试、Android lint 和经过 R8 优化的 `deviceTest` 构建。Glasmio 原生渲染需要 NDK 27.1.12297006 与 CMake 3.22.1，由 Android 构建工具按需安装。任何一项失败都不会发布，打包时会核对三个模块的测试报告。通过后先创建草稿，上传文件，最后发布 Release。
 
 ## 签名
 

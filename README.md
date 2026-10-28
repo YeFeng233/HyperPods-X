@@ -4,7 +4,9 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；点击系统蓝牙列表中耳机卡片右侧的箭头，可以直接打开耳机设置；听音乐时，可以选择固定空间音频，也可以让真实的耳机姿态参与头部追踪。电量、聆听模式、入耳检测和常用设置，可以使用熟悉的 miuix 界面，也可以切换到新增的 iOS 界面。
 
-这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.4.10 预览版**，已发布安装包请查看 Releases。
+这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5 / AirPods Pro 3** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.5.0 预览版**，已发布安装包请查看 Releases。
+
+> **0.5.0 是重大升级。** 蓝牙扫描、开合盖检测、原生弹窗、超级岛和电量状态迁入小米蓝牙宿主中的状态中心，新增 `core/wire` 通信模块，依赖关系与模块生命周期均有调整。**建议 fork 项目停留在 `0.4.10-r1`（Git 标签 `v0.4.10-r1`）**；计划跟进新架构时，请先阅读 [0.5.0 发布说明](docs/releases/v0.5.0.md)和[宿主状态中心迁移计划](docs/HOST-HUB-MIGRATION-PLAN.md)，完成适配与回归后再合并。
 
 [下载 Releases](https://github.com/YeFeng233/HyperPods-X/releases) · [构建记录](https://github.com/YeFeng233/HyperPods-X/actions/workflows/build-release.yml) · [真机测试记录](docs/TEST-REPORT.md)
 
@@ -12,7 +14,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 **两种界面，随时切换。** “更多设置 → 外观”的开关关闭时为 **miuix风格**，开启时为 **iOS风格**。首次安装与旧版本升级默认沿用 miuix；选择会在重启后保存。iOS 设计由 NEORUAA 的 PR #1 引入，使用 Glasmio 和 SF Pro。两种界面共用耳机设置、连接状态和校准，系统蓝牙入口也会打开选中的风格。
 
-**开盖就能看到耳机。** 模块会识别已绑定耳机的开盖广播，在桌面调用 HyperOS 自带的底部耳机弹窗；合上充电盒时弹窗随即收回，再次打开会重新弹出。在其他应用前台，超级岛左右两侧分别展示对应的单耳图片和电量百分比。底部弹窗和 App 可查看左右耳与充电盒电量；暂时没有新数据时会标明历史状态，超级岛中的未知电量显示“—”。
+**开盖就能看到耳机。** 模块会识别已绑定耳机的开盖广播，在桌面调用 HyperOS 自带的底部耳机弹窗；合上充电盒时弹窗随即收回，再次打开会重新弹出。在其他应用前台，超级岛左右两侧分别展示对应的单耳图片和电量百分比。底部弹窗和 App 可查看左右耳与充电盒电量；没有有效读数或超过状态中心保留时限时显示未知，超级岛中的未知电量显示“—”。
 
 **设置入口也在系统蓝牙里。** 点击蓝牙列表中已绑定 AirPods 卡片右侧的箭头，可以直接进入 HyperPods-X 耳机设置。模块内的“音频与设备权限”仍能打开系统设备详情，管理配对、重命名、AAC、音量同步和通话权限。系统设备详情也保留“HyperPods-X 高级设置”入口；其他蓝牙设备继续使用自己的页面。
 
@@ -43,8 +45,8 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 ## 安装与使用
 
 1. 从 [Releases](https://github.com/YeFeng233/HyperPods-X/releases) 下载 APK，先在系统蓝牙中配对耳机。当前发布的是经过 R8 优化的 `deviceTest` 预览包。
-2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings` 、“小米蓝牙” `com.xiaomi.bluetooth` 和“设备互联” `com.milink.service`。首次启用或从不支持热重载的旧版升级时，重新启动对应宿主进程或重启手机；后续更新由支持热重载的 API 102 框架自动更新已注入宿主，失败时查看导出日志中的 `HyperPods-Reload`。
-3. 打开应用，授予附近设备、精确位置和通知权限，并允许应用在后台运行。精确位置权限用于接收完整 BLE 广播。
+2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings` 、“小米蓝牙” `com.xiaomi.bluetooth` 、“设备互联” `com.milink.service` 和“手机管家” `com.miui.securitycenter`。**从 0.4.x 升级至 0.5.0 后，请重新检查作用域并重启手机**，确保新的状态中心和电量组件已加载；后续同架构更新可由支持热重载的 API 102 框架更新已注入宿主，失败时查看导出日志中的 `HyperPods-Reload`。
+3. 打开应用，授予附近设备和通知权限，并允许应用在后台运行，以维持 AACP 控制、入耳联动与空间音频。BLE 扫描和开合盖检测由小米蓝牙宿主负责，应用不再请求位置和扫描权限。
 4. 点击“连接耳机”。之后可以从应用首页，或系统蓝牙 → 已绑定 AirPods 卡片右侧箭头进入耳机设置。设备详情中的“HyperPods-X 高级设置”入口也会保留。
 5. 在“更多设置”中管理开盖弹窗、超级岛、电量卡片和连接诊断。系统原生通道不可用时，兼容电量卡片需要悬浮显示权限。
 
@@ -62,7 +64,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 ```bash
 python scripts/prepare-ui.py --fonts
-./gradlew :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
+./gradlew :app:testDebugUnitTest :core:protocol:test :core:wire:testDebugUnitTest :app:lintDebug :app:assembleDeviceTest
 ```
 
 Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceTest/`。项目使用 Gradle Wrapper，并锁定 Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.21 和 Miuix 0.9.4。Glasmio 使用源码 composite build，需要 NDK 27.1.12297006、CMake 3.22.1；字体也可省略并回退到系统字体，详见[双界面构建说明](docs/UI-STYLES.md)。
@@ -73,7 +75,7 @@ Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceT
 
 ## 项目结构与数据
 
-`app` 负责耳机连接、设置界面、电量、弹窗和媒体联动；`hook` 负责系统蓝牙入口、原生界面和空间音频桥接；`core/protocol` 包含不依赖 Android 的协议解析、广播验证、姿态解码和状态策略。设计、适配与实测记录放在 `docs` 中。
+`app` 负责 AACP 控制连接、设置界面与媒体联动；`hook` 中的小米蓝牙宿主状态中心负责 BLE 扫描、电量合并、开合盖检测、原生弹窗、超级岛和小组件，其他宿主负责系统入口、控制面板和空间音频桥接；`core/protocol` 包含不依赖 Android 的协议解析、广播验证、姿态解码和状态策略；`core/wire` 定义应用与宿主共用的 Binder 通信协议。设计、适配与实测记录放在 `docs` 中。
 
 应用不申请互联网权限。耳机身份材料保存在本机，并使用 Android Keystore 加密。设备抓包、系统 APK、反编译资料、个人诊断、签名文件和开发环境不会进入仓库或源码包。
 

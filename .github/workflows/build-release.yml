@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag, matching the app version and release notes
         required: true
-        default: v0.4.10
+        default: v0.5.0
         type: string
       publish_release:
         description: Publish the verified files to GitHub Releases
@@ -86,7 +86,8 @@ jobs:
         shell: bash
         run: |
           ./gradlew --no-daemon --console=plain -Dorg.gradle.workers.max=2 \
-            :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
+            :app:testDebugUnitTest :core:protocol:test :core:wire:testDebugUnitTest \
+            :app:lintDebug :app:assembleDeviceTest
 
       - name: Verify the APK and package the release
         shell: bash
@@ -115,6 +116,10 @@ jobs:
         run: |
           set -euo pipefail
           notes="docs/releases/$RELEASE_TAG.md"
+          title=$(sed -n '1s/^## //p' "$notes")
+          if [ -z "$title" ]; then
+            title="HyperPods-X $RELEASE_TAG"
+          fi
           if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > "$RUNNER_TEMP/release-state.json" 2>/dev/null; then
             jq -e --arg commit "$GITHUB_SHA" '.isDraft == true and .targetCommitish == $commit' \
               "$RUNNER_TEMP/release-state.json" > /dev/null || {
@@ -123,9 +128,9 @@ jobs:
               }
           else
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft \
-              --title "HyperPods-X $RELEASE_TAG" --notes-file "$notes" --prerelease="$PRERELEASE"
+              --title "$title" --notes-file "$notes" --prerelease="$PRERELEASE"
           fi
           gh release upload "$RELEASE_TAG" dist/github-release/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE" \
-            --title "HyperPods-X $RELEASE_TAG" --notes-file "$notes"
+            --title "$title" --notes-file "$notes"
           gh release view "$RELEASE_TAG" --json url --jq .url
