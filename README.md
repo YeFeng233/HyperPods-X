@@ -4,7 +4,7 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；点击系统蓝牙列表中耳机卡片右侧的箭头，可以直接打开耳机设置；听音乐时，可以选择固定空间音频，也可以让真实的耳机姿态参与头部追踪。电量、聆听模式、入耳检测和常用设置，可以使用熟悉的 miuix 界面，也可以切换到新增的 iOS 界面。
 
-这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.4.9 预览版**，已发布安装包请查看 Releases。
+这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.4.10 预览版**，已发布安装包请查看 Releases。
 
 [下载 Releases](https://github.com/YeFeng233/HyperPods-X/releases) · [构建记录](https://github.com/YeFeng233/HyperPods-X/actions/workflows/build-release.yml) · [真机测试记录](docs/TEST-REPORT.md)
 

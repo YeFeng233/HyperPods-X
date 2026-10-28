@@ -16,6 +16,9 @@ on:
         description: Mark this version as a preview
         default: true
         type: boolean
+  push:
+    tags:
+      - 'v0.4.10'
 
 permissions:
   contents: write
@@ -29,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || 'v0.4.10' }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,7 +107,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release
-        if: ${{ inputs.publish_release }}
+        if: ${{ github.event_name == 'push' || inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ inputs.prerelease }}
