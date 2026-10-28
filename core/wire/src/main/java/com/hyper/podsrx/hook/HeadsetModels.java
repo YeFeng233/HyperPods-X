@@ -1,6 +1,9 @@
 package com.hyper.podsrx.hook;
 
-/** Product identity shared by the app and the scoped system hosts. */
+/**
+ * Product identity shared by the app and the scoped system hosts.
+ * Model numbers: https://support.apple.com/en-us/109525 (checked 2026-10-29).
+ */
 public final class HeadsetModels {
     private HeadsetModels() {}
 
@@ -32,7 +35,8 @@ public final class HeadsetModels {
      */
     public static Model of(String model, int product) {
         if (model != null) switch (model) {
-            case "A3439", "A3440", "A3441" -> { return AIRPODS_5; }
+            case "A3531", "A3532", "A3533", // AirPods 5
+                 "A3439", "A3440", "A3441" -> { return AIRPODS_5; } // Wireless Charging Case variant
             case "A3063", "A3064", "A3065" -> { return AIRPODS_PRO_3; }
             default -> { }
         }
