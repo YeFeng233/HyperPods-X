@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag, matching the app version and release notes
         required: true
-        default: v0.4.8
+        default: v0.4.9
         type: string
       publish_release:
         description: Publish the verified files to GitHub Releases
@@ -53,6 +53,9 @@ jobs:
           set -o pipefail
           "$sdkmanager" --install 'platforms;android-37.0' 'build-tools;37.0.0'
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: Prepare pinned iOS UI source and fonts
+        run: python3 scripts/prepare-ui.py --fonts
 
       - name: Restore the project test signing identity
         env:

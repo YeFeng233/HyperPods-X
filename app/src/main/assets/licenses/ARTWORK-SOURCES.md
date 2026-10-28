@@ -29,4 +29,21 @@ https://support.apple.com/en-ie/109525
 
 ## 0.4.7 超级岛单耳资源
 
-`airpods5_left.png`（132 × 219）和 `airpods5_right.png`（131 × 219）由构建任务从上述透明双耳原图裁切生成，分别使用区域 `(1, 0, 132, 219)` 与 `(158, 0, 131, 219)`。保留原始像素及透明度，不缩放、不重绘；完整双耳原文件不变。单耳资源沿用原素材的来源和权利说明，供系统超级岛分别展示左右耳。
+- `:app:generateIslandEarbuds` 在构建时读取上述 `airpods5_pair.png`，沿中央透明间隔分离左右耳，按非透明像素的横向边界裁切，保留 219 像素高度，不缩放、不重绘。
+- 左耳裁切区域 `(1, 0, 132, 219)`，输出 `airpods5_left.png`；右耳区域 `(158, 0, 131, 219)`，输出 `airpods5_right.png`。
+- 输出位于 `app/build/generated/res/island-earbuds/drawable-nodpi/`，由 Android 资源管线自动打包；完整双耳原文件不变。单耳图片仍沿用原素材的权利说明。
+- 本地左耳 PNG SHA-256：`2bffb5e17064db07f9cf5e1de58c6b3bc0f90d774eae1b6ca0a3165acbf07b7e`。
+- 本地右耳 PNG SHA-256：`90b75531d4ab9fa191daebfdd35ab88c280b9e180c75110b5f7824f57cc2eb31`。
+
+## iOS 界面素材（PR #1）
+
+以下聆听模式 PNG 由 NEORUAA 的 HyperPods-X PR #1 提供，源提交 `ae9fa5ec8028e94e0dbbf8243228387756edd78e`。PR 作者的素材说明记录为 iOS 27.0 Simulator（24A434）中的 HeadphoneConfigs / CoreGlyphsPrivate 图标。本次整合直接复用 PR 文件，没有在本机重新提取模拟器资源。这些 Apple 素材保留独立版权，不属于项目 GPL 代码授权。
+
+| 文件 | SHA-256 |
+| --- | --- |
+| listening_off.png | `9e0134932b97c94d2513559833a88dbc1dd56590cc63afa9910354b25c1aaf17` |
+| listening_transparency.png | `bfd7056034d5a69fd7fa4ad71575c3f390b083d1d7fc474766e60b5b04dcd0c7` |
+| listening_anc.png | `29e3ef950298e0599d217b57d164b1452aaa3cc271ee076f815ce384c2e3d7c0` |
+| listening_adaptive.png | `8286ad51be85a13c1799ab7ac6ce08378a39ec964ee2185025b43682fab4e1ed` |
+
+iOS 界面的 SF Pro 字体按用户提供的 SFWindows v27.0.1789118100 获取，下载来源为该固定标签下的 SF Pro 常规体与斜体。字体属于 Apple 的独立专有授权；SFWindows 仓库的 MIT 声明不覆盖字体二进制。字体存放于本机忽略目录，仅通过构建任务进入生成的 APK assets，不写入 Git 或源码 ZIP。构建输入摘要与无字体回退方法见 `docs/UI-STYLES.md`。

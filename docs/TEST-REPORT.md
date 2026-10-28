@@ -292,3 +292,12 @@ App 服务仍存活、悬浮权限有效；控制通道重连失败，系统蓝�
 - App **31 项**与协议 **67 项**测试通过，共 **98 项，0 失败、0 错误**；Android lint **0 错误、18 条既有提醒**。R8 优化 APK 的 v2 签名验证通过，证书与之前安装包一致。
 - 已安装 `0.4.8-dev-device-test` / code 14。归档 `dist/HyperPods-X-0.4.8-device-test.apk`，大小 **2,464,053 字节**，SHA-256 `5b7eb751d216872bb39619852957f0dd76c12cb9a6af8aaa407e05e3ec6803fc`，与手机实际安装文件一致。
 - 头追校准 SHA-256 仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`，与安装前一致。入口与系统详情截图分别保存在本机 `.device/bt-airpods-direct-v048.png`、`.device/bt-system-details-v048.png`；系统 APK、设备 UI 和诊断文件不进入仓库。
+
+## 0.4.9 可切换的 miuix 与 iOS 界面（2026-10-28）
+
+- 将 NEORUAA PR #1 的 Glasmio 设置界面放入独立的 `ui/ios/`，原 miuix 页面继续保留。更多设置的外观开关关闭为“miuix风格”、开启为“iOS风格”；升级安装首次仍为 miuix。所选样式写入独立的 `appearance` 偏好。
+- 真机确认 miuix → iOS → miuix → iOS 可往返切换，切换后停留在更多设置。等待切换完成后结束进程并重新启动，iOS 样式正确恢复。SFWindows 固定版本的 SF Pro 常规和斜体均已打入 APK，中文字形、SF 图标与导航显示正常。
+- 检查 iOS 首页、更多设置、电池、音频与路径、空间音频页面。电池页保留左耳、右耳和充电盒，离线数据标记“上次更新”；空间音频保留关闭、固定、头部追踪及三轴校准入口。`DeviceSettingsActivity` 外部设置入口也采用已选 iOS 样式。
+- 本轮 AirPods 未连接，没有执行耳机参数写入或音频试听。头追校准文件 SHA-256 与安装前相同，仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`。本次整合范围为 App UI；系统弹窗、超级岛和蓝牙快捷入口沿用既有实现，PR 中另附的 Fusion 控制面板未整合。
+- App **56 项**与协议 **67 项**测试通过，共 **123 项，0 失败、0 错误**；Android lint **0 错误、17 条提醒**。最终源码再次执行增量检查通过，R8 优化 APK 签名与既有安装一致。首次并行 composite 构建出现等待后改为串行构建，完整构建与后续增量构建均成功。
+- 已安装 `0.4.9-dev-device-test` / code 15。安装包 **47,130,787 字节**，SHA-256 为 `8413a25ff2125437ebec18199f830d921e0b7d100ef87dd807dccf4cbd002650`。字体与 Glasmio 版本、下载校验和复现步骤见 [UI-STYLES.md](UI-STYLES.md)。界面截图与设备诊断留在忽略的 `.device/`，不加入公开源码。

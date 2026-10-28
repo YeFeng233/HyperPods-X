@@ -2,6 +2,25 @@
 
 HyperPods-X is distributed under GPL-3.0-or-later. The complete license is in `LICENSE`.
 
+The optional iOS settings interface is adapted from NEORUAA/HyperPods-X PR #1,
+commit `ae9fa5ec8028e94e0dbbf8243228387756edd78e`, under GPL-3.0-or-later.
+It includes the iOS pages, listening-control state handling, media-volume controller,
+Bluetooth-alias editor and associated listening-control tests. The existing Miuix
+interface remains the default. The PR's separate native Fusion-control integration
+is outside this UI adaptation.
+
+Glasmio is compiled from https://github.com/NEORUAA/Glasmio at
+`5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`, under Apache-2.0.
+Glasmio incorporates Backdrop, Shapes and Capsule graphics dependencies and
+Material icon fallbacks; dependency license and notice resources are retained.
+
+The user-selected SF Pro build inputs come from
+https://github.com/bradleyhodges/SFWindows/releases/tag/v27.0.1789118100.
+These fonts retain Apple's separate proprietary terms; the SFWindows repository's
+MIT license does not relicense the font binaries. They are not part of the GPL source
+grant or committed source archive. See `docs/UI-STYLES.md` for pinned hashes and a
+system-font build, and `docs/ARTWORK-SOURCES.md` for the PR's listening-mode artwork.
+
 The following LibrePods sources informed the rewritten wire protocol, socket compatibility,
 and BLE cryptography implementation. Original copyright: (C) 2025 LibrePods contributors.
 The new code retains attribution and adds input bounds checking, separate confirmed state,
@@ -102,23 +121,72 @@ HyperPods-X independently implements its Compose selector and accessible slider,
 only sends on release, and confirms device readback rather than copying the
 upstream optimistic state update. On the target headset, writes of 40 and 60
 remained at 50, whereas 0, 100 and restoration to 50 were confirmed by readback.
-That version's slider therefore snaps to the three verified values instead of claiming
+The slider therefore snaps to the three verified values instead of claiming
 continuous hardware adjustment. No decompiled UI code is redistributed.
+
+## Conversation-awareness experiment (in progress)
+
+The conversation-awareness parser and state mapping were cross-checked against
+the original LibrePods `main` implementation and the same locally inspected
+`2.0.0-alpha.3` APK identified above. Sources inspected on 2026-10-26:
+
+- [`bluetooth/AACPManager.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/AACPManager.kt),
+  [`data/Packets.kt`](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/data/Packets.kt),
+  [`services/AirPodsService.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt),
+  and [`utils/MediaController.kt`](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/utils/MediaController.kt).
+  The original implementation uses control ID `0x28`, event opcode `0x4b`,
+  status byte 9 in the common ten-byte packet, active states 1/2 and end
+  states 6/8/9.
+- APK classes `h90`, `ni.j`, and `i.e` confirm control values 1=on and 2=off;
+  `n52` and `i` retain opcode `0x4b` and payload offset 3 (packet offset 9).
+  The `yw1` service collector also handles active state 3 and end state 7.
+  Its `d52` media adapter directly adjusts `STREAM_MUSIC`; HyperPods-X does
+  not copy that volume-write and restore strategy.
+- APK initializer `i.f`, packet serializer `j.d`, and opcode/type classes
+  `h70` / `k` inform the AACP 1.3 handshake
+  (`00 00 04 00 01 00 03 00 00 00 00 00 00 00 00 00`),
+  source-capabilities payload `D7 00 00 00 00 00 00 00`, all-notifications
+  subscription, and 200 ms initialization spacing. The model/feature tables
+  `v4` / `yn` list A3441 among the AirPods 5 models with conversation awareness.
+- The public [AACP dissector](https://github.com/pabloaul/apple-wireshark/blob/main/plugins/aacp/aacp_parse_message.lua)
+  informs the little-endian payload length and subtype layout. HyperPods-X
+  independently implements bounded framing, subtype validation, connection
+  generations, duplicate handling, and cleanup policy.
+
+The target headset has produced real subtype-1 events, including states
+1/2/3/4/6/7/8/9. State 4 remains an unclassified observation; its presence is
+not treated as evidence for an additional start or end mapping. Receiving
+events does not establish working media attenuation. The Android transient
+audio-focus trial was ineffective with the user's retained HyperOS concurrent
+media setting. The replacement uses an independently implemented, scoped
+VolumeShaper bridge. Its first foreground trial has user-confirmed attenuation
+and restoration without volume jumps. Instrumented event-to-host submission
+was 5–24 ms at start and 3–6 ms at end; these are not acoustic latency measurements.
+The user narrowed the issue to quiet-speech sensitivity. Neither the inspected
+main implementation nor alpha.3 provided a verified sensitivity control; no
+undocumented threshold write was added. Background, interruption and player compatibility tests
+remain pending. No APK, decompiled source, or upstream media-control
+implementation is redistributed with this experiment.
 
 ## 0.4.6 LibrePods adaptive slider
 
-`ui/LibrePodsAdaptiveSlider.kt` now adapts the integrated slider from the public
-LibrePods `NoiseControlSettings.kt`, under GPL-3.0-or-later:
-https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt
+`app/src/main/java/com/hyper/podsrx/ui/LibrePodsAdaptiveSlider.kt` adapts the
+integrated adaptive slider from LibrePods' GPL-3.0-or-later
+[`NoiseControlSettings.kt`](https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt),
+commit `80aa7461df414470f379ebdfe540b2e8889fcbe2`, blob
+`7f86743f9b945c95915f581ad4eaecd9aacf5754`. Copyright (C) 2025 LibrePods contributors.
 
-Copyright (C) 2025 LibrePods contributors. Source blob:
-`7f86743f9b945c95915f581ad4eaecd9aacf5754`.
+The adaptation retains continuous thumb travel and 0–100 strength mapping,
+drag handling, pressed-thumb animation and immediate updates as the value
+changes. HyperPods-X uses Miuix colors and its existing listening glyphs;
+adds accessibility, keyboard, RTL and cancellation handling; coalesces queued
+control writes; and keeps the sent target separate from device readback.
+It replaces the independent three-detent slider described in the 0.4.2 notes.
 
-The adaptation retains continuous 0–100 travel/strength mapping, drag handling,
-pressed-thumb animation and live updates. HyperPods-X supplies its Miuix colors,
-existing glyphs, accessibility, keyboard and RTL handling, plus cancellation and
-queued-write coalescing. This replaces the 0.4.2 three-detent implementation.
-Sent targets and actual earbud reports remain separate; missing same-value replies
-do not block further dragging or imply confirmed hardware adjustment.
-No decompiled UI source is redistributed. See the included GPL license and the
-repository's `THIRD_PARTY.md` for attribution and the comparison findings.
+On the target phone, the installed LibrePods 2.0.0-alpha.3 sent intermediate
+`0x2e` values 51 through 62 without a matching control reply. A later connection
+still reported 50. A sent slider value therefore does not establish a matching
+readback or measured acoustic effect. HyperPods-X does not copy LibrePods'
+optimistic update into its confirmed device controls. No decompiled UI source
+is redistributed; this component derives from the public source linked above.
+The GPL license is included in `LICENSE` and the app's license assets.

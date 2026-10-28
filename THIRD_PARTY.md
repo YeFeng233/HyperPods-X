@@ -2,6 +2,25 @@
 
 HyperPods-X is distributed under GPL-3.0-or-later. The complete license is in `LICENSE`.
 
+The optional iOS settings interface is adapted from NEORUAA/HyperPods-X PR #1,
+commit `ae9fa5ec8028e94e0dbbf8243228387756edd78e`, under GPL-3.0-or-later.
+It includes the iOS pages, listening-control state handling, media-volume controller,
+Bluetooth-alias editor and associated listening-control tests. The existing Miuix
+interface remains the default. The PR's separate native Fusion-control integration
+is outside this UI adaptation.
+
+Glasmio is compiled from https://github.com/NEORUAA/Glasmio at
+`5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`, under Apache-2.0.
+Glasmio incorporates Backdrop, Shapes and Capsule graphics dependencies and
+Material icon fallbacks; dependency license and notice resources are retained.
+
+The user-selected SF Pro build inputs come from
+https://github.com/bradleyhodges/SFWindows/releases/tag/v27.0.1789118100.
+These fonts retain Apple's separate proprietary terms; the SFWindows repository's
+MIT license does not relicense the font binaries. They are not part of the GPL source
+grant or committed source archive. See `docs/UI-STYLES.md` for pinned hashes and a
+system-font build, and `docs/ARTWORK-SOURCES.md` for the PR's listening-mode artwork.
+
 The following LibrePods sources informed the rewritten wire protocol, socket compatibility,
 and BLE cryptography implementation. Original copyright: (C) 2025 LibrePods contributors.
 The new code retains attribution and adds input bounds checking, separate confirmed state,

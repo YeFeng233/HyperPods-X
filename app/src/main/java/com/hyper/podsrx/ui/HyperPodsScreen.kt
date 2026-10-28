@@ -39,7 +39,7 @@ import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 @Composable
-fun HyperPodsScreen(
+internal fun MiuixSettingsScreen(
     externalSettings: Boolean,
     initialPage: String? = null,
     onConnect: () -> Unit,
@@ -54,7 +54,7 @@ fun HyperPodsScreen(
         view.keepScreenOn = state.diagnosticScanning || state.spatial.calibrationMode
         onDispose { view.keepScreenOn = previous }
     }
-    var page by rememberSaveable { mutableStateOf(if (initialPage == "spatial") "spatial" else "device") }
+    var page by rememberSaveable { mutableStateOf(initialPage?.takeIf { it in setOf("spatial", "more") } ?: "device") }
     val pages = rememberSaveableStateHolder()
     val back = {
         when (page) {
@@ -208,6 +208,11 @@ private fun AdvancedSettings(state: PodsState) {
 
 @Composable
 private fun MoreSettings(state: PodsState, onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
+    val style by AppearancePreferences.style.collectAsState()
+    val changeStyle = LocalChangeUiStyle.current
+    Section("外观") {
+        ToggleRow(style.label, "切换界面风格", style == UiStyle.IOS, onChange = changeStyle)
+    }
     Section("弹窗与提醒") {
         ToggleRow("开盖弹窗", "仅响应已验证的耳机开盖广播", state.popupEnabled) { DeviceRepository.setPopup(it) }
         ToggleRow("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", state.nativePopup) { DeviceRepository.setNativePopup(it) }

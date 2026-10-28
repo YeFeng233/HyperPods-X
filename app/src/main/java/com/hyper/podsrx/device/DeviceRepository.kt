@@ -3,6 +3,7 @@ package com.hyper.podsrx.device
 import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
@@ -77,6 +78,27 @@ object DeviceRepository {
         if(address.isBlank()||ContextCompat.checkSelfPermission(app,Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)return
         val name=runCatching{app.getSystemService(BluetoothManager::class.java).adapter?.getRemoteDevice(address)?.alias.orEmpty()}.getOrNull()?:return
         update{if(it.address==address)it.copy(localName=name)else it}
+    }
+    @Suppress("MissingPermission")
+    fun rename(name: String): Boolean {
+        val cleaned = name.trim()
+        val address = state.value.address
+        if (cleaned.isEmpty() || cleaned.length > 100 || address.isBlank() || !permissionsGranted()) return false
+        return runCatching {
+            val device = app.getSystemService(BluetoothManager::class.java).adapter?.getRemoteDevice(address)
+                ?: return false
+            if (device.setAlias(cleaned) != BluetoothStatusCodes.SUCCESS) {
+                message("无法保存耳机名称")
+                false
+            } else {
+                refreshLocalName()
+                FrameworkBridge.publish()
+                true
+            }
+        }.getOrElse {
+            message("无法保存耳机名称")
+            false
+        }
     }
     @Suppress("MissingPermission")
     fun candidates(): List<BluetoothDevice> {

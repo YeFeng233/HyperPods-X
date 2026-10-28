@@ -2,13 +2,15 @@
 
 HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，不止是一副能听歌的蓝牙耳机。
 
-打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；点击系统蓝牙列表中耳机卡片右侧的箭头，可以直接打开耳机设置；听音乐时，可以选择固定空间音频，也可以让真实的耳机姿态参与头部追踪。电量、聆听模式、入耳检测和常用设置，都放在同一套 Miuix 界面里。
+打开充电盒时，手机可以显示 HyperOS 原生耳机弹窗和超级岛；点击系统蓝牙列表中耳机卡片右侧的箭头，可以直接打开耳机设置；听音乐时，可以选择固定空间音频，也可以让真实的耳机姿态参与头部追踪。电量、聆听模式、入耳检测和常用设置，可以使用熟悉的 miuix 界面，也可以切换到新增的 iOS 界面。
 
-这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.4.8 预览版**，已发布安装包请查看 Releases。
+这是一个仍在完善的 Android 应用与 LSPosed 模块。目前围绕 **Xiaomi 17 Pro Max、HyperOS 4 和 AirPods 5** 开发并进行真机测试，包名为 `com.hyper.podsrx`，使用现代 **libxposed API 102**。当前开发版本是 **0.4.9 预览版**，已发布安装包请查看 Releases。
 
 [下载 Releases](https://github.com/YeFeng233/HyperPods-X/releases) · [构建记录](https://github.com/YeFeng233/HyperPods-X/actions/workflows/build-release.yml) · [真机测试记录](docs/TEST-REPORT.md)
 
 ## 能做些什么
+
+**两种界面，随时切换。** “更多设置 → 外观”的开关关闭时为 **miuix风格**，开启时为 **iOS风格**。首次安装与旧版本升级默认沿用 miuix；选择会在重启后保存。iOS 设计由 NEORUAA 的 PR #1 引入，使用 Glasmio 和 SF Pro。两种界面共用耳机设置、连接状态和校准，系统蓝牙入口也会打开选中的风格。
 
 **开盖就能看到耳机。** 模块会识别已绑定耳机的开盖广播，在桌面调用 HyperOS 自带的底部耳机弹窗。在其他应用前台，超级岛左右两侧分别展示对应的单耳图片和电量百分比。底部弹窗和 App 可查看左右耳与充电盒电量；暂时没有新数据时会标明历史状态，超级岛中的未知电量显示“—”。
 
@@ -50,17 +52,18 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 
 ## 从源码构建
 
-需要 JDK 21、Android SDK Platform 37.0 和 Build Tools 37.0.0。在 `local.properties` 中设置本机 `sdk.dir` 后，运行：
+需要 Git、Python 3.11+、JDK 21、Android SDK Platform 37.0 和 Build Tools 37.0.0。在 `local.properties` 中设置本机 `sdk.dir` 后，先准备固定版本的 Glasmio 源码和字体，再运行：
 
 ```bash
+python scripts/prepare-ui.py --fonts
 ./gradlew :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
 ```
 
-Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceTest/`。项目使用 Gradle Wrapper，并锁定 Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20 和 Miuix 0.9.4。
+Windows 使用 `gradlew.bat`。构建结果位于 `app/build/outputs/apk/deviceTest/`。项目使用 Gradle Wrapper，并锁定 Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.21 和 Miuix 0.9.4。Glasmio 使用源码 composite build，需要 NDK 27.1.12297006、CMake 3.22.1；字体也可省略并回退到系统字体，详见[双界面构建说明](docs/UI-STYLES.md)。
 
 仓库提供 [Build and release](.github/workflows/build-release.yml) 工作流。在 Actions 中手动运行，可以完成单元测试、协议测试、lint、APK 签名验证和源码打包；启用发布选项后，通过检查的 APK、源码 ZIP 和 SHA-256 校验文件会上传到 Releases。签名材料通过仓库加密 Secret 提供，不保存在源码中；维护方法见[发布说明](docs/RELEASING.md)。
 
-当前代码包含 98 项 App 与协议测试。测试和 lint 通过是构建检查，真机功能的验收范围以对应文档为准。
+构建覆盖 App 界面状态与协议测试。测试和 lint 通过是构建检查，真机功能的验收范围以对应文档为准。
 
 ## 项目结构与数据
 
