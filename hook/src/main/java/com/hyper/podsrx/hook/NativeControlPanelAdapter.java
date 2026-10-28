@@ -9,11 +9,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.ImageView;
 import io.github.libxposed.api.XposedModule;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -24,11 +24,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Extends the existing native selector with acknowledged adaptive control. */
 final class NativeControlPanelAdapter {
+    private static volatile NativeControlPanelAdapter installedAdapter;
     private static final Uri REPOSITORY = Uri.parse("content://com.android.bluetooth.ble.app.headsetdata.provider/airpodsRepository");
     private final SharedPreferences preferences;
     private final Method deviceInfo;
@@ -39,6 +42,8 @@ final class NativeControlPanelAdapter {
     private final Method selectItem;
     private final Method updateMode;
     private final Method artwork;
+    private final Field nativeItems;
+    private final Class<?> detailType;
     private final Field ancSection;
     private final Field sectionOwner;
     private final Field currentNativeMode;
@@ -48,7 +53,10 @@ final class NativeControlPanelAdapter {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable synchronize = this::synchronizePanels;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
-    private final Executor commands = Executors.newSingleThreadExecutor(task -> {
+    private String lastTargetDiagnostic;
+    private volatile boolean closed;
+    private final AtomicInteger pendingCommands = new AtomicInteger();
+    private final ExecutorService commands = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "HyperPods-native-controls");
         thread.setDaemon(true);
         return thread;
@@ -90,8 +98,9 @@ final class NativeControlPanelAdapter {
 
     private NativeControlPanelAdapter(ClassLoader loader, SharedPreferences preferences) throws Exception {
         this.preferences = preferences;
-        Class<?> detailType = Class.forName("com.miui.circulateplus.world.headset.HeadSetsDetail", false, loader);
+        detailType = Class.forName("com.miui.circulateplus.world.headset.HeadSetsDetail", false, loader);
         cardType = Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectCardView", false, loader);
+        nativeItems = onlyField(cardType, List.class, false);
         itemType = Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectItemView", false, loader);
         deviceInfo = detailType.getMethod("getHeadsetDeviceInfo");
         address = deviceInfo.getReturnType().getField("mac");
@@ -121,7 +130,10 @@ final class NativeControlPanelAdapter {
 
     static void install(XposedModule module, ClassLoader loader, SharedPreferences preferences) throws Exception {
         NativeControlPanelAdapter adapter = new NativeControlPanelAdapter(loader, preferences);
+        ReloadLifecycle.add(adapter::close);
+        ReloadLifecycle.rejectWhile(() -> adapter.pendingCommands.get() != 0);
         module.hook(adapter.artwork).intercept(chain -> {
+            if (!adapter.active()) return chain.proceed();
             try {
                 Object info = chain.getArg(0);
                 String target = info == null ? null : (String) adapter.address.get(info);
@@ -132,11 +144,12 @@ final class NativeControlPanelAdapter {
                     if (icon != 0) return icon;
                 }
             } catch (ReflectiveOperationException | RuntimeException error) {
-                Log.w("HyperPods-X", "Native AirPods artwork unavailable", error);
+                DiagnosticLog.w("HyperPods-X", "Native AirPods artwork unavailable", error);
             }
             return chain.proceed();
         });
         module.hook(adapter.selectItem).intercept(chain -> {
+            if (!adapter.active()) return chain.proceed();
             Panel panel = adapter.panels.get(chain.getThisObject());
             if (panel != null) {
                 try {
@@ -149,12 +162,13 @@ final class NativeControlPanelAdapter {
                         return chain.proceed(new Object[] {index(mode)});
                     }
                 } catch (ReflectiveOperationException | RuntimeException error) {
-                    Log.w("HyperPods-X", "Native headset selection unavailable", error);
+                    DiagnosticLog.w("HyperPods-X", "Native headset selection unavailable", error);
                 }
             }
             return chain.proceed();
         });
         module.hook(adapter.updateMode).intercept(chain -> {
+            if (!adapter.active()) return chain.proceed();
             try {
                 View detail = (View) adapter.sectionOwner.get(chain.getThisObject());
                 if (adapter.confirmedMode(detail) != 0) {
@@ -166,28 +180,39 @@ final class NativeControlPanelAdapter {
                 }
             }
             catch (ReflectiveOperationException | RuntimeException error) {
-                Log.w("HyperPods-X", "Native adaptive panel adapter unavailable", error);
+                DiagnosticLog.w("HyperPods-X", "Native adaptive panel adapter unavailable", error);
             }
             return chain.proceed();
         });
         adapter.listen();
-        Log.i("HyperPods-X", "Native adaptive headset panel adapter ready");
+        installedAdapter = adapter;
+        // Package lifecycle callbacks are not replayed by libxposed after reload.
+        // Reattach to an already visible headset detail after the old item is removed.
+        adapter.main.post(adapter::refreshOpenWindows);
+        DiagnosticLog.i("HyperPods-X", "Native adaptive headset panel adapter ready");
     }
 
     private void listen() {
         listener = (prefs, key) -> {
+            if (!active()) return;
             if (key == null || "panel_anc".equals(key) || "panel_anc_pending".equals(key) ||
                 "panel_anc_available".equals(key) || "native_connected".equals(key) ||
                 "panel_readback_until".equals(key) || "panel_audio_route".equals(key) ||
                 "panel_model".equals(key) || "address".equals(key)) {
-                main.removeCallbacks(synchronize);
-                main.postDelayed(synchronize, 50);
+                scheduleSynchronize();
             }
         };
         preferences.registerOnSharedPreferenceChangeListener(listener);
     }
 
+    private synchronized void scheduleSynchronize() {
+        if (!active()) return;
+        main.removeCallbacks(synchronize);
+        main.postDelayed(synchronize, 50);
+    }
+
     private void synchronizePanels() {
+        if (!active()) return;
         List<View> details = new ArrayList<>();
         synchronized (panels) {
             for (Panel panel : panels.values()) {
@@ -199,7 +224,7 @@ final class NativeControlPanelAdapter {
             try {
                 refresh(detail);
             } catch (ReflectiveOperationException | RuntimeException error) {
-                Log.w("HyperPods-X", "Native headset acknowledgment refresh unavailable", error);
+                DiagnosticLog.w("HyperPods-X", "Native headset acknowledgment refresh unavailable", error);
             }
         }
     }
@@ -209,11 +234,23 @@ final class NativeControlPanelAdapter {
     }
 
     private boolean freshTarget(String target) {
-        return NativeControlWire.isPresentationTarget(target, preferences.getString("address", ""),
+        if (!active()) return false;
+        boolean matches = NativeControlWire.isPresentationTarget(target, preferences.getString("address", ""),
             preferences.getString("panel_model", ""), preferences.getBoolean("enabled", false),
             preferences.getBoolean("native_connected", false), preferences.getBoolean("panel_audio_route", false),
             preferences.getLong("panel_readback_until", 0), preferences.getLong("panel_heartbeat", -1),
             SystemClock.elapsedRealtime());
+        String state = "matched=" + matches + " targetPresent=" + (target != null)
+            + " boundMatches=" + (target != null && target.equalsIgnoreCase(preferences.getString("address", "")))
+            + " model=" + preferences.getString("panel_model", "")
+            + " enabled=" + preferences.getBoolean("enabled", false)
+            + " connected=" + preferences.getBoolean("native_connected", false)
+            + " heartbeatFresh=" + (SystemClock.elapsedRealtime() - preferences.getLong("panel_heartbeat", -1) <= 30000);
+        if (!state.equals(lastTargetDiagnostic)) {
+            lastTargetDiagnostic = state;
+            DiagnosticLog.i("HyperPods-X", "Native panel target: " + state);
+        }
+        return matches;
     }
 
     private int confirmedMode(View detail) throws ReflectiveOperationException {
@@ -225,6 +262,7 @@ final class NativeControlPanelAdapter {
     }
 
     private void refresh(View detail) throws ReflectiveOperationException {
+        if (!active()) return;
         Context context = detail.getContext();
         String pkg = context.getPackageName();
         int cardId = detail.getResources().getIdentifier("anc_select_card", "id", pkg);
@@ -255,7 +293,8 @@ final class NativeControlPanelAdapter {
             View adaptive = (View) addItem.invoke(card, iconId, textId);
             View labelView = adaptive.findViewById(toolsTextId);
             if (!(labelView instanceof TextView label)) {
-                adaptive.setVisibility(View.GONE);
+                ((List<?>) nativeItems.get(card)).remove(adaptive);
+                card.removeView(adaptive);
                 return;
             }
             label.setText("自适应");
@@ -286,16 +325,18 @@ final class NativeControlPanelAdapter {
             card.setVisibility(View.VISIBLE);
             title.setVisibility(View.VISIBLE);
             modeVisible.invoke(detail, true);
-            detail.post(() -> {
+            main.post(() -> {
+                if (!active() || !detail.isAttachedToWindow()) return;
                 try { updateHeight.invoke(detail); }
                 catch (ReflectiveOperationException | RuntimeException error) {
-                    Log.w("HyperPods-X", "Native adaptive panel height unavailable", error);
+                    DiagnosticLog.w("HyperPods-X", "Native adaptive panel height unavailable", error);
                 }
             });
         }
     }
 
     private void requestAdaptive(Panel panel, View clicked) {
+        if (!active()) return;
         try {
             View detail = panel.detail.get();
             long now = SystemClock.elapsedRealtime();
@@ -306,7 +347,8 @@ final class NativeControlPanelAdapter {
             clicked.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
             String target = panel.address;
             Context context = clicked.getContext().getApplicationContext();
-            commands.execute(() -> {
+            pendingCommands.incrementAndGet();
+            try { commands.execute(() -> {
                 try {
                     if (!fresh(target) || preferences.getBoolean("panel_anc_pending", false)) return;
                     BluetoothManager manager = context.getSystemService(BluetoothManager.class);
@@ -317,17 +359,106 @@ final class NativeControlPanelAdapter {
                     request.putParcelable(BluetoothDevice.EXTRA_DEVICE, manager.getAdapter().getRemoteDevice(target));
                     Bundle result = context.getContentResolver().call(REPOSITORY, "airpodsRepository", "send_command", request);
                     if (result == null || result.getInt("extra_command_state", 0) != 1)
-                        Log.w("HyperPods-X", "Native adaptive request was not accepted");
+                        DiagnosticLog.w("HyperPods-X", "Native adaptive request was not accepted");
                 } catch (RuntimeException error) {
-                    Log.w("HyperPods-X", "Native adaptive request unavailable", error);
+                    DiagnosticLog.w("HyperPods-X", "Native adaptive request unavailable", error);
+                } finally {
+                    pendingCommands.decrementAndGet();
                 }
-            });
+            }); } catch (RuntimeException error) {
+                pendingCommands.decrementAndGet();
+                throw error;
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w("HyperPods-X", "Native adaptive control unavailable", error);
+            DiagnosticLog.w("HyperPods-X", "Native adaptive control unavailable", error);
         }
     }
 
     private static int index(int mode) {
         return switch (mode) { case 1 -> 2; case 2 -> 1; case 3 -> 0; default -> 3; };
+    }
+
+    private boolean active() { return !closed && ReloadLifecycle.isActive(); }
+
+    private void refreshOpenWindows() {
+        if (!active()) return;
+        try {
+            Class<?> manager = Class.forName("android.view.WindowManagerGlobal");
+            Object instance = manager.getMethod("getInstance").invoke(null);
+            Field views = manager.getDeclaredField("mViews");
+            views.setAccessible(true);
+            for (Object root : new ArrayList<>((List<?>) views.get(instance))) {
+                if (root instanceof View view) refreshTree(view);
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            DiagnosticLog.w("HyperPods-X", "Existing headset panel refresh unavailable; reopen the card", error);
+        }
+    }
+
+    private void refreshTree(View view) throws ReflectiveOperationException {
+        if (!active()) return;
+        if (detailType.isInstance(view)) {
+            refresh(view);
+            Object info = deviceInfo.invoke(view);
+            if (info != null && freshTarget((String) address.get(info))) {
+                int id = view.getResources().getIdentifier("device_item", "id", view.getContext().getPackageName());
+                View icon = id == 0 ? null : view.findViewById(id);
+                int drawable = (int) artwork.invoke(view, info);
+                if (drawable != 0 && icon instanceof ImageView image) image.setImageResource(drawable);
+            }
+        }
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) refreshTree(group.getChildAt(i));
+        }
+    }
+
+    static void refreshExisting(View root) {
+        NativeControlPanelAdapter adapter = installedAdapter;
+        if (adapter == null || !adapter.active()) return;
+        try { adapter.refreshTree(root); }
+        catch (ReflectiveOperationException | RuntimeException error) {
+            DiagnosticLog.w("HyperPods-X", "Existing headset panel refresh unavailable", error);
+        }
+    }
+
+    static void refreshExistingWindows() {
+        NativeControlPanelAdapter adapter = installedAdapter;
+        if (adapter != null) adapter.refreshOpenWindows();
+    }
+
+    private synchronized void close() {
+        if (pendingCommands.get() != 0) throw new IllegalStateException("Native control request is still running");
+        closed = true;
+        if (installedAdapter == this) installedAdapter = null;
+        if (listener != null) preferences.unregisterOnSharedPreferenceChangeListener(listener);
+        listener = null;
+        main.removeCallbacksAndMessages(null);
+        commands.shutdownNow();
+        try {
+            if (!commands.awaitTermination(1000, TimeUnit.MILLISECONDS))
+                throw new IllegalStateException("Native control worker did not stop");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted stopping native control worker", error);
+        }
+        synchronized (panels) {
+            for (Map.Entry<ViewGroup, Panel> entry : panels.entrySet()) {
+                ViewGroup card = entry.getKey();
+                Panel panel = entry.getValue();
+                View adaptive = panel.adaptive.get();
+                if (adaptive == null) continue;
+                adaptive.setOnClickListener(null);
+                panel.arrange(card, false);
+                try {
+                    // Removing only the child leaves index 3 in the host's private list,
+                    // causing duplicate items and stale selection on the next generation.
+                    ((List<?>) nativeItems.get(card)).remove(adaptive);
+                    if (adaptive.getParent() == card) card.removeView(adaptive);
+                } catch (IllegalAccessException error) {
+                    throw new IllegalStateException("Could not remove old adaptive item", error);
+                }
+            }
+            panels.clear();
+        }
     }
 }

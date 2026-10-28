@@ -122,14 +122,24 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
     private suspend fun request(code:Int,extra:Bundle=Bundle()):Bundle=withContext(Dispatchers.IO){
         transactionMutex.withLock {
             try {
-                val binder=bind()?:return@withLock Bundle().apply{putString("status","空间音频宿主未就绪，请检查小米蓝牙作用域")}
-                val input=Parcel.obtain();val output=Parcel.obtain()
-                try {
-                    input.writeInterfaceToken(SpatialWire.DESCRIPTOR)
-                    extra.putString("address",DeviceRepository.state.value.address);input.writeBundle(extra)
-                    if(!binder.transact(code,input,output,0))error("不支持的桥接版本")
-                    output.readException();output.readBundle(javaClass.classLoader)?:error("空桥接结果")
-                }finally{input.recycle();output.recycle()}
+                repeat(2) { attempt ->
+                    val binder=bind()?:return@withLock Bundle().apply{putString("status","空间音频宿主未就绪，请检查小米蓝牙作用域")}
+                    val input=Parcel.obtain();val output=Parcel.obtain()
+                    val answer=try {
+                        input.writeInterfaceToken(SpatialWire.DESCRIPTOR)
+                        extra.putString("address",DeviceRepository.state.value.address);input.writeBundle(extra)
+                        if(!binder.transact(code,input,output,0))error("不支持的桥接版本")
+                        output.readException();output.readBundle(javaClass.classLoader)?:error("空桥接结果")
+                    }finally{input.recycle();output.recycle()}
+                    // A completed retirement explicitly guarantees no command ran.
+                    // Ordinary negative replies are not safe to retry automatically.
+                    if(answer.getBoolean("bridgeRetired")){
+                        if(remote===binder)remote=null
+                        if(attempt==0)return@repeat
+                    }
+                    return@withLock answer
+                }
+                error("空间音频桥接重连失败")
             }catch(error:CancellationException){throw error}
             catch(error:Exception){remote=null;Bundle().apply{putString("status",error.message?:error.javaClass.simpleName)}}
         }

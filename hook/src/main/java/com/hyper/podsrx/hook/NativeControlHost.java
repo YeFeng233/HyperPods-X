@@ -13,7 +13,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.util.Log;
 import io.github.libxposed.api.XposedModule;
 import java.util.Locale;
 import java.lang.reflect.Method;
@@ -30,7 +29,10 @@ final class NativeControlHost {
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile PendingIntent target;
     private volatile String registeredAddress = "";
+    private String lastTargetDiagnostic;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
+    private BroadcastReceiver receiver;
+    private boolean receiverRegistered;
     private final Runnable notify = this::notifyState;
 
     private NativeControlHost(Context context, SharedPreferences preferences) {
@@ -40,6 +42,7 @@ final class NativeControlHost {
 
     static void install(XposedModule module, Context context, SharedPreferences preferences) throws Exception {
         NativeControlHost host = new NativeControlHost(context, preferences);
+        ReloadLifecycle.add(host::close);
         ClassLoader loader = context.getClassLoader();
         Class<?> state = Class.forName("com.android.bluetooth.ble.app.offlinefind.OfflineFindProvider", false, loader);
         Class<?> provider = Class.forName("com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider", false, loader);
@@ -78,14 +81,23 @@ final class NativeControlHost {
             return answer != null ? answer : chain.proceed();
         });
         host.register();
-        Log.i("HyperPods-X", "Native fusion headset control bridge ready");
+        DiagnosticLog.i("HyperPods-X", "Native fusion headset control bridge ready");
+    }
+
+    private void close() {
+        if (receiverRegistered) { context.unregisterReceiver(receiver); receiverRegistered = false; }
+        receiver = null;
+        if (listener != null) { preferences.unregisterOnSharedPreferenceChangeListener(listener); listener = null; }
+        main.removeCallbacksAndMessages(null);
+        target = null;
+        registeredAddress = "";
     }
 
     private void register() {
-        context.registerReceiver(new BroadcastReceiver() {
+        receiver = new BroadcastReceiver() {
             @Override public void onReceive(Context host, Intent request) {
                 long age = SystemClock.elapsedRealtime() - request.getLongExtra("created", -1);
-                if (!NativeControlWire.REGISTER.equals(request.getAction()) || age < 0 || age > 2000) return;
+                if (!ReloadLifecycle.isActive() || !NativeControlWire.REGISTER.equals(request.getAction()) || age < 0 || age > 2000) return;
                 String address = request.getStringExtra("address");
                 PendingIntent callback = request.getParcelableExtra("target", PendingIntent.class);
                 if (!BluetoothAdapter.checkBluetoothAddress(address) || callback == null ||
@@ -94,7 +106,9 @@ final class NativeControlHost {
                 target = callback;
                 scheduleNotify();
             }
-        }, new IntentFilter(NativeControlWire.REGISTER), NativeControlWire.PERMISSION, main, Context.RECEIVER_EXPORTED);
+        };
+        context.registerReceiver(receiver, new IntentFilter(NativeControlWire.REGISTER), NativeControlWire.PERMISSION, main, Context.RECEIVER_EXPORTED);
+        receiverRegistered = true;
         listener = (prefs, key) -> {
             if (key == null || key.startsWith("panel_") || key.startsWith("native_") || "address".equals(key)) scheduleNotify();
         };
@@ -102,11 +116,23 @@ final class NativeControlHost {
     }
 
     private boolean matches(String address) {
-        return NativeControlWire.isPresentationTarget(address, preferences.getString("address", ""),
+        if (!ReloadLifecycle.isActive()) return false;
+        boolean matches = NativeControlWire.isPresentationTarget(address, preferences.getString("address", ""),
             preferences.getString("panel_model", ""), preferences.getBoolean("enabled", false),
             preferences.getBoolean("native_connected", false), preferences.getBoolean("panel_audio_route", false),
             preferences.getLong("panel_readback_until", 0), preferences.getLong("panel_heartbeat", -1),
             SystemClock.elapsedRealtime());
+        String state = "matched=" + matches + " targetPresent=" + (address != null)
+            + " boundMatches=" + (address != null && address.equalsIgnoreCase(preferences.getString("address", "")))
+            + " model=" + preferences.getString("panel_model", "")
+            + " enabled=" + preferences.getBoolean("enabled", false)
+            + " connected=" + preferences.getBoolean("native_connected", false)
+            + " heartbeatFresh=" + (SystemClock.elapsedRealtime() - preferences.getLong("panel_heartbeat", -1) <= 30000);
+        if (!state.equals(lastTargetDiagnostic)) {
+            lastTargetDiagnostic = state;
+            DiagnosticLog.i("HyperPods-X", "Native fusion target: " + state);
+        }
+        return matches;
     }
 
     private String[] state() {
@@ -197,7 +223,7 @@ final class NativeControlHost {
         try {
             callback.send(context, 0, new Intent().putExtra("address", registeredAddress)
                 .putExtra("created", SystemClock.elapsedRealtime()).putExtra("command", command).putExtra("value", value));
-            Log.i("HyperPods-X", "Forwarded native panel " + command + " request: " + value);
+            DiagnosticLog.i("HyperPods-X", "Forwarded native panel " + command + " request: " + value);
             return true;
         } catch (PendingIntent.CanceledException error) {
             target = null;
@@ -207,11 +233,13 @@ final class NativeControlHost {
     }
 
     private void scheduleNotify() {
+        if (!ReloadLifecycle.isActive()) return;
         main.removeCallbacks(notify);
         main.postDelayed(notify, 100);
     }
 
     private void notifyState() {
+        if (!ReloadLifecycle.isActive()) return;
         try {
             context.getContentResolver().notifyChange(STATE, null, false);
             String address = registeredAddress;
@@ -226,7 +254,7 @@ final class NativeControlHost {
                 context.getContentResolver().notifyChange(uri, null, false);
             }
         } catch (RuntimeException error) {
-            Log.w("HyperPods-X", "Native headset state notification failed", error);
+            DiagnosticLog.w("HyperPods-X", "Native headset state notification failed", error);
         }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hyper.podsrx.ui.AppearancePreferences
 import com.hyper.podsrx.ui.LocalChangeUiStyle
+import com.hyper.podsrx.ui.LocalLogExport
 import com.hyper.podsrx.ui.UiStyle
 import com.hyper.podsrx.BuildConfig
 import com.hyper.podsrx.device.*
@@ -321,17 +322,22 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
         }
     }
     item("systemIntegration") {
+        val hostRestart by HostRestartCoordinator.state.collectAsState()
         Section("系统集成") {
-            RowItem("系统原生适配") { FrameworkBridge.requestNativeScope() }
-            RowItem("系统蓝牙入口") { FrameworkBridge.requestSettingsScope() }
+            RowItem("系统原生适配", "在 LSPosed 中授权系统设置、小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
+            RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
+                enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
             RowItem("悬浮显示权限", action = onOverlay)
             RowItem("系统蓝牙设置", action = onSystemBluetooth)
         }
     }
     item("moduleInformation") {
+        val logExport = LocalLogExport.current
         SettingsCard {
             RowItem("连接设置") { navigate("connection") }
             RowItem("连接诊断") { navigate("diagnostics") }
+            RowItem(if (logExport.busy) "正在导出日志…" else "导出日志", logExport.status,
+                enabled = !logExport.busy, action = logExport.export)
             RowItem("关于 HyperPods-X") { navigate("about") }
         }
     }

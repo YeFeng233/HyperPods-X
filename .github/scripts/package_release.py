@@ -23,7 +23,8 @@ def main():
         raise ValueError("Invalid release tag")
     version_file = (root / "app/build.gradle.kts").read_text(encoding="utf-8")
     version = re.search(r'versionName\s*=\s*"([^"]+)"', version_file).group(1)
-    if args.tag != "v" + version.removesuffix("-dev"):
+    base_tag = "v" + version.removesuffix("-dev")
+    if args.tag != base_tag and not re.fullmatch(re.escape(base_tag) + r"-r[1-9]\d*", args.tag):
         raise ValueError("Release tag does not match the app version")
     if not (root / "docs/releases" / f"{args.tag}.md").is_file():
         raise ValueError("Release notes are missing")

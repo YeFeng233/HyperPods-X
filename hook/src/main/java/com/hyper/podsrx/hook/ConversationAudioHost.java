@@ -20,7 +20,6 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.util.Log;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -45,6 +44,12 @@ final class ConversationAudioHost extends Binder {
     private static ConversationAudioHost installed;
 
     private final SharedPreferences preferences;
+    private final Context context;
+    private final HandlerThread thread;
+    private BroadcastReceiver receiver;
+    private boolean receiverRegistered;
+    private volatile boolean closed;
+    private volatile boolean cleanupComplete;
     private final AudioManager audio;
     private final Handler handler;
     private final int appUid;
@@ -62,10 +67,12 @@ final class ConversationAudioHost extends Binder {
     static synchronized void install(Context context, SharedPreferences preferences) throws Exception {
         if (installed != null) return;
         ConversationAudioHost host = new ConversationAudioHost(context, preferences);
-        try {
-            context.registerReceiver(new BroadcastReceiver() {
+        ReloadLifecycle.add(host::close);
+        ReloadLifecycle.rejectWhile(host::busyForReload);
+        host.receiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context c, Intent intent) {
-                    if (!ConversationWire.ACTION.equals(intent.getAction())) return;
+                    if (host.closed || !ReloadLifecycle.isActive()
+                            || !ConversationWire.ACTION.equals(intent.getAction())) return;
                     long age = SystemClock.elapsedRealtime() - intent.getLongExtra("created", 0);
                     if (age < 0 || age > 1_000) return;
                     Bundle result = new Bundle();
@@ -73,18 +80,22 @@ final class ConversationAudioHost extends Binder {
                     setResultExtras(result);
                     setResultCode(1);
                 }
-            }, new IntentFilter(ConversationWire.ACTION), ConversationWire.PERMISSION,
+        };
+        try {
+            context.registerReceiver(host.receiver, new IntentFilter(ConversationWire.ACTION), ConversationWire.PERMISSION,
                     host.handler, Context.RECEIVER_EXPORTED);
+            host.receiverRegistered = true;
         } catch (RuntimeException error) {
-            host.handler.getLooper().quitSafely();
+            host.close();
             throw error;
         }
         installed = host;
-        Log.i(TAG, host.unavailable == null ? "Conversation Binder bridge ready" : host.unavailable);
+        DiagnosticLog.i(TAG, host.unavailable == null ? "Conversation Binder bridge ready" : host.unavailable);
     }
 
     private ConversationAudioHost(Context context, SharedPreferences preferences) throws Exception {
         this.preferences = preferences;
+        this.context = context;
         audio = context.getSystemService(AudioManager.class);
         appUid = context.getPackageManager().getPackageUid(SpatialWire.APP, 0);
         Api resolved = null;
@@ -97,17 +108,82 @@ final class ConversationAudioHost extends Binder {
             resolved = new Api();
         } catch (Exception | LinkageError error) {
             failure = "播放器包络接口不可用：" + reason(error).getClass().getSimpleName();
-            Log.w(TAG, failure, error);
+            DiagnosticLog.w(TAG, failure, error);
         }
         api = resolved;
         unavailable = failure;
-        HandlerThread thread = new HandlerThread("HyperPods-Conversation");
+        thread = new HandlerThread("HyperPods-Conversation");
         thread.start();
         handler = new Handler(thread.getLooper());
         attachInterface(null, ConversationWire.DESCRIPTOR);
     }
 
     private boolean active() { return owner != null; }
+
+    private boolean pendingAudio() {
+        if (active()) return true;
+        long now = SystemClock.elapsedRealtime();
+        for (Track track : tracks.values()) if (track.expiresAt > now) return true;
+        return false;
+    }
+
+    private boolean busyForReload() {
+        if (cleanupComplete) return false;
+        AtomicBoolean busy = new AtomicBoolean(true);
+        CountDownLatch done = new CountDownLatch(1);
+        if (!handler.post(() -> {
+            try { busy.set(pendingAudio()); }
+            finally { done.countDown(); }
+        })) return true;
+        try { return !done.await(1_000, TimeUnit.MILLISECONDS) || busy.get(); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); return true; }
+    }
+
+    private void close() {
+        if (cleanupComplete) return;
+        // Gate incoming/queued Binder requests before draining the worker.
+        closed = true;
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        if (!handler.post(() -> {
+            try {
+                // The preflight guard normally handles this. Refuse retirement if
+                // a START raced that check; keep the worker alive to finish recovery.
+                if (pendingAudio()) throw new IllegalStateException("Conversation audio became active during reload");
+                if (owner != null && death != null) owner.unlinkToDeath(death, 0);
+                owner = null; death = null; watchdog = null;
+                tracks.clear();
+                handler.removeCallbacksAndMessages(null);
+            } catch (RuntimeException error) { failure.set(error); }
+            finally { done.countDown(); }
+        })) failure.set(new IllegalStateException("Conversation worker is unavailable"));
+        try {
+            if (failure.get() == null && !done.await(1_000, TimeUnit.MILLISECONDS))
+                throw new IllegalStateException("Conversation worker cleanup timed out");
+            if (failure.get() != null) throw failure.get();
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Conversation cleanup interrupted", error);
+        } catch (RuntimeException error) {
+            // A timed-out worker may still finish this cleanup. Keep old Binder
+            // requests gated; the framework must not retire a failed generation.
+            throw error;
+        }
+        try {
+            if (receiverRegistered) { context.unregisterReceiver(receiver); receiverRegistered = false; }
+            receiver = null;
+        } finally {
+            thread.quitSafely();
+            try { thread.join(1_000); }
+            catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Conversation worker shutdown interrupted", error);
+            }
+            if (thread.isAlive()) throw new IllegalStateException("Conversation worker did not stop");
+            if (installed == this) installed = null;
+        }
+        cleanupComplete = true;
+    }
 
     private boolean matches(IBinder token, long requestedSession) {
         return active() && owner.equals(token) && session == requestedSession;
@@ -121,6 +197,9 @@ final class ConversationAudioHost extends Binder {
     }
 
     private Bundle execute(int code, Bundle request) throws Exception {
+        if (closed || !ReloadLifecycle.isActive()) return result(false, "媒体桥接已更新，请重新连接");
+        if (code == ConversationWire.START && !ReloadLifecycle.canStartOperation())
+            return result(false, "模块正在准备更新，请稍后重试");
         IBinder token = request.getBinder("client");
         long requestedSession = request.getLong("session", 0);
         // Release must remain available after a route, binding, or permission change.
@@ -214,7 +293,7 @@ final class ConversationAudioHost extends Binder {
             }
             reconcile(current);
         } catch (Exception | LinkageError error) {
-            Log.w(TAG, "Conversation player scan failed", reason(error));
+            DiagnosticLog.w(TAG, "Conversation player scan failed", reason(error));
             stop("播放器接口异常，已提交恢复请求");
         }
     }
@@ -295,7 +374,7 @@ final class ConversationAudioHost extends Binder {
             api.apply.invoke(track.proxy, api.envelope(RELEASE_MS, new float[]{0f, 1f}, new float[]{GAIN, 1f}),
                     api.replace());
         } catch (Exception | LinkageError error) {
-            Log.w(TAG, "Release envelope submission failed; trying own-envelope termination", reason(error));
+            DiagnosticLog.w(TAG, "Release envelope submission failed; trying own-envelope termination", reason(error));
             terminate(track);
             return;
         }
@@ -310,7 +389,7 @@ final class ConversationAudioHost extends Binder {
             tracks.remove(track.id);
         } catch (Exception | LinkageError error) {
             if (!track.recoveryFailed) {
-                Log.w(TAG, "Own-envelope cleanup unavailable; finite envelope ends at unity", reason(error));
+                DiagnosticLog.w(TAG, "Own-envelope cleanup unavailable; finite envelope ends at unity", reason(error));
             }
             track.recoveryFailed = true;
             status = "恢复提交未确认，包络仍受60秒自恢复期限约束";
@@ -364,6 +443,17 @@ final class ConversationAudioHost extends Binder {
         data.enforceInterface(ConversationWire.DESCRIPTOR);
         Bundle incoming = data.readBundle(getClass().getClassLoader());
         data.enforceNoDataAvail();
+        if (closed || !ReloadLifecycle.isActive()) {
+            Bundle retired = new Bundle();
+            retired.putBoolean("ok", false);
+            retired.putBoolean("active", false);
+            // Only completed cleanup proves this old endpoint cannot own a lease.
+            // A partial/failed cleanup must never authorize rediscovery as recovery.
+            retired.putBoolean("bridgeRetired", cleanupComplete);
+            retired.putString("status", "媒体桥接已更新，请重新连接");
+            if (reply != null) { reply.writeNoException(); reply.writeBundle(retired); }
+            return true;
+        }
         Bundle request = incoming == null ? new Bundle() : incoming;
         AtomicReference<Bundle> response = new AtomicReference<>();
         AtomicBoolean cancelled = new AtomicBoolean();
@@ -372,7 +462,7 @@ final class ConversationAudioHost extends Binder {
             if (cancelled.get()) { completed.countDown(); return; }
             try { response.set(execute(code, request)); }
             catch (Exception | LinkageError error) {
-                Log.w(TAG, "Conversation bridge request failed", reason(error));
+                DiagnosticLog.w(TAG, "Conversation bridge request failed", reason(error));
                 response.set(result(false, "媒体桥接请求失败：" + reason(error).getClass().getSimpleName()));
             } finally {
                 Bundle result = response.get();

@@ -240,43 +240,76 @@ class ConversationBridge(context: Context) {
             return@withLock result(session.id, false, "对话会话已结束")
         var target: Endpoint? = null
         try {
-            val connected = discover() ?: return@withLock failedRequest(session, code, "对话宿主未就绪，请检查小米蓝牙作用域")
-            target = connected
-            synchronized(lock) {
-                if (code != ConversationWire.STOP && !isCurrent(session))
+            repeat(2) { attempt ->
+                val connected = discover() ?: return@withLock failedRequest(session, code, "对话宿主未就绪，请检查小米蓝牙作用域")
+                target = connected
+                synchronized(lock) {
+                    if (code != ConversationWire.STOP && !isCurrent(session))
+                        return@withLock result(session.id, false, "对话会话已结束")
+                    // Atomic with stop()/close(): they either capture this lease or prevent
+                    // its START entirely. There is no unregistered in-flight START window.
+                    if (code == ConversationWire.START) {
+                        session.attempted = true
+                        unconfirmed[session.id] = session
+                    }
+                }
+                val answer = transact(connected.binder, session, code)
+                if (answer.getBoolean("bridgeRetired")) {
+                    discard(connected)
+                    // The retired endpoint did not execute this request. Re-admit
+                    // START under lock on the next attempt, in case stop() raced it.
+                    if (attempt == 0) return@repeat
+                }
+                if (code == ConversationWire.START && !isCurrent(session)) {
+                    // Keep the mutex until this late START is cleaned up. A newer START cannot
+                    // overtake its STOP; the host also verifies the exact owner/session pair.
+                    runCatching { stopOnEndpoint(session, connected) }
                     return@withLock result(session.id, false, "对话会话已结束")
-                // Atomic with stop()/close(): they either capture this lease or prevent
-                // its START entirely. There is no unregistered in-flight START window.
-                if (code == ConversationWire.START) {
-                    session.attempted = true
-                    unconfirmed[session.id] = session
+                }
+                if (code == ConversationWire.STOP) return@withLock recordStop(session, answer)
+                // A rejected START can legitimately report session 0 or an older host
+                // session. Preserve its diagnostic instead of masking it as a stale success.
+                if (answer.getBoolean("ok") && answer.getBoolean("active") && answer.getLong("session", -1) != session.id)
+                    return@withLock result(session.id, false, "对话宿主返回了过期会话")
+                return@withLock Bundle(answer).apply {
+                    if (answer.getBoolean("ok") && answer.getBoolean("active")) {
+                        putBoolean("activeKnown", true)
+                        putBoolean("cleanupPending", false)
+                        putBoolean("stopConfirmed", false)
+                    }
                 }
             }
-            val answer = transact(connected.binder, session, code)
-            if (code == ConversationWire.START && !isCurrent(session)) {
-                // Keep the mutex until this late START is cleaned up. A newer START cannot
-                // overtake its STOP; the host also verifies the exact owner/session pair.
-                runCatching { recordStop(session, transact(connected.binder, session, ConversationWire.STOP)) }
-                return@withLock result(session.id, false, "对话会话已结束")
-            }
-            if (code == ConversationWire.STOP) return@withLock recordStop(session, answer)
-            // A rejected START can legitimately report session 0 or an older host
-            // session. Preserve its diagnostic instead of masking it as a stale success.
-            if (answer.getBoolean("ok") && answer.getBoolean("active") && answer.getLong("session", -1) != session.id)
-                return@withLock result(session.id, false, "对话宿主返回了过期会话")
-            Bundle(answer).apply {
-                if (answer.getBoolean("ok") && answer.getBoolean("active")) {
-                    putBoolean("activeKnown", true)
-                    putBoolean("cleanupPending", false)
-                    putBoolean("stopConfirmed", false)
-                }
-            }
+            error("对话桥接重连失败")
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             target?.let { discard(it) }
             failedRequest(session, code, "对话桥接失败：${error.message ?: error.javaClass.simpleName}")
         }
+    }
+
+    /** Already inside transactions: a late START still needs an acknowledged STOP. */
+    private suspend fun stopOnEndpoint(session: Session, initial: Endpoint): Bundle {
+        var target = initial
+        repeat(2) { attempt ->
+            val answer = try {
+                transact(target.binder, session, ConversationWire.STOP)
+            } catch (error: Exception) {
+                discard(target)
+                throw error
+            }
+            if (answer.getBoolean("bridgeRetired")) {
+                discard(target)
+                if (attempt == 0) {
+                    target = discover() ?: return failedRequest(session, ConversationWire.STOP,
+                        "更新后对话宿主尚未就绪")
+                    return@repeat
+                }
+            }
+            // Retirement itself never clears an unconfirmed lease.
+            return recordStop(session, answer)
+        }
+        error("对话停止请求重连失败")
     }
 
     private fun failedRequest(session: Session, code: Int, status: String): Bundle {

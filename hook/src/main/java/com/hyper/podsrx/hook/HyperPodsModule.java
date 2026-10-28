@@ -26,27 +26,71 @@ public final class HyperPodsModule extends XposedModule {
     private WeakReference<Object> lastPreference = new WeakReference<>(null);
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
     private String processName;
+    private boolean bluetoothInstalled;
+    private boolean hotReload;
 
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
         main = new Handler(Looper.getMainLooper());
         processName = param.getProcessName();
-        log(Log.INFO, "HyperPods-X", "Loaded in " + param.getProcessName() + "; API=" + getApiVersion());
+        ReloadLifecycle.add(() -> {
+            main.removeCallbacksAndMessages(null);
+            if (preferences != null && listener != null) preferences.unregisterOnSharedPreferenceChangeListener(listener);
+            listener = null;
+            lastPreference.clear();
+        });
+        moduleLog(Log.INFO, "HyperPods-X", "Loaded in " + param.getProcessName() + "; API=" + getApiVersion());
     }
 
     @Override public void onPackageReady(PackageReadyParam param) {
         if (!param.isFirstPackage()) return;
-        String pkg = param.getPackageName();
+        installPackage(param.getPackageName(), param.getClassLoader(), null);
+    }
+
+    @Override public boolean onHotReloading(HotReloadingParam param) {
+        try {
+            boolean retired = ReloadLifecycle.onMain(ReloadLifecycle::retire);
+            moduleLog(Log.INFO, "HyperPods-Reload", "Retire " + processName + ": " + retired);
+            return retired;
+        } catch (Exception error) {
+            throw new IllegalStateException("Unable to retire module generation", error);
+        }
+    }
+
+    @Override public void onHotReloaded(HotReloadedParam param) {
+        try {
+            ReloadLifecycle.onMain(() -> {
+                Application app = (Application) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+                if (app == null) throw new IllegalStateException("Host Application unavailable");
+                for (var handle : param.getOldHookHandles()) handle.unhook();
+                hotReload = true;
+                onModuleLoaded(param);
+                installPackage(app.getPackageName(), app.getClassLoader(), app);
+                NativeControlPanelAdapter.refreshExistingWindows();
+                moduleLog(Log.INFO, "HyperPods-Reload", "Reload complete in " + processName);
+                return true;
+            });
+        } catch (Exception error) {
+            throw new IllegalStateException("Unable to initialize reloaded module", error);
+        }
+    }
+
+    private void installPackage(String pkg, ClassLoader loader, Application runningApp) {
+        if (!ReloadLifecycle.isActive()) return;
+        if (pkg.equals("com.android.settings") || pkg.equals("com.xiaomi.bluetooth") || pkg.equals("com.milink.service")) {
+            installDiagnosticBridge();
+        }
         if (pkg.equals("com.milink.service")) {
             if (!processName.equals(pkg) && !processName.equals(pkg+":core") && !processName.equals(pkg+":ui")) return;
             preferences=getRemotePreferences("device_state");
             if (processName.equals(pkg+":ui")) {
-                try { NativeControlPanelAdapter.install(this,param.getClassLoader(),preferences); }
-                catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native adaptive control row unavailable",error); }
+                try { NativeControlPanelAdapter.install(this,loader,preferences); }
+                catch (Throwable error) { installationFailure("Native adaptive control row", error); }
             }
-            try { NativeSpatialControlAdapter.install(this,param.getClassLoader(),preferences); }
-            catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native spatial control unavailable",error); }
-            try { NativeSettingsAdapter.install(this,param.getClassLoader(),preferences); }
-            catch (Throwable error) { log(Log.WARN,"HyperPods-X","Native headset settings entry unavailable",error); }
+            try { NativeSpatialControlAdapter.install(this,loader,preferences); }
+            catch (Throwable error) { installationFailure("Native spatial control", error); }
+            try { NativeSettingsAdapter.install(this,loader,preferences); }
+            catch (Throwable error) { installationFailure("Native headset settings entry", error); }
             return;
         }
         if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
@@ -54,71 +98,121 @@ public final class HyperPodsModule extends XposedModule {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
             try {
                 preferences=getRemotePreferences("device_state");
-                Class<?> app = Class.forName("com.android.bluetooth.ble.MiuiApplication", false, param.getClassLoader());
-                hook(app.getDeclaredMethod("onCreate")).intercept(chain -> {
-                    Object result = chain.proceed();
-                    try {
-                        Application host=(Application)chain.getThisObject();
-                        if(pkg.equals(processName)){
-                            NativePopupHost.install(host);
-                            try{NativeControlHost.install(HyperPodsModule.this,host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Native control bridge unavailable",error);}
-                            try{SpatialHost.install(host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Spatial bridge unavailable",error);}
-                            try{ConversationAudioHost.install(host,preferences);}catch(Throwable error){log(Log.WARN,"HyperPods-X","Conversation bridge unavailable",error);}
-                        }
-                        else host.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks(){
-                            @Override public void onActivityPreCreated(Activity activity,Bundle saved){
-                                try{NativeAirPodsDialogAdapter.install(HyperPodsModule.this,activity,preferences);}
-                                catch(Throwable error){log(Log.WARN,"HyperPods-X","Native AirPods dialog adapter unavailable",error);}
-                            }
-                            @Override public void onActivityCreated(Activity activity,Bundle saved){NativeAirPodsDialogAdapter.autoDismiss(activity);}
-                            @Override public void onActivityStarted(Activity activity){}
-                            @Override public void onActivityResumed(Activity activity){}
-                            @Override public void onActivityPaused(Activity activity){}
-                            @Override public void onActivityStopped(Activity activity){}
-                            @Override public void onActivitySaveInstanceState(Activity activity,Bundle out){}
-                            @Override public void onActivityDestroyed(Activity activity){}
-                        });
-                    }
-                    catch (Throwable error) { log(Log.WARN, "HyperPods-X", "Native popup bridge unavailable", error); }
-                    return result;
-                });
-            } catch (Throwable error) { log(Log.WARN, "HyperPods-X", "Native popup host unavailable", error); }
+                if (runningApp != null) installBluetooth(runningApp, pkg);
+                else {
+                    Class<?> app = Class.forName("com.android.bluetooth.ble.MiuiApplication", false, loader);
+                    hook(app.getDeclaredMethod("onCreate")).intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (ReloadLifecycle.isActive()) installBluetooth((Application) chain.getThisObject(), pkg);
+                        return result;
+                    });
+                }
+            } catch (Throwable error) { installationFailure("Native popup host", error); }
             return;
         }
         try {
             preferences = getRemotePreferences("device_state");
-            listener = (p, key) -> main.post(this::refreshSummary);
+            listener = (p, key) -> { if (ReloadLifecycle.isActive()) main.post(this::refreshSummary); };
             preferences.registerOnSharedPreferenceChangeListener(listener);
             try {
-                Class<?> devicePreference=Class.forName("com.android.settings.bluetooth.BluetoothDevicePreference",false,param.getClassLoader());
+                Class<?> devicePreference=Class.forName("com.android.settings.bluetooth.BluetoothDevicePreference",false,loader);
                 Method click=devicePreference.getDeclaredMethod("onClick",View.class);
                 hook(click).intercept(chain->{
                     try {
                         Object view=chain.getArg(0);
                         if(view instanceof View&&openDeviceFromArrow(chain.getThisObject(),(View)view))return null;
-                    } catch(Throwable error) {log(Log.WARN,"HyperPods-X","Direct headset settings unavailable",error);}
+                    } catch(Throwable error) {moduleLog(Log.WARN,"HyperPods-X","Direct headset settings unavailable",error);}
                     return chain.proceed();
                 });
-                log(Log.INFO,"HyperPods-X","Bluetooth device arrow hook installed");
-            } catch(ReflectiveOperationException error) {log(Log.WARN,"HyperPods-X","Bluetooth device arrow unavailable",error);}
+                moduleLog(Log.INFO,"HyperPods-X","Bluetooth device arrow hook installed");
+            } catch(ReflectiveOperationException error) {installationFailure("Bluetooth device arrow", error);}
+            int detailHooks = 0;
             for (String name : new String[]{"com.android.settings.bluetooth.DeviceProfilesSettings", "com.android.settings.bluetooth.BluetoothDeviceDetailsFragment"}) {
                 try {
-                Class<?> page = Class.forName(name, false, param.getClassLoader());
+                Class<?> page = Class.forName(name, false, loader);
                 Method resume = page.getDeclaredMethod("onResume");
                 hook(resume).intercept(chain -> {
                     Object result = chain.proceed();
-                    try { inject(chain.getThisObject(), param.getClassLoader()); }
-                    catch (Throwable error) { log(Log.WARN, "HyperPods-X", "Detail entry unavailable", error); }
+                    try { if (ReloadLifecycle.isActive()) inject(chain.getThisObject(), loader); }
+                    catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Detail entry unavailable", error); }
                     return result;
                 });
-                } catch (ReflectiveOperationException error) { log(Log.WARN, "HyperPods-X", "Settings page unavailable: " + name, error); }
+                detailHooks++;
+                } catch (ReflectiveOperationException error) { moduleLog(Log.WARN, "HyperPods-X", "Settings page unavailable: " + name, error); }
             }
-            log(Log.INFO, "HyperPods-X", "Bluetooth details hook installed");
-        } catch (Throwable error) { log(Log.ERROR, "HyperPods-X", "Settings adapter could not load", error); }
+            if (detailHooks == 0) throw new IllegalStateException("No supported Bluetooth details page");
+            moduleLog(Log.INFO, "HyperPods-X", "Bluetooth details hook installed: " + detailHooks);
+        } catch (Throwable error) { installationFailure("Settings adapter", error); }
+    }
+
+    private void installBluetooth(Application host, String pkg) {
+        if (bluetoothInstalled || !ReloadLifecycle.isActive()) return;
+        bluetoothInstalled = true;
+        DiagnosticLog.install(host);
+        if (pkg.equals(processName)) {
+            NativePopupHost.install(host);
+            try { NativeControlHost.install(this, host, preferences); }
+            catch (Throwable error) { installationFailure("Native control bridge", error); }
+            try { SpatialHost.install(host, preferences); }
+            catch (Throwable error) { installationFailure("Spatial bridge", error); }
+            try { ConversationAudioHost.install(host, preferences); }
+            catch (Throwable error) { installationFailure("Conversation bridge", error); }
+        } else {
+            Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
+                @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
+                    if (!ReloadLifecycle.isActive()) return;
+                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); }
+                    catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error); }
+                }
+                @Override public void onActivityCreated(Activity activity, Bundle saved) {
+                    if (ReloadLifecycle.isActive()) NativeAirPodsDialogAdapter.autoDismiss(activity);
+                }
+                @Override public void onActivityStarted(Activity activity) {}
+                @Override public void onActivityResumed(Activity activity) { onActivityPreCreated(activity, null); }
+                @Override public void onActivityPaused(Activity activity) {}
+                @Override public void onActivityStopped(Activity activity) {}
+                @Override public void onActivitySaveInstanceState(Activity activity, Bundle out) {}
+                @Override public void onActivityDestroyed(Activity activity) {}
+            };
+            host.registerActivityLifecycleCallbacks(callbacks);
+            ReloadLifecycle.add(() -> host.unregisterActivityLifecycleCallbacks(callbacks));
+        }
+    }
+
+    private void installationFailure(String component, Throwable error) {
+        moduleLog(Log.WARN, "HyperPods-X", component + " unavailable", error);
+        if (hotReload) throw new IllegalStateException(component + " reload failed", error);
+    }
+
+    private void moduleLog(int priority, String tag, String message) {
+        moduleLog(priority, tag, message, null);
+    }
+
+    private void moduleLog(int priority, String tag, String message, Throwable error) {
+        DiagnosticLog.write(priority, tag, message, error);
+        // Retain the framework's own module log as well as the exportable buffer.
+        String detail = message + (error == null ? "" : "\n" + Log.getStackTraceString(error));
+        log(priority, tag, LogRedactor.limitUtf8(LogRedactor.redact(detail), 7500));
+    }
+
+    private void installDiagnosticBridge() {
+        // Application.attach runs before LoadedApk assigns ContextImpl.outerContext.
+        // Registering there uses a different receiver-dispatcher key from unregister
+        // after startup. Wait until Application creation has completely returned.
+        main.post(() -> {
+            if (!ReloadLifecycle.isActive()) return;
+            try {
+                Application app = (Application) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+                if (app != null) DiagnosticLog.install(app);
+            } catch (Throwable error) {
+                moduleLog(Log.WARN, "HyperPods-X", "Diagnostic bridge attachment unavailable", error);
+            }
+        });
     }
 
     private boolean openDeviceFromArrow(Object preference,View arrow)throws Exception {
-        if(preferences==null||!preferences.getBoolean("enabled",false))return false;
+        if(!ReloadLifecycle.isActive()||preferences==null||!preferences.getBoolean("enabled",false))return false;
         int detail=arrow.getResources().getIdentifier("preference_detail","id","com.android.settings");
         if(detail==0||arrow.getId()!=detail)return false;
         String target=preferences.getString("address","");
@@ -138,7 +232,7 @@ public final class HyperPodsModule extends XposedModule {
         }
         if(!(context instanceof Activity))intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         context.startActivity(intent);
-        log(Log.INFO,"HyperPods-X","Opened bound headset settings from Bluetooth device arrow");
+        moduleLog(Log.INFO,"HyperPods-X","Opened bound headset settings from Bluetooth device arrow");
         return true;
     }
 
@@ -169,6 +263,7 @@ public final class HyperPodsModule extends XposedModule {
         refreshSummary();
     }
     private void refreshSummary() {
+        if (!ReloadLifecycle.isActive()) return;
         Object preference = lastPreference.get();
         if (preference == null || preferences == null) return;
         try {

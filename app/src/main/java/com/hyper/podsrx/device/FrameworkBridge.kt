@@ -13,10 +13,14 @@ object FrameworkBridge {
                 service = bound
                 DeviceRepository.update { it.copy(framework = "${bound.frameworkName} · API ${bound.apiVersion}", frameworkApi = bound.apiVersion) }
                 publish()
+                HostReloadCoordinator.onServiceBound(bound)
             }
             override fun onServiceDied(bound: XposedService) {
-                if (service === bound) service = null
-                DeviceRepository.update { it.copy(framework = "模块服务已断开", frameworkApi = 0) }
+                if (service === bound) {
+                    service = null
+                    HostReloadCoordinator.onServiceDied()
+                    DeviceRepository.update { it.copy(framework = "模块服务已断开", frameworkApi = 0) }
+                }
             }
         })
     }
@@ -56,16 +60,14 @@ object FrameworkBridge {
                 ?.putBoolean("enabled", true)?.apply()
         }
     }
-    fun requestSettingsScope() {
-        service?.requestScope(listOf("com.android.settings"), object : XposedService.OnScopeEventListener {
-            override fun onScopeRequestApproved(approved: MutableList<String>) { DeviceRepository.message("系统设置作用域已授权，请重新打开系统设置") }
-            override fun onScopeRequestFailed(message: String) { DeviceRepository.message(message) }
-        }) ?: DeviceRepository.message("请先在 LSPosed 中启用 HyperPods-X")
-    }
     fun requestNativeScope() {
-        service?.requestScope(listOf("com.xiaomi.bluetooth","com.milink.service"),object:XposedService.OnScopeEventListener{
-            override fun onScopeRequestApproved(approved:MutableList<String>){DeviceRepository.message("系统原生适配已授权，重新启动小米蓝牙与设备互联后生效")}
+        val bound = service ?: return DeviceRepository.message("请先在 LSPosed 中启用 HyperPods-X")
+        bound.requestScope(listOf("com.android.settings","com.xiaomi.bluetooth","com.milink.service"),object:XposedService.OnScopeEventListener{
+            override fun onScopeRequestApproved(approved:MutableList<String>){
+                DeviceRepository.message("作用域已授权，正在检查宿主加载状态")
+                HostReloadCoordinator.onScopeApproved(bound, approved)
+            }
             override fun onScopeRequestFailed(message:String){DeviceRepository.message(message)}
-        })?:DeviceRepository.message("请在 LSPosed 中勾选“小米蓝牙”和“设备互联”")
+        })
     }
 }

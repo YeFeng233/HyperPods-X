@@ -14,6 +14,7 @@ import android.os.Looper;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -24,8 +25,28 @@ final class NativeAirPodsDialogAdapter {
     private static final Set<ClassLoader> installed=Collections.newSetFromMap(new WeakHashMap<>());
     private static final Set<String> reported=Collections.synchronizedSet(new HashSet<>());
     private static final ThreadLocal<Intent> creating=new ThreadLocal<>();
+    private static final Handler dismissHandler=new Handler(Looper.getMainLooper());
+    private static final Set<Activity> dismissActivities=Collections.newSetFromMap(new WeakHashMap<>());
+    private static boolean cleanupRegistered;
+
+    private static void prepareCleanup() {
+        if(cleanupRegistered)return;
+        cleanupRegistered=true;
+        ReloadLifecycle.add(()->{
+            dismissHandler.removeCallbacksAndMessages(null);
+            // A live popup does not receive onActivityCreated again in the new
+            // generation. Finish only signed module popups whose timer we owned.
+            for(Activity activity:new ArrayList<>(dismissActivities))finishModulePopup(activity);
+            dismissActivities.clear();
+            installed.clear();
+            reported.clear();
+            creating.remove();
+        });
+    }
 
     static void install(HyperPodsModule module, Activity activity, SharedPreferences preferences) throws Exception {
+        if(!ReloadLifecycle.isActive())return;
+        prepareCleanup();
         if(!activity.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity"))return;
         ClassLoader loader=activity.getClass().getClassLoader();
         if(installed.contains(loader))return;
@@ -43,11 +64,13 @@ final class NativeAirPodsDialogAdapter {
         for(String setter:new String[]{"setConnectState","setLeftBattery","setRightBattery","setBoxBattery","setChargingState","setWearType"})
             info.getMethod(setter,int.class);
         module.hook(create).intercept(chain->{
+            if(!ReloadLifecycle.isActive())return chain.proceed();
             Intent request=request(chain.getThisObject(),preferences);
             if(request==null)return chain.proceed();
             creating.set(request);
             try {
                 Object result=chain.proceed();
+                if(!ReloadLifecycle.isActive())return result;
                 try {
                     Object owner=chain.getThisObject();
                     // The native layout also represents BLE battery data while audio is disconnected.
@@ -66,6 +89,7 @@ final class NativeAirPodsDialogAdapter {
         });
         module.hook(status).intercept(chain->{
             Object result=chain.proceed();
+            if(!ReloadLifecycle.isActive())return result;
             Intent request=creating.get();
             try { if(request!=null)populate(result,request,preferences); }
             catch(Exception | LinkageError error) { report("buildPodsStatus",error); }
@@ -73,6 +97,7 @@ final class NativeAirPodsDialogAdapter {
         });
         module.hook(state).intercept(chain->{
             Object result=chain.proceed();
+            if(!ReloadLifecycle.isActive())return result;
             try {
                 Intent request=request(chain.getThisObject(),preferences);
                 if(request!=null){
@@ -86,6 +111,7 @@ final class NativeAirPodsDialogAdapter {
         });
         module.hook(parameters).intercept(chain->{
             Object result=chain.proceed();
+            if(!ReloadLifecycle.isActive())return result;
             try {
                 if(Boolean.TRUE.equals(result)&&request(chain.getThisObject(),preferences)!=null){
                     Object owner=chain.getThisObject();
@@ -96,13 +122,14 @@ final class NativeAirPodsDialogAdapter {
                     Drawable[] icons=(Drawable[])field(owner,"mHeadsetIconDrawable").get(owner);
                     java.util.Arrays.fill(icons,buds);
                     field(owner,"mHeadsetBoxIconDrawable").set(owner,box);
-                    android.util.Log.i("HyperPods-X","Native AirPods dialog uses AirPods 5 artwork");
+                    DiagnosticLog.i("HyperPods-X","Native AirPods dialog uses AirPods 5 artwork");
                 }
             } catch(Exception | LinkageError error) { report("initParameter",error); }
             return result;
         });
         module.hook(detail).intercept(chain->{
             Object result=chain.proceed();
+            if(!ReloadLifecycle.isActive())return result;
             try {
                 Object owner=chain.getThisObject();
                 Intent request=request(owner,preferences);
@@ -134,18 +161,30 @@ final class NativeAirPodsDialogAdapter {
             return request!=null&&request.getBooleanExtra("hyperpods_preview",false)?null:chain.proceed();
         });
         installed.add(loader);
-        android.util.Log.i("HyperPods-X","Native AirPods dialog adapter ready");
+        DiagnosticLog.i("HyperPods-X","Native AirPods dialog adapter ready");
     }
     static void autoDismiss(Activity activity) {
+        if(!ReloadLifecycle.isActive())return;
+        prepareCleanup();
         try {
-            PendingIntent token=activity.getIntent().getParcelableExtra("hyperpods_target",PendingIntent.class);
-            if(token!=null&&APP.equals(token.getCreatorPackage()))new Handler(Looper.getMainLooper()).postDelayed(()->{
-                try { if(!activity.isFinishing())activity.finish(); }
-                catch(RuntimeException | LinkageError error) { report("autoDismiss",error); }
+            if(isModulePopup(activity)&&dismissActivities.add(activity))dismissHandler.postDelayed(()->{
+                dismissActivities.remove(activity);
+                if(ReloadLifecycle.isActive())finishModulePopup(activity);
             },8000);
         } catch(RuntimeException | LinkageError error) { report("autoDismiss",error); }
     }
+    private static boolean isModulePopup(Activity activity) {
+        if(!activity.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity"))return false;
+        PendingIntent token=activity.getIntent().getParcelableExtra("hyperpods_target",PendingIntent.class);
+        return token!=null&&APP.equals(token.getCreatorPackage());
+    }
+    private static void finishModulePopup(Activity activity) {
+        try {
+            if(!activity.isFinishing()&&!activity.isDestroyed()&&isModulePopup(activity))activity.finish();
+        } catch(RuntimeException | LinkageError error) { report("autoDismiss",error); }
+    }
     private static Intent request(Object controller,SharedPreferences preferences) {
+        if(!ReloadLifecycle.isActive())return null;
         try {
             Activity activity=(Activity)field(controller,"mActivityContext").get(controller);
             Intent request=activity.getIntent();
@@ -155,7 +194,7 @@ final class NativeAirPodsDialogAdapter {
         } catch(Exception | LinkageError error) { report("request",error); return null; }
     }
     private static void report(String operation,Throwable error) {
-        if(reported.add(operation))android.util.Log.w("HyperPods-X",
+        if(reported.add(operation))DiagnosticLog.w("HyperPods-X",
                 "Native AirPods adapter skipped incompatible interface: "+operation,error);
     }
     private static int value(Intent request,SharedPreferences preferences,String key,int fallback){

@@ -5,7 +5,6 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
-import android.util.Log;
 import io.github.libxposed.api.XposedModule;
 import java.lang.reflect.Method;
 
@@ -31,7 +30,7 @@ final class NativeSettingsAdapter {
                     }
                 }
             } catch (ReflectiveOperationException | RuntimeException error) {
-                Log.w("HyperPods-X", "Module headset settings unavailable", error);
+                DiagnosticLog.w("HyperPods-X", "Module headset settings unavailable", error);
             }
             return chain.proceed();
         });
@@ -40,7 +39,7 @@ final class NativeSettingsAdapter {
     private static String target(BluetoothDevice device, SharedPreferences preferences) {
         long age = SystemClock.elapsedRealtime() - preferences.getLong("panel_heartbeat", -1);
         String address = preferences.getString("address", "");
-        if (device == null || address == null || address.isEmpty() || age < 0 || age > 30000 ||
+        if (!ReloadLifecycle.isActive() || device == null || address == null || address.isEmpty() || age < 0 || age > 30000 ||
             !preferences.getBoolean("enabled", false) || !preferences.getBoolean("native_connected", false) ||
             !"A3441".equals(preferences.getString("panel_model", "")) ||
             !address.equalsIgnoreCase(device.getAddress())) return null;

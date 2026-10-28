@@ -6,7 +6,6 @@ import android.hardware.SensorManager;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.*;
-import android.util.Log;
 import java.lang.reflect.*;
 import java.util.List;
 
@@ -19,6 +18,13 @@ final class SpatialHost extends Binder {
     private final Object spatializer;
     private final Class<?> attributesClass;
     private volatile BluetoothProfile a2dp;
+    private final BluetoothAdapter adapter;
+    private BluetoothProfile profileProxy;
+    private boolean profilePending;
+    private BroadcastReceiver receiver;
+    private boolean receiverRegistered;
+    private volatile boolean closed;
+    private boolean cleanupComplete;
     private final int appUid;
     private Object nativeController;
     private String activeAddress="";
@@ -31,28 +37,69 @@ final class SpatialHost extends Binder {
 
     static void install(Context context,android.content.SharedPreferences preferences)throws Exception {
         SpatialHost host=new SpatialHost(context,preferences);
-        context.registerReceiver(new BroadcastReceiver(){
+        ReloadLifecycle.add(host::close);
+        ReloadLifecycle.rejectWhile(host::busyForReload);
+        host.receiver=new BroadcastReceiver(){
             @Override public void onReceive(Context c,Intent intent){
-                if(!SpatialWire.ACTION.equals(intent.getAction()))return;
+                if(host.closed||!ReloadLifecycle.isActive()||!SpatialWire.ACTION.equals(intent.getAction()))return;
                 long age=SystemClock.elapsedRealtime()-intent.getLongExtra("created",0);
                 if(age<0||age>1000)return;
                 Bundle result=new Bundle();result.putBinder("bridge",host);
                 setResultExtras(result);setResultCode(1);
             }
-        },new IntentFilter(SpatialWire.ACTION),SpatialWire.PERMISSION,host.handler,Context.RECEIVER_EXPORTED);
-        Log.i("HyperPods-X","Spatial Binder bridge ready");
+        };
+        try {
+            context.registerReceiver(host.receiver,new IntentFilter(SpatialWire.ACTION),SpatialWire.PERMISSION,host.handler,Context.RECEIVER_EXPORTED);
+            host.receiverRegistered=true;
+            host.connectProfile();
+        } catch (RuntimeException error) {
+            host.close();
+            throw error;
+        }
+        DiagnosticLog.i("HyperPods-X","Spatial Binder bridge ready");
     }
     private SpatialHost(Context c,android.content.SharedPreferences p)throws Exception {
         context=c;preferences=p;audio=c.getSystemService(AudioManager.class);
         spatializer=audio.getSpatializer();attributesClass=Class.forName("android.media.AudioDeviceAttributes");
         appUid=c.getPackageManager().getPackageUid(SpatialWire.APP,0);
         attachInterface(null,SpatialWire.DESCRIPTOR);
-        c.getSystemService(BluetoothManager.class).getAdapter().getProfileProxy(c,new BluetoothProfile.ServiceListener(){
-            @Override public void onServiceConnected(int profile,BluetoothProfile proxy){a2dp=proxy;}
-            @Override public void onServiceDisconnected(int profile){a2dp=null;stopAsync();}
-        },BluetoothProfile.A2DP);
+        adapter=c.getSystemService(BluetoothManager.class).getAdapter();
     }
-    private void stopAsync(){handler.post(()->{synchronized(this){stop();}});}
+    private synchronized void connectProfile(){
+        profilePending=true;
+        if(!adapter.getProfileProxy(context,new BluetoothProfile.ServiceListener(){
+            @Override public void onServiceConnected(int profile,BluetoothProfile proxy){
+                synchronized(SpatialHost.this){
+                    profilePending=false;
+                    if(closed){adapter.closeProfileProxy(profile,proxy);return;}
+                    profileProxy=proxy;a2dp=proxy;
+                }
+            }
+            @Override public void onServiceDisconnected(int profile){
+                synchronized(SpatialHost.this){a2dp=null;if(!closed)stopAsync();}
+            }
+        },BluetoothProfile.A2DP))profilePending=false;
+    }
+    private synchronized boolean busyForReload(){
+        return !cleanupComplete&&(profilePending||!activeAddress.isEmpty()||nativeController!=null);
+    }
+    private synchronized void close(){
+        if(cleanupComplete)return;
+        // Normally rejected by the preflight guard. Catch an intervening Binder START
+        // as well, so native tracking is never abandoned by an unloaded generation.
+        if(!activeAddress.isEmpty()||nativeController!=null)
+            throw new IllegalStateException("Spatial session became active during reload");
+        closed=true;
+        if(receiverRegistered){context.unregisterReceiver(receiver);receiverRegistered=false;}
+        receiver=null;
+        stop();
+        handler.removeCallbacksAndMessages(null);
+        BluetoothProfile proxy=profileProxy;
+        if(proxy!=null)adapter.closeProfileProxy(BluetoothProfile.A2DP,proxy);
+        profileProxy=null;a2dp=null;
+        cleanupComplete=true;
+    }
+    private void stopAsync(){if(!closed)handler.post(()->{synchronized(this){if(!closed)stop();}});}
     private Object attrs(String address)throws Exception {
         return attributesClass.getConstructor(int.class,int.class,String.class).newInstance(2,AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,address);
     }
@@ -71,6 +118,16 @@ final class SpatialHost extends Binder {
         return ((List<?>)call("getCompatibleAudioDevices",new Class<?>[0])).contains(attr);
     }
     private synchronized Bundle execute(int code,Bundle request)throws Exception {
+        if(cleanupComplete){
+            Bundle retired=new Bundle();
+            retired.putBoolean("ok",false);
+            retired.putBoolean("bridgeRetired",true);
+            retired.putString("status","姿态桥接已更新，请重新连接");
+            return retired;
+        }
+        if(closed||!ReloadLifecycle.isActive())throw new IllegalStateException("姿态桥接已更新，请重新连接");
+        if((code==SpatialWire.START||code==SpatialWire.FIXED)&&!ReloadLifecycle.canStartOperation())
+            throw new IllegalStateException("模块正在准备更新，请稍后重试");
         String address=request.getString("address","");
         if(!BluetoothAdapter.checkBluetoothAddress(address)||!address.equalsIgnoreCase(preferences.getString("address","")))
             throw new SecurityException("仅支持已绑定耳机");
@@ -116,7 +173,7 @@ final class SpatialHost extends Binder {
             }catch(Throwable error){stop();throw error;}
             lastStatus="系统虚拟传感器已创建，等待设备关联";
             handler.postDelayed(watchdog,500);
-            Log.i("HyperPods-X","Created native spatial head tracker");
+            DiagnosticLog.i("HyperPods-X","Created native spatial head tracker");
         }else if(code==SpatialWire.POSE){
             if(activeAddress.isEmpty()||!address.equalsIgnoreCase(activeAddress))throw new IllegalStateException("追踪会话已结束");
             long age=SystemClock.elapsedRealtime()-request.getLong("captured",0);
@@ -146,7 +203,7 @@ final class SpatialHost extends Binder {
                 if((Boolean)call("hasHeadTracker",new Class<?>[]{attributesClass},device)&&
                         !(Boolean)call("isHeadTrackerEnabled",new Class<?>[]{attributesClass},device))
                     call("setHeadTrackerEnabled",new Class<?>[]{boolean.class,attributesClass},true,device);
-            }catch(Exception error){Log.w("HyperPods-X","Head tracker association is pending",error);}
+            }catch(Exception error){DiagnosticLog.w("HyperPods-X","Head tracker association is pending",error);}
             handler.postDelayed(this,250);
         }}
     };
@@ -158,14 +215,14 @@ final class SpatialHost extends Binder {
         client=null;death=null;
         if(address.isEmpty())return;
         try {nativeController.getClass().getMethod("destroyspatialhid",String.class).invoke(nativeController,hidAddress(address));}
-        catch(Throwable e){Log.w("HyperPods-X","Native head tracker cleanup failed",e);}
+        catch(Throwable e){DiagnosticLog.w("HyperPods-X","Native head tracker cleanup failed",e);}
         finally {nativeController=null;}
         try {
             call("setHeadTrackerEnabled",new Class<?>[]{boolean.class,attributesClass},previousTracker,attrs(address));
             call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},previousMode);
-        }catch(Throwable e){Log.w("HyperPods-X","Head tracker preference restore failed",e);}
+        }catch(Throwable e){DiagnosticLog.w("HyperPods-X","Head tracker preference restore failed",e);}
         lastStatus="系统头部传感器已清理";
-        Log.i("HyperPods-X","Destroyed native spatial head tracker");
+        DiagnosticLog.i("HyperPods-X","Destroyed native spatial head tracker");
     }
     @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException {
         if(code==INTERFACE_TRANSACTION){if(reply!=null)reply.writeString(SpatialWire.DESCRIPTOR);return true;}
@@ -178,7 +235,7 @@ final class SpatialHost extends Binder {
         catch(Throwable error){
             Throwable reason=error instanceof InvocationTargetException&&error.getCause()!=null?error.getCause():error;
             response=new Bundle();response.putBoolean("ok",false);response.putString("status",reason.getClass().getSimpleName()+": "+reason.getMessage());
-            if(code!=SpatialWire.POSE)Log.w("HyperPods-X","Spatial bridge request failed",reason);
+            if(code!=SpatialWire.POSE)DiagnosticLog.w("HyperPods-X","Spatial bridge request failed",reason);
         }finally{Binder.restoreCallingIdentity(identity);}
         if(reply!=null){reply.writeNoException();reply.writeBundle(response);}return true;
     }

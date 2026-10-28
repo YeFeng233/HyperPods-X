@@ -8,7 +8,8 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.util.Log
+import com.hyper.podsrx.hook.DiagnosticLog
+import com.hyper.podsrx.hook.LogRedactor
 import androidx.core.content.ContextCompat
 import com.hyper.podsrx.protocol.Battery
 import com.hyper.podsrx.protocol.Event
@@ -68,8 +69,9 @@ object DeviceRepository {
     fun update(block: (PodsState) -> PodsState) { mutable.update(block) }
     fun message(text: String) { update { it.copy(message = text) }; log(text);saveDiagnostics() }
     fun log(text: String) {
-        Log.i("HyperPods-X", text)
-        update { it.copy(log = (it.log + text).takeLast(30)) }
+        DiagnosticLog.i("HyperPods-X", text)
+        val clean = LogRedactor.limitUtf8(LogRedactor.redact(text), 7500)
+        update { it.copy(log = (it.log + clean).takeLast(30)) }
     }
     fun permissionsGranted() = listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.ACCESS_FINE_LOCATION)
         .all { ContextCompat.checkSelfPermission(app,it) == PackageManager.PERMISSION_GRANTED }
@@ -164,11 +166,10 @@ object DeviceRepository {
         val b=state.value.batteries[id]
         "$label ${b?.level?.let { "${if(b.precise) "" else "约"}$it%${if(b.current) "" else "（上次）"}" } ?: "—"}"
     }
-    @Synchronized fun saveDiagnostics() {
-        runCatching {
-            val s=state.value
-            val json=JSONObject().put("name",s.name).put("model",s.model).put("firmware",s.firmware)
-                .put("status",s.status).put("connected",s.connected).put("framework",s.framework)
+    fun diagnosticSnapshot(): JSONObject {
+        val s=state.value
+        return JSONObject().put("name",s.name).put("model",s.model).put("firmware",s.firmware)
+                .put("status",s.status).put("connected",s.connected).put("framework",s.framework).put("frameworkApi",s.frameworkApi)
                 .put("identityReady",s.identityReady).put("broadcasts",s.broadcasts).put("trustedBroadcasts",s.trustedBroadcasts)
                 .put("proximityCandidates",s.proximityCandidates).put("identityMatches",s.identityMatches).put("cardStatus",s.cardStatus.joinToString(","))
                 .put("lidOpen",s.lidOpen)
@@ -182,6 +183,10 @@ object DeviceRepository {
                 .put("pending",s.pending.joinToString(",")).put("message",s.message).put("log",s.log.joinToString("\n"))
                 .put("adaptiveTarget",s.adaptiveTarget)
                 .put("controlRefreshUntil",s.controlRefreshUntil)
+    }
+    @Synchronized fun saveDiagnostics() {
+        runCatching {
+            val json=diagnosticSnapshot()
             val file=android.util.AtomicFile(File(app.filesDir,"diagnostics.json"))
             val output=file.startWrite()
             try {output.write(json.toString(2).toByteArray());file.finishWrite(output)}

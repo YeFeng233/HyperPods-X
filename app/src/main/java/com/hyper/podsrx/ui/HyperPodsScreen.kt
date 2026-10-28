@@ -243,12 +243,6 @@ private fun NativePreviewRow() {
 }
 
 @Composable
-private fun FrameworkSettingsRow() {
-    val framework by rememberDeviceValue { it.framework }
-    RowItem("系统蓝牙入口", "$framework · 点击申请作用域") { FrameworkBridge.requestSettingsScope() }
-}
-
-@Composable
 private fun DeviceInformation() {
     val info by rememberDeviceValue { Triple(it.displayName, it.model, it.firmware) }
     InfoRow("名称", info.first)
@@ -258,6 +252,8 @@ private fun DeviceInformation() {
 
 @Composable
 private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
+    val logExport = LocalLogExport.current
+    val hostRestart by HostRestartCoordinator.state.collectAsState()
     val style by AppearancePreferences.style.collectAsState()
     val changeStyle = LocalChangeUiStyle.current
     Section("外观") {
@@ -267,15 +263,18 @@ private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, n
         PreferenceToggle("开盖弹窗", "仅响应已验证的耳机开盖广播", { it.popupEnabled }, DeviceRepository::setPopup)
         PreferenceToggle("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", { it.nativePopup }, DeviceRepository::setNativePopup)
         PreferenceToggle("连接电量卡片", "重新连接时显示真实电量", { it.connectionPopup }, DeviceRepository::setConnectionPopup)
-        RowItem("启用系统适配", "在 LSPosed 中授权小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
+        RowItem("启用系统适配", "在 LSPosed 中授权系统设置、小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
+        RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
+            enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
         RowItem("允许悬浮显示", "原生通道不可用时使用兼容卡片", action = onOverlay)
         RowItem("预览电量卡片") { PodsService.previewPopup() }
         NativePreviewRow()
     }
     Section("连接与系统") {
         RowItem("系统蓝牙设置", "管理配对、音频与设备权限", action = onSystemBluetooth)
-        FrameworkSettingsRow()
         RowItem("连接诊断", "控制通道、广播与连接记录") { navigate("diagnostics") }
+        RowItem(if (logExport.busy) "正在导出日志…" else "导出日志", logExport.status,
+            enabled = !logExport.busy, action = logExport.export)
     }
     Section("设备信息") {
         DeviceInformation()

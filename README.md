@@ -43,10 +43,14 @@ HyperPods-X 想做的事情很简单：让 AirPods 连接小米手机之后，�
 ## 安装与使用
 
 1. 从 [Releases](https://github.com/YeFeng233/HyperPods-X/releases) 下载 APK，先在系统蓝牙中配对耳机。当前发布的是经过 R8 优化的 `deviceTest` 预览包。
-2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings` 、“小米蓝牙” `com.xiaomi.bluetooth` 和“设备互联” `com.milink.service`。更新模块后，重新启动对应宿主进程或重启手机。
+2. 在支持现代 API 102 的 LSPosed 中启用 HyperPods-X，勾选“系统设置” `com.android.settings` 、“小米蓝牙” `com.xiaomi.bluetooth` 和“设备互联” `com.milink.service`。首次启用或从不支持热重载的旧版升级时，重新启动对应宿主进程或重启手机；后续更新由支持热重载的 API 102 框架自动更新已注入宿主，失败时查看导出日志中的 `HyperPods-Reload`。
 3. 打开应用，授予附近设备、精确位置和通知权限，并允许应用在后台运行。精确位置权限用于接收完整 BLE 广播。
 4. 点击“连接耳机”。之后可以从应用首页，或系统蓝牙 → 已绑定 AirPods 卡片右侧箭头进入耳机设置。设备详情中的“HyperPods-X 高级设置”入口也会保留。
 5. 在“更多设置”中管理开盖弹窗、超级岛、电量卡片和连接诊断。系统原生通道不可用时，兼容电量卡片需要悬浮显示权限。
+
+遇到连接或开盖问题时，可在两种风格的“更多设置 → 导出日志”保存脱敏 ZIP，包含最近运行记录、当前诊断和模块宿主日志，详见[日志说明](docs/LOGS.md)。
+
+首次启用或宿主需要重新加载时，可点击“更多设置 → 重启作用域”。此操作需要在 Root 管理器中授权，仅重启当前已授权的系统设置、小米蓝牙和设备互联；完成后重新打开系统页面。
 
 当前安装包最低要求 Android API 37。真机测试覆盖 HyperOS `OS4.0.4.0.XPBCNXM` 与 `OS4.0.5.0.XPBCNXM`，已移除精确系统版本门禁，改为检查运行时接口。其他手机、系统版本和耳机型号还没有完整验证，不能将这份适配范围直接扩展到所有 AirPods 或所有 HyperOS 设备。
 

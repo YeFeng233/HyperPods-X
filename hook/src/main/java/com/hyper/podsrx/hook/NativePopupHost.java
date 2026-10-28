@@ -23,10 +23,11 @@ final class NativePopupHost {
     private static boolean registered;
 
     static void install(Context context) {
-        if (registered) return;
-        context.registerReceiver(new BroadcastReceiver() {
+        if (registered || !ReloadLifecycle.isActive()) return;
+        Handler delivery = new Handler(Looper.getMainLooper());
+        BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override public void onReceive(Context host, Intent request) {
-                if (!ACTION.equals(request.getAction())) return;
+                if (!ReloadLifecycle.isActive() || !ACTION.equals(request.getAction())) return;
                 long age = SystemClock.elapsedRealtime() - request.getLongExtra("created", 0);
                 if (age < 0 || age > 1000) return;
                 PendingIntent target = request.getParcelableExtra("target", PendingIntent.class);
@@ -50,7 +51,7 @@ final class NativePopupHost {
                         for(String key:new String[]{"left","right","box","box_history","charging"})dialog.putExtra("native_"+key,request.getIntExtra("native_"+key,-1));
                         dialog.putExtra("native_connected",request.getBooleanExtra("native_connected",false));
                         host.startActivity(dialog);
-                        android.util.Log.i("HyperPods-X","Launched built-in AirPods fast-connect dialog");
+                        DiagnosticLog.i("HyperPods-X","Launched built-in AirPods fast-connect dialog");
                         setResultCode(1);return;
                     }
                     JSONObject params = new JSONObject();
@@ -70,16 +71,21 @@ final class NativePopupHost {
                     Object statusBar = host.getSystemService("statusbar");
                     statusBar.getClass().getMethod("setStatus", int.class, String.class, Bundle.class)
                             .invoke(statusBar, 1, "strong_toast_action", bundle);
-                    android.util.Log.i("HyperPods-X", "Submitted native headset popup to SystemUI");
+                    DiagnosticLog.i("HyperPods-X", "Submitted native headset popup to SystemUI");
                     setResultCode(1);
                 } catch (Throwable error) {
-                    android.util.Log.w("HyperPods-X", "Native headset popup unavailable", error);
+                    DiagnosticLog.w("HyperPods-X", "Native headset popup unavailable", error);
                     setResultCode(-1);
                 }
             }
-        }, new IntentFilter(ACTION), PERMISSION, new Handler(Looper.getMainLooper()), Context.RECEIVER_EXPORTED);
+        };
+        context.registerReceiver(receiver, new IntentFilter(ACTION), PERMISSION, delivery, Context.RECEIVER_EXPORTED);
+        ReloadLifecycle.add(() -> {
+            context.unregisterReceiver(receiver);
+            delivery.removeCallbacksAndMessages(null);
+        });
         registered = true;
-        android.util.Log.i("HyperPods-X", "Native headset popup bridge ready");
+        DiagnosticLog.i("HyperPods-X", "Native headset popup bridge ready");
     }
 
     /** The ROM's fast-connect service owns the privileged CachedBluetoothDevice path. */
@@ -88,14 +94,14 @@ final class NativePopupHost {
         try{
             Class<?> serviceType=Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService",false,context.getClassLoader());
             Object service=serviceType.getMethod("getInstance").invoke(null);
-            if(service==null){android.util.Log.w("HyperPods-X","Fast-connect service is not ready for profile reconnect");return;}
+            if(service==null){DiagnosticLog.w("HyperPods-X","Fast-connect service is not ready for profile reconnect");return;}
             BluetoothDevice device=context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
             Object cached=serviceType.getMethod("getCachedDevice",BluetoothDevice.class).invoke(service,device);
-            if(cached==null){android.util.Log.w("HyperPods-X","Cached AirPods device is not ready for profile reconnect");return;}
+            if(cached==null){DiagnosticLog.w("HyperPods-X","Cached AirPods device is not ready for profile reconnect");return;}
             cached.getClass().getMethod("connect",boolean.class).invoke(cached,true);
-            android.util.Log.i("HyperPods-X","Requested ROM A2DP/HFP reconnect for AirPods");
+            DiagnosticLog.i("HyperPods-X","Requested ROM A2DP/HFP reconnect for AirPods");
         }catch(ReflectiveOperationException|RuntimeException error){
-            android.util.Log.w("HyperPods-X","ROM A2DP/HFP reconnect unavailable",error);
+            DiagnosticLog.w("HyperPods-X","ROM A2DP/HFP reconnect unavailable",error);
         }
     }
 

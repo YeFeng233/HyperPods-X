@@ -19,7 +19,8 @@ fun HyperPodsScreen(
 ) {
     val style by AppearancePreferences.style.collectAsState()
     var entryPage by rememberSaveable { mutableStateOf(initialPage) }
-    CompositionLocalProvider(LocalChangeUiStyle provides { ios ->
+    val logExport = rememberLogExport()
+    CompositionLocalProvider(LocalLogExport provides logExport, LocalChangeUiStyle provides { ios ->
         entryPage = "more"
         AppearancePreferences.setStyle(if (ios) UiStyle.IOS else UiStyle.MIUIX)
     }) {

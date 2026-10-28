@@ -3,6 +3,8 @@
     <uses-permission android:name="com.hyper.podsrx.permission.NATIVE_POPUP" />
     <permission android:name="com.hyper.podsrx.permission.SPATIAL" android:protectionLevel="signature" />
     <uses-permission android:name="com.hyper.podsrx.permission.SPATIAL" />
+    <permission android:name="com.hyper.podsrx.permission.DIAGNOSTICS" android:protectionLevel="signature" />
+    <uses-permission android:name="com.hyper.podsrx.permission.DIAGNOSTICS" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -15,6 +17,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <queries>
+        <package android:name="com.android.settings" />
+        <package android:name="com.xiaomi.bluetooth" />
+        <package android:name="com.milink.service" />
+    </queries>
     <application android:name=".HyperPodsApp" android:label="HyperPods-X"
         android:description="@string/module_description" android:theme="@style/AppTheme"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
