@@ -46,6 +46,9 @@ internal fun adaptiveStrengthLabel(value: Int): String = when (value) {
     else -> "$value / 100"
 }
 
+// From here on both UI styles render the same derivations. The listening controls above differ by
+// design: the iOS style keeps its own intent model in ui/ios/DeviceUiState.kt.
+
 internal data class BatteryPresentation(
     val label: String,
     val note: String,
@@ -76,6 +79,13 @@ internal fun SpatialMode.label(): String = when (this) {
     SpatialMode.OFF -> "关闭"
     SpatialMode.FIXED -> "固定"
     SpatialMode.HEAD_TRACKING -> "头部追踪"
+}
+
+/** One process's hook results: all installed, or each failing component with its exception. */
+internal fun capabilitySummary(results: Map<String, String>): String {
+    val failed = results.filterValues { it.isNotEmpty() }
+    return if (failed.isEmpty()) "✓ ${results.size} 项已生效"
+    else failed.entries.joinToString("；") { (component, error) -> "✗ $component：$error" }
 }
 
 internal fun wearingDescription(state: PodsState): String = when {

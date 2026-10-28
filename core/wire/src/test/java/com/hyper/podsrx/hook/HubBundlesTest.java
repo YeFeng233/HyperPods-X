@@ -72,7 +72,7 @@ public class HubBundlesTest {
 
     @Test public void stateSurvivesTheTrip() {
         HubBundles.State state = new HubBundles.State("AA:BB:CC:DD:EE:FF", readings(), HubBundles.LID_OPEN,
-            0x2720, HubBundles.Control.DISCONNECTED, true, true, HubBundles.SCAN_IDLE, 10, 8, 6, 4);
+            0x2720, HubBundles.Control.DISCONNECTED, true, true, HubBundles.SCAN_IDLE, 10, 8, 6, 4, 777L);
         HubBundles.State read = HubBundles.State.from(parcel(state.toBundle()));
         assertEquals(state.address, read.address);
         assertEquals(readings(), read.readings);
@@ -84,6 +84,7 @@ public class HubBundlesTest {
         assertEquals(HubBundles.SCAN_IDLE, read.scanMode);
         assertEquals(10, read.broadcasts);
         assertEquals(4, read.matches);
+        assertEquals(777L, read.started);
     }
 
     @Test public void helloCarriesTheCallbackBinder() {
@@ -108,14 +109,14 @@ public class HubBundlesTest {
         later.put(4, new Reading(83, true, true, 9999L, true));
         later.put(8, new Reading(null, false, false, 5L, false));
         HubBundles.State one = new HubBundles.State("AA", readings(), HubBundles.LID_OPEN, -1,
-            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 1, 1, 1, 1);
+            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 1, 1, 1, 1, 5L);
         HubBundles.State two = new HubBundles.State("AA", later, HubBundles.LID_OPEN, -1,
-            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 9, 9, 9, 9);
+            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 9, 9, 9, 9, 5L);
         // Diagnostic counters change with every advertisement and are pulled, not announced.
         assertTrue(one.sameContent(two));
         later.put(4, new Reading(82, true, true, 9999L, true));
         HubBundles.State three = new HubBundles.State("AA", later, HubBundles.LID_OPEN, -1,
-            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 1, 1, 1, 1);
+            HubBundles.Control.DISCONNECTED, true, false, HubBundles.SCAN_LIVE, 1, 1, 1, 1, 5L);
         assertFalse(one.sameContent(three));
     }
 

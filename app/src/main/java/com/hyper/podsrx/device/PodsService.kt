@@ -20,6 +20,8 @@ class PodsService: Service() {
     companion object {
         @Volatile private var instance: PodsService?=null
         const val EQ_COMMAND=ControlCommands.EQUALIZER
+        // BluetoothA2dp.ACTION_ACTIVE_DEVICE_CHANGED is hidden from the public SDK.
+        private const val A2DP_ACTIVE_DEVICE_CHANGED="android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED"
         fun setControl(id:Int,value:Int) {
             val current=DeviceRepository.state.value.controls[id].orEmpty()
             instance?.control?.enqueue(id,Controls.valuesForWrite(id,value,current)) ?: DeviceRepository.message("请先连接耳机")
@@ -29,6 +31,7 @@ class PodsService: Service() {
         fun previewPopup() {instance?.popup?.show("弹窗预览",preview=true)?:DeviceRepository.message("请先启动耳机服务")}
         fun previewIsland() {instance?.popup?.show("超级岛预览",preview=true)?:DeviceRepository.message("请先启动耳机服务")}
         fun spatialRefresh(){instance?.spatial?.refreshNow()}
+        fun refreshHubDiagnostics(){instance?.hubClient?.refreshDiagnostics()}
         fun spatialBeginCalibration(){instance?.spatial?.beginCalibration()}
         fun spatialCancelCalibration(){instance?.spatial?.cancelCalibration()}
         fun spatialCalibrate(){instance?.spatial?.calibrate()}
@@ -48,6 +51,7 @@ class PodsService: Service() {
         override fun onOpened(wasReadback:Boolean) {
             lidHandler.post{connectionCardShown=wasReadback;batteriesReady=false}
             conversation.connected()
+            spatial.refreshNow()
         }
         override fun onEvent(event:Event,session:Long)=this@PodsService.onEvent(event,session)
         override fun onSpatialPacket(packet:ByteArray)=spatial.packet(packet)
@@ -114,7 +118,11 @@ class PodsService: Service() {
                 if(!device?.address.equals(DeviceRepository.state.value.address,true))return
                 audioReady=intent.getIntExtra(BluetoothProfile.EXTRA_STATE,0)==BluetoothProfile.STATE_CONNECTED
                 if(audioReady)control.audioConnected()
+                spatial.refreshNow()
                 showConnectionCard()
+            } else if(intent.action==A2DP_ACTIVE_DEVICE_CHANGED) {
+                // The spatial route follows the active output.
+                spatial.refreshNow()
             } else if(intent.action==BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED) {
                 val device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice::class.java)
                 if(!device?.address.equals(DeviceRepository.state.value.address,true))return
@@ -139,6 +147,7 @@ class PodsService: Service() {
         registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED);addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
+            addAction(A2DP_ACTIVE_DEVICE_CHANGED)
         },RECEIVER_EXPORTED)
         receiverRegistered=true
         control.start()
@@ -222,7 +231,7 @@ class PodsService: Service() {
         scope.cancel();control.close()
         popup.close();if(receiverRegistered)unregisterReceiver(systemReceiver)
         DeviceRepository.update{it.copy(running=false,connected=false,status="耳机服务已停止",batteries=emptyMap(),controls=emptyMap(),equalizer=null,pending=emptySet(),adaptiveTarget=null,lidOpen=null,wearing=null,earDetectionStatus="耳机服务已停止")}
-        FrameworkBridge.publish();DeviceRepository.saveDiagnostics();super.onDestroy()
+        FrameworkBridge.publish();DeviceRepository.flushDiagnostics();super.onDestroy()
     }
 }
 

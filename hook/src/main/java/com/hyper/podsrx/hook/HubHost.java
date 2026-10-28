@@ -60,6 +60,10 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     private final LidController lid = new LidController(this);
     private final WidgetDriver widget;
     private final CaseThrottle caseThrottle = new CaseThrottle(CaseThrottle.REFRESH_MS);
+    private final long started = SystemClock.elapsedRealtime();
+    /** Hook results by process, from {@link Compatibility}. */
+    private final java.util.concurrent.ConcurrentHashMap<String, Bundle> capabilities = new java.util.concurrent.ConcurrentHashMap<>();
+    private BroadcastReceiver capabilityReceiver;
     /** The hub's own view for the adapters in this process. */
     final HubReader reader = HubReader.local(() -> this.state);
     private BroadcastReceiver receiver;
@@ -97,9 +101,23 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
         };
         context.registerReceiver(host.receiver, new IntentFilter(HubWire.CONNECT), HubWire.PERMISSION, host.main, Context.RECEIVER_EXPORTED);
+        host.capabilityReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent intent) {
+                if (host.closed || !ReloadLifecycle.isActive() || !HubWire.CAPABILITIES.equals(intent.getAction())) return;
+                // Only the scoped hosts may report; any app could send this broadcast.
+                if (!host.mayRead(getSentFromUid())) return;
+                String process = intent.getStringExtra("process");
+                Bundle results = intent.getBundleExtra("results");
+                if (process != null && !process.isEmpty() && results != null) host.capabilities.put(process, results);
+            }
+        };
+        context.registerReceiver(host.capabilityReceiver, new IntentFilter(HubWire.CAPABILITIES), null, host.main, Context.RECEIVER_EXPORTED);
         hookProvider(module, context.getClassLoader());
-        try { hookAirCore(module, context.getClassLoader()); }
-        catch (Exception | LinkageError error) { DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error); }
+        try { hookAirCore(module, context.getClassLoader()); Compatibility.installed("ROM AACP channel guard"); }
+        catch (Exception | LinkageError error) {
+            Compatibility.failed("ROM AACP channel guard", error);
+            DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error);
+        }
         instance = host;
         host.scan.start();
         host.publish();
@@ -197,10 +215,12 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         if (closed) return;
         closed = true;
         if (instance == this) instance = null;
-        if (receiver != null) {
-            try { context.unregisterReceiver(receiver); } catch (IllegalArgumentException ignored) {}
-            receiver = null;
+        for (BroadcastReceiver registered : new BroadcastReceiver[] {receiver, capabilityReceiver}) {
+            if (registered == null) continue;
+            try { context.unregisterReceiver(registered); } catch (IllegalArgumentException ignored) {}
         }
+        receiver = null;
+        capabilityReceiver = null;
         unlinkCallback();
         scan.close();
         lid.close();
@@ -347,7 +367,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             int lidState = open == null ? HubBundles.LID_UNKNOWN : open ? HubBundles.LID_OPEN : HubBundles.LID_CLOSED;
             int model = product >= 0 ? product : preferences.getInt("panel_product", -1);
             next = new HubBundles.State(address, ledger.getReadings(), lidState, model, control, callback != null, replace,
-                scan.mode(), parser.broadcasts, parser.trusted, parser.candidates, parser.matches);
+                scan.mode(), parser.broadcasts, parser.trusted, parser.candidates, parser.matches, started);
             state = next;
         }
         if (Looper.myLooper() == Looper.getMainLooper()) scheduleNotify();
@@ -494,7 +514,9 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             case HubWire.GET_DIAGNOSTICS:
                 response.putInt("scanMode", state.scanMode);
                 response.putInt("scanStarts", scan.starts());
-                response.putBundle("capabilities", new Bundle());
+                Bundle reports = new Bundle();
+                for (java.util.Map.Entry<String, Bundle> entry : capabilities.entrySet()) reports.putBundle(entry.getKey(), entry.getValue());
+                response.putBundle("capabilities", reports);
                 return HubWire.OK;
             case HubWire.REQUEST_POPUP: {
                 if (state.address.isEmpty()) return HubWire.FAILED;

@@ -67,8 +67,9 @@ object DiagnosticLogs {
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             try {
                 DiagnosticLog.e("HyperPods-X", "Uncaught exception on ${thread.name}", error)
-                // The normal async writer may not run before Android terminates the process.
+                // The normal async writers may not run before Android terminates the process.
                 runCatching { store.append(DiagnosticLog.snapshot()) }
+                runCatching { DeviceRepository.flushDiagnostics() }
             } finally {
                 previous?.uncaughtException(thread, error)
             }
@@ -100,6 +101,7 @@ object DiagnosticLogs {
 
     private suspend fun export(context: Context, destination: Uri) = withContext(Dispatchers.IO) {
         DiagnosticLog.i("HyperPods-X", "Diagnostic export requested")
+        DeviceRepository.flushDiagnostics()
         val hostLogs = collectHosts(context)
         val snapshot = DeviceRepository.diagnosticSnapshot().apply {
             remove("name")

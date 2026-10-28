@@ -82,4 +82,13 @@ class BatteryLedgerTest {
         BatteryLedger.merged(current, listOf(b(4, 50)), precise = false, control = false, now = 2)
         assertEquals(80, current[4]!!.level)
     }
+
+    @Test fun touchRestartsEveryAge() {
+        val ledger = BatteryLedger()
+        ledger.apply(listOf(b(2, 70)), precise = false, control = false, now = 0)
+        // The screen came back on after the scans were off; nothing was heard meanwhile.
+        ledger.touch(100000)
+        assertFalse(ledger.expire(60000, controlFreshAt = 0, now = 159999))
+        assertTrue(ledger.expire(60000, controlFreshAt = 0, now = 160000))
+    }
 }

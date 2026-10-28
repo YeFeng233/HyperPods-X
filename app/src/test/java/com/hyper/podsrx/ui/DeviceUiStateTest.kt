@@ -118,4 +118,10 @@ class DeviceUiStateTest {
         assertEquals(SpatialMode.FIXED, tracked.copy(nativeActive = false).spatialPresentation(true).selected)
         assertEquals(SpatialMode.OFF, tracked.copy(nativeActive = false, compatible = false).spatialPresentation(true).selected)
     }
+
+    @Test fun capabilitiesNameOnlyWhatFailed() {
+        assertEquals("✓ 2 项已生效", capabilitySummary(mapOf("State hub" to "", "Apple advertisement relay" to "")))
+        assertEquals("✗ Widget headset battery：NoSuchMethodException",
+            capabilitySummary(mapOf("State hub" to "", "Widget headset battery" to "NoSuchMethodException")))
+    }
 }

@@ -110,6 +110,7 @@ final class HubReader implements SharedPreferences {
             if (answer == null) return;
             state = HubBundles.State.from(answer);
             loaded = true;
+            Compatibility.hubStarted(state.started);
         } catch (RuntimeException error) {
             DiagnosticLog.w(TAG, "Hub snapshot unavailable", error);
         }

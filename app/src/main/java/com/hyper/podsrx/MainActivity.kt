@@ -27,6 +27,8 @@ open class MainActivity:ComponentActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")))
         },onSystemBluetooth={openSystemBluetooth()},onFinish={finish()})}
     }
+    override fun onStart() { super.onStart();DeviceRepository.pageVisible(true) }
+    override fun onStop() { DeviceRepository.pageVisible(false);super.onStop() }
     override fun onResume() {
         super.onResume()
         DeviceRepository.refreshLocalName()

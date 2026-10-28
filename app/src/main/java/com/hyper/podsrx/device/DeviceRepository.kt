@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 data class PodsState(
     val name: String = "AirPods", val address: String = "", val model: String = "", val firmware: String = "",
@@ -48,6 +51,8 @@ data class PodsState(
     ,val product:Int=-1
     ,val hub:HubBundles.State?=null
     ,val hubStatus:String="状态中心未连接"
+    /** Process to component to "" when its hook installed, or the failure's class name. */
+    ,val hostCapabilities:Map<String,Map<String,String>> = emptyMap()
 ) {
     val displayName:String get()=localName.ifBlank{name}
     val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
@@ -62,6 +67,9 @@ object DeviceRepository {
         private set
     private val mutable = MutableStateFlow(PodsState())
     val state = mutable.asStateFlow()
+    /** App pages on screen; the spatial bridge follows the host only while one is. */
+    val pagesVisible = MutableStateFlow(0)
+    fun pageVisible(visible:Boolean) { pagesVisible.update{(it+if(visible)1 else -1).coerceAtLeast(0)};if(visible){PodsService.spatialRefresh();PodsService.refreshHubDiagnostics()} }
     fun initialize(application: Application) {
         app = application
         keys = SecureKeys(app)
@@ -200,6 +208,7 @@ object DeviceRepository {
                 .put("adaptiveTarget",s.adaptiveTarget)
                 .put("controlRefreshUntil",s.controlRefreshUntil)
                 .put("hubStatus",s.hubStatus).put("hub",s.hub?.let{hubDiagnostic(it)})
+                .put("hostCapabilities",JSONObject(s.hostCapabilities.mapValues{JSONObject(it.value)}))
     }
     /** What the hub holds, side by side with the app's own readings while both paths run. */
     private fun hubDiagnostic(h:HubBundles.State):JSONObject = JSONObject()
@@ -207,7 +216,21 @@ object DeviceRepository {
         .put("lid",h.lid).put("product",h.product).put("scanMode",h.scanMode)
         .put("batteries",h.readings.entries.joinToString(" "){(id,r)->"$id:${r.level}${if(r.charging)"+" else ""}${if(r.control)"c" else ""}"})
         .put("broadcasts",h.broadcasts).put("trusted",h.trusted).put("candidates",h.candidates).put("matches",h.matches)
-    @Synchronized fun saveDiagnostics() {
+    // A burst of events, such as a reconnect's readback, writes the snapshot once.
+    private const val DIAGNOSTICS_DELAY_MS=1500L
+    private val diagnosticsWriter=Executors.newSingleThreadScheduledExecutor{Thread(it,"diagnostics").apply{isDaemon=true}}
+    private var pendingDiagnostics:ScheduledFuture<*>?=null
+    /** Writes the snapshot within [DIAGNOSTICS_DELAY_MS], off the caller's thread. */
+    fun saveDiagnostics() = synchronized(diagnosticsWriter) {
+        if(pendingDiagnostics?.isDone==false)return@synchronized
+        pendingDiagnostics=diagnosticsWriter.schedule({writeDiagnostics()},DIAGNOSTICS_DELAY_MS,TimeUnit.MILLISECONDS)
+    }
+    /** Writes now on this thread: the service stopping, an export, or a crash. */
+    fun flushDiagnostics() {
+        synchronized(diagnosticsWriter){pendingDiagnostics?.cancel(false);pendingDiagnostics=null}
+        writeDiagnostics()
+    }
+    @Synchronized private fun writeDiagnostics() {
         runCatching {
             val json=diagnosticSnapshot()
             val file=android.util.AtomicFile(File(app.filesDir,"diagnostics.json"))

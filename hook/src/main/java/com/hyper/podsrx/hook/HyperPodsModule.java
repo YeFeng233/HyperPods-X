@@ -32,6 +32,7 @@ public final class HyperPodsModule extends XposedModule {
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
         main = new Handler(Looper.getMainLooper());
         processName = param.getProcessName();
+        Compatibility.process(processName);
         ReloadLifecycle.add(() -> {
             main.removeCallbacksAndMessages(null);
             if (preferences != null && listener != null) preferences.unregisterOnSharedPreferenceChangeListener(listener);
@@ -84,12 +85,12 @@ public final class HyperPodsModule extends XposedModule {
             if (!processName.equals(pkg) && !processName.equals(pkg+":core") && !processName.equals(pkg+":ui")) return;
             preferences=HubReader.remote();
             if (processName.equals(pkg+":ui")) {
-                try { NativeControlPanelAdapter.install(this,loader,preferences); }
+                try { NativeControlPanelAdapter.install(this,loader,preferences); installed("Native adaptive control row"); }
                 catch (Throwable error) { installationFailure("Native adaptive control row", error); }
             }
-            try { NativeSpatialControlAdapter.install(this,loader,preferences); }
+            try { NativeSpatialControlAdapter.install(this,loader,preferences); installed("Native spatial control"); }
             catch (Throwable error) { installationFailure("Native spatial control", error); }
-            try { NativeSettingsAdapter.install(this,loader,preferences); }
+            try { NativeSettingsAdapter.install(this,loader,preferences); installed("Native headset settings entry"); }
             catch (Throwable error) { installationFailure("Native headset settings entry", error); }
             return;
         }
@@ -98,7 +99,7 @@ public final class HyperPodsModule extends XposedModule {
             if (!processName.equals(pkg + ".remote")) return;
             installDiagnosticBridge();
             preferences = HubReader.remote();
-            try { WidgetBatteryHost.install(this, loader, (HubReader) preferences); }
+            try { WidgetBatteryHost.install(this, loader, (HubReader) preferences); installed("Widget headset battery"); }
             catch (Throwable error) { installationFailure("Widget headset battery", error); }
             return;
         }
@@ -135,6 +136,7 @@ public final class HyperPodsModule extends XposedModule {
                     return chain.proceed();
                 });
                 moduleLog(Log.INFO,"HyperPods-X","Bluetooth device arrow hook installed");
+                installed("Bluetooth device arrow");
             } catch(ReflectiveOperationException error) {installationFailure("Bluetooth device arrow", error);}
             int detailHooks = 0;
             for (String name : new String[]{"com.android.settings.bluetooth.DeviceProfilesSettings", "com.android.settings.bluetooth.BluetoothDeviceDetailsFragment"}) {
@@ -152,6 +154,7 @@ public final class HyperPodsModule extends XposedModule {
             }
             if (detailHooks == 0) throw new IllegalStateException("No supported Bluetooth details page");
             moduleLog(Log.INFO, "HyperPods-X", "Bluetooth details hook installed: " + detailHooks);
+            installed("Settings adapter");
         } catch (Throwable error) { installationFailure("Settings adapter", error); }
     }
 
@@ -161,25 +164,28 @@ public final class HyperPodsModule extends XposedModule {
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
             SharedPreferences config = preferences;
-            try { preferences = HubHost.install(this, host, config).reader; }
+            try { preferences = HubHost.install(this, host, config).reader; installed("State hub"); }
             catch (Throwable error) { installationFailure("State hub", error); }
-            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); }
+            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); installed("ROM AirPods connection island filter"); }
             catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
-            try { LidRelayHost.install(this, host.getClassLoader()); }
+            try { LidRelayHost.install(this, host.getClassLoader()); installed("Apple advertisement relay"); }
             catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
-            try { NativeControlHost.install(this, host, preferences); }
+            try { NativeControlHost.install(this, host, preferences); installed("Native control bridge"); }
             catch (Throwable error) { installationFailure("Native control bridge", error); }
             // The bound address is configuration; the spatial and conversation bridges need nothing live.
-            try { SpatialHost.install(host, config); }
+            try { SpatialHost.install(host, config); installed("Spatial bridge"); }
             catch (Throwable error) { installationFailure("Spatial bridge", error); }
-            try { ConversationAudioHost.install(host, config); }
+            try { ConversationAudioHost.install(host, config); installed("Conversation bridge"); }
             catch (Throwable error) { installationFailure("Conversation bridge", error); }
         } else {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
                     if (!ReloadLifecycle.isActive()) return;
-                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); }
-                    catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error); }
+                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); installed("Native AirPods dialog adapter"); }
+                    catch (Throwable error) {
+                        Compatibility.failed("Native AirPods dialog adapter", error);
+                        moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error);
+                    }
                 }
                 @Override public void onActivityCreated(Activity activity, Bundle saved) {
                     if (!ReloadLifecycle.isActive()) return;
@@ -198,7 +204,10 @@ public final class HyperPodsModule extends XposedModule {
         }
     }
 
+    private void installed(String component) { Compatibility.installed(component); }
+
     private void installationFailure(String component, Throwable error) {
+        Compatibility.failed(component, error);
         moduleLog(Log.WARN, "HyperPods-X", component + " unavailable", error);
         if (hotReload) throw new IllegalStateException(component + " reload failed", error);
     }

@@ -92,6 +92,21 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
 
     fun pushKeys() { scope.launch{sendKeys()} }
 
+    /** Which hooks each scoped process installed, as the hub collected them. */
+    fun refreshDiagnostics() {
+        scope.launch {
+            val binder=hub?:return@launch
+            val (status,reply)=runCatching{transact(binder,HubWire.GET_DIAGNOSTICS,Bundle())}.getOrNull()?:return@launch
+            if(status!=HubWire.OK)return@launch
+            val reports=reply.getBundle("capabilities")?:Bundle()
+            val parsed=reports.keySet().sorted().associateWith{process->
+                val results=reports.getBundle(process)?:Bundle()
+                results.keySet().sorted().associateWith{results.getString(it).orEmpty()}
+            }
+            DeviceRepository.update{it.copy(hostCapabilities=parsed)}
+        }
+    }
+
     /** The hub shows the native popup or island; [onResult] runs on the main thread. */
     fun requestPopup(preview:Boolean,island:Boolean,onResult:(Boolean)->Unit) {
         scope.launch {
@@ -140,6 +155,9 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         DeviceRepository.log("已连接蓝牙宿主状态中心")
         sendKeys()
         pushControl()
+        refreshDiagnostics()
+        // A restarted host's processes report their hooks a moment after it comes up.
+        scope.launch{delay(DIAGNOSTICS_SETTLE_MS);refreshDiagnostics()}
     }
 
     /** The host returns its binder in the ordered broadcast's result; it requires NATIVE_POPUP from us. */
@@ -223,6 +241,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         private const val MIN_BACKOFF_MS=1000L
         private const val MAX_BACKOFF_MS=30000L
         private const val HANDSHAKE_TIMEOUT_MS=3000L
+        private const val DIAGNOSTICS_SETTLE_MS=3000L
 
         /** Everything [control] reads, so an unrelated state change pushes nothing. */
         private fun controlKey(s:PodsState,batteries:List<Battery>):List<Any?> = listOf(

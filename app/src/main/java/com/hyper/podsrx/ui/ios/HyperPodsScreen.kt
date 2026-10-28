@@ -1,6 +1,8 @@
 // Adapted from NEORUAA/HyperPods-X PR #1 (ae9fa5e), GPL-3.0-or-later.
 package com.hyper.podsrx.ui.ios
 
+import com.hyper.podsrx.ui.BatteryPresentation
+import com.hyper.podsrx.ui.batteryPresentation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image

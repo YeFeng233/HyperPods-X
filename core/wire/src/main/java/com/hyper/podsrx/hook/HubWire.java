@@ -14,6 +14,8 @@ public final class HubWire {
     public static final String READY = APP + ".HUB_READY";
     /** Sent to each consuming host on a content change; carries no data. */
     public static final String CHANGED = APP + ".HUB_CHANGED";
+    /** Each scoped process reports which of its hooks installed; see GET_DIAGNOSTICS. */
+    public static final String CAPABILITIES = APP + ".HUB_CAPABILITIES";
     public static final String PERMISSION = NativeControlWire.PERMISSION;
     public static final String DESCRIPTOR = APP + ".Hub.v1";
     public static final String CALLBACK_DESCRIPTOR = APP + ".HubCallback.v1";

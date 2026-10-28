@@ -280,10 +280,12 @@ public final class HubBundles {
         public final boolean replaceSystemPopup;
         public final int scanMode;
         public final int broadcasts, trusted, candidates, matches;
+        /** elapsedRealtime the hub generation started; a new value means it forgot every report. */
+        public final long started;
 
         public State(String address, Map<Integer, Reading> readings, int lid, int product, Control control,
                 boolean appAlive, boolean replaceSystemPopup, int scanMode,
-                int broadcasts, int trusted, int candidates, int matches) {
+                int broadcasts, int trusted, int candidates, int matches, long started) {
             this.address = address == null ? "" : address;
             this.readings = Collections.unmodifiableMap(new LinkedHashMap<>(readings));
             this.lid = lid;
@@ -296,17 +298,18 @@ public final class HubBundles {
             this.trusted = trusted;
             this.candidates = candidates;
             this.matches = matches;
+            this.started = started;
         }
 
         public static final State EMPTY = new State("", Collections.emptyMap(), LID_UNKNOWN, -1,
-            Control.DISCONNECTED, false, false, SCAN_OFF, 0, 0, 0, 0);
+            Control.DISCONNECTED, false, false, SCAN_OFF, 0, 0, 0, 0, 0);
 
         /** Equal but for reading refresh times, which consumers need not hear about. */
         public boolean sameContent(State other) {
             if (other == this) return true;
             return other != null && address.equals(other.address) && lid == other.lid && product == other.product
                 && appAlive == other.appAlive && replaceSystemPopup == other.replaceSystemPopup
-                && scanMode == other.scanMode && control.sameContent(other.control)
+                && scanMode == other.scanMode && started == other.started && control.sameContent(other.control)
                 && BatteryLedgerKt.content(readings).equals(BatteryLedgerKt.content(other.readings));
         }
 
@@ -330,6 +333,7 @@ public final class HubBundles {
             out.putInt("trusted", trusted);
             out.putInt("candidates", candidates);
             out.putInt("matches", matches);
+            out.putLong("started", started);
             return out;
         }
 
@@ -338,7 +342,8 @@ public final class HubBundles {
             return new State(in.getString("address"), HubBundles.readings(in.getBundle("readings")),
                 in.getInt("lid", LID_UNKNOWN), in.getInt("product", -1), Control.from(in.getBundle("control")),
                 in.getBoolean("appAlive"), in.getBoolean("replaceSystemPopup"), in.getInt("scanMode", SCAN_OFF),
-                in.getInt("broadcasts"), in.getInt("trusted"), in.getInt("candidates"), in.getInt("matches"));
+                in.getInt("broadcasts"), in.getInt("trusted"), in.getInt("candidates"), in.getInt("matches"),
+                in.getLong("started"));
         }
     }
 
