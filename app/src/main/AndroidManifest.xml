@@ -23,6 +23,7 @@
         </activity>
         <activity android:name=".DeviceSettingsActivity" android:exported="true" />
         <service android:name=".device.PodsService" android:foregroundServiceType="connectedDevice" android:exported="false" />
+        <receiver android:name=".device.NativeControlReceiver" android:exported="false" />
         <receiver android:name=".device.BootReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>

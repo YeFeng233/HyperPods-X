@@ -171,6 +171,7 @@ internal fun ListeningGlyph(mode: Int, color: Color) {
                 }
                 return@scale
             }
+            if (mode == 1) return@scale
             val ring = Stroke(width = 1.8f, cap = StrokeCap.Round,
                 pathEffect = if (mode == 3) PathEffect.dashPathEffect(floatArrayOf(1f, 3.4f)) else null)
             drawArc(color, -220f, 260f, false, Offset(6.5f, 2f), Size(19f, 19f), style = ring)

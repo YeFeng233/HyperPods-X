@@ -83,7 +83,7 @@ internal fun ListeningControls(
     val track = secondary.copy(alpha = .09f)
     SettingsCard {
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp)) {
-            val compact = maxWidth < 340.dp || LocalDensity.current.fontScale > 1.3f
+            val compact = maxWidth < 380.dp || LocalDensity.current.fontScale > 1.3f
             val expanded = ui.showAdaptive && !compact
             val adaptiveWeight by animateFloatAsState(if (expanded) 3f else 1f, tween(240), label = "adaptiveWidth")
             Column(Modifier.animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

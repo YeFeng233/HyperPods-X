@@ -62,6 +62,7 @@ class PodsService: Service() {
     private val reconnect=Channel<Unit>(Channel.CONFLATED)
     private val desired=ConcurrentHashMap<Int,Command>()
     @Volatile private var readingBack=false
+    @Volatile private var readbackStartedInSession=0L
     private val readbackScheduled=AtomicBoolean()
     @Volatile private var scanOnlyUntil=0L
     private var scanner:BluetoothLeScanner?=null
@@ -87,6 +88,7 @@ class PodsService: Service() {
     private lateinit var spatial:SpatialAudio
     private lateinit var earDetection:EarDetectionController
     private lateinit var conversation:ConversationController
+    private lateinit var nativeControls:NativeControlBridge
     private val systemReceiver=object:BroadcastReceiver() {
         override fun onReceive(context:Context,intent:Intent) {
             if(intent.action==BluetoothAdapter.ACTION_STATE_CHANGED) {
@@ -111,10 +113,11 @@ class PodsService: Service() {
             val channel=socket
             if(channel==null)false else runCatching{synchronized(channel){channel.outputStream.write(packet);channel.outputStream.flush()};true}.getOrDefault(false)
         },restartControl={
-            readingBack=true
+            prepareReadback()
             runCatching{socket?.close()};reconnect.trySend(Unit)
         })
         spatial.start()
+        nativeControls=NativeControlBridge(this)
         registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{addAction(BluetoothDevice.ACTION_ACL_CONNECTED)},RECEIVER_EXPORTED); receiverRegistered=true
         scope.launch { for(command in commands) {
             val (id,values)=command
@@ -148,7 +151,7 @@ class PodsService: Service() {
                     if(id!=0x2e&&socket===s&&desired[id]===command&&readbackScheduled.compareAndSet(false,true)){
                         scope.launch {
                             try {
-                                readingBack=true
+                                prepareReadback()
                                 DeviceRepository.log("主动重连控制通道以回读设置")
                                 runCatching{s.close()};reconnect.trySend(Unit)
                                 delay(1000)
@@ -184,6 +187,7 @@ class PodsService: Service() {
     private fun enqueue(id:Int,values:List<Int>) {
         val state=DeviceRepository.state.value
         if(!state.connected){DeviceRepository.message("耳机控制尚未连接");return}
+        if(state.controlRefreshUntil!=0L){DeviceRepository.message("正在回读耳机设置，请稍候");return}
         if(id==0x2e && !Controls.canAdjustAdaptive(state.connected,state.controls,state.pending)) {
             DeviceRepository.message("请等待自适应模式与降噪幅度读取完成"); return
         }
@@ -217,8 +221,21 @@ class PodsService: Service() {
     // Only these setting values are logged; never include a device address or other AACP payloads.
     private fun traceControl(id:Int,stage:String,token:Long?=null,
         session:Long=controlSessionSequence.get(),elapsedMs:Long=SystemClock.elapsedRealtime(),details:()->String) {
-        if(id!=0x1f&&id!=0x23&&id!=0x25&&id!=0x2e)return
+        if(id!=0x0d&&id!=0x1f&&id!=0x23&&id!=0x25&&id!=0x2e)return
         DeviceRepository.log("设置诊断 id=0x${id.toString(16)} stage=$stage elapsedMs=$elapsedMs session=$session token=${token ?: "none"} ${details()}")
+    }
+    private fun prepareReadback() {
+        readingBack=true
+        readbackStartedInSession=controlSessionSequence.get()
+        val until=SystemClock.elapsedRealtime()+5000
+        DeviceRepository.update { it.copy(controlRefreshUntil=until) }
+        scope.launch {
+            delay(5000)
+            DeviceRepository.update {
+                if(it.controlRefreshUntil!=until)it else it.copy(controlRefreshUntil=0,
+                    controls=emptyMap(),equalizer=null,batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})
+            }
+        }
     }
     private suspend fun connectLoop() {
         var attempts=0
@@ -235,7 +252,12 @@ class PodsService: Service() {
                 if(!adapter.isEnabled)throw IOException("蓝牙已关闭")
                 val target=adapter.getRemoteDevice(DeviceRepository.state.value.address)
                 if(adapter.isDiscovering)adapter.cancelDiscovery()
-                DeviceRepository.update{it.copy(status="建立耳机控制连接…",connected=false,controls=emptyMap(),equalizer=null)}
+                DeviceRepository.update{
+                    val refresh=it.controlRefreshUntil>SystemClock.elapsedRealtime()
+                    it.copy(status="建立耳机控制连接…",connected=false,
+                        controls=if(refresh)it.controls else emptyMap(),equalizer=if(refresh)it.equalizer else null,
+                        controlRefreshUntil=if(refresh)it.controlRefreshUntil else 0)
+                }
                 val opened=ClassicTransport.create(adapter,target)
                 val session=controlSessionSequence.incrementAndGet()
                 controlSessionIds[opened]=session
@@ -279,7 +301,14 @@ class PodsService: Service() {
                 synchronized(desired){
                     desired.remove(0x2e)
                     if(!preserve)desired.clear()
-                    DeviceRepository.update{it.copy(connected=false,status=if(preserve)"正在回读耳机设置…"else"等待重连 · ${e.message ?: "连接失败"}",controls=emptyMap(),equalizer=null,pending=if(preserve)it.pending-0x2e else emptySet(),adaptiveTarget=null,batteries=it.batteries.mapValues{(_,b)->b.copy(current=false)})}
+                    DeviceRepository.update{
+                        val refresh=preserve&&it.controlRefreshUntil>SystemClock.elapsedRealtime()
+                        it.copy(connected=false,status=if(preserve)"正在回读耳机设置…"else"等待重连 · ${e.message ?: "连接失败"}",
+                            controls=if(refresh)it.controls else emptyMap(),equalizer=if(refresh)it.equalizer else null,
+                            controlRefreshUntil=if(refresh)it.controlRefreshUntil else 0,
+                            pending=if(preserve)it.pending-0x2e else emptySet(),adaptiveTarget=null,
+                            batteries=if(refresh)it.batteries else it.batteries.mapValues{(_,b)->b.copy(current=false)})
+                    }
                 }
                 FrameworkBridge.publish(); DeviceRepository.saveDiagnostics()
             } finally {runCatching{current?.close()};if(socket===current)socket=null;current?.let{controlSessionIds.remove(it)}}
@@ -305,7 +334,8 @@ class PodsService: Service() {
                 }
             }
             is Event.Control -> {
-                DeviceRepository.update{it.copy(controls=it.controls+(event.id to event.value))}
+                DeviceRepository.update{it.copy(controls=it.controls+(event.id to event.value),
+                    controlRefreshUntil=if(event.id==0x0d&&session>readbackStartedInSession)0 else it.controlRefreshUntil)}
                 val expected=desired[event.id]
                 val matched=expected!=null&&event.value.take(expected.values.size)==expected.values
                 traceControl(event.id,"readback",expected?.token,session) {
@@ -432,6 +462,7 @@ class PodsService: Service() {
     private fun stopScan(){runCatching{scanCallback?.let{scanner?.stopScan(it)}};scanCallback=null;scanner=null;DeviceRepository.update{it.copy(diagnosticScanning=false)}}
     override fun onDestroy() {
         if(instance===this)instance=null
+        if (::nativeControls.isInitialized) nativeControls.close()
         lidHandler.removeCallbacks(confirmLid)
         spatial.close()
         conversation.close()

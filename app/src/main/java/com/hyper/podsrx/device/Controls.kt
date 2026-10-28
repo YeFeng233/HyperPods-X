@@ -5,7 +5,7 @@ data class ControlSpec(val id: Int,val title: String,val group: String,val choic
 
 object Controls {
     private fun choices(vararg labels:Pair<Int,String>)=labels.map{Choice(it.first,it.second)}
-    val listeningChoices = choices(3 to "通透", 4 to "自适应", 2 to "降噪")
+    val listeningChoices = choices(1 to "关闭", 3 to "通透", 4 to "自适应", 2 to "降噪")
     val all=listOf(
         ControlSpec(0x0d,"聆听模式","声音与聆听",choices(1 to "关闭",2 to "降噪",3 to "通透",4 to "自适应")),
         ControlSpec(0x1b,"单耳降噪","声音与聆听",toggle=true),

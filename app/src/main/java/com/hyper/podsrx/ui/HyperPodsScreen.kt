@@ -47,13 +47,8 @@ internal fun MiuixSettingsScreen(
     onSystemBluetooth: () -> Unit,
     onFinish: () -> Unit
 ) {
-    val state by DeviceRepository.state.collectAsState()
-    val view = LocalView.current
-    DisposableEffect(state.diagnosticScanning, state.spatial.calibrationMode) {
-        val previous = view.keepScreenOn
-        view.keepScreenOn = state.diagnosticScanning || state.spatial.calibrationMode
-        onDispose { view.keepScreenOn = previous }
-    }
+    val displayName by rememberDeviceValue { it.displayName }
+    MiuixRuntimeEffects()
     var page by rememberSaveable { mutableStateOf(initialPage?.takeIf { it in setOf("spatial", "more") } ?: "device") }
     val pages = rememberSaveableStateHolder()
     val back = {
@@ -64,11 +59,12 @@ internal fun MiuixSettingsScreen(
         }
     }
     BackHandler(enabled = page != "device") { back() }
-    val colors = if (isSystemInDarkTheme()) darkColorScheme(
+    val dark = isSystemInDarkTheme()
+    val colors = remember(dark) { if (dark) darkColorScheme(
         primary = Color(0xff80acff), background = Color(0xff141416), surface = Color(0xff252528), surfaceContainer = Color(0xff252528)
     ) else lightColorScheme(
         primary = Accent, background = Color(0xfff2f2f6), surface = Color.White, surfaceContainer = Color.White, onSurfaceSecondary = Color(0xff77777e)
-    )
+    ) }
     MiuixTheme(colors = colors) {
         Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
             pages.SaveableStateProvider(page) {
@@ -82,41 +78,22 @@ internal fun MiuixSettingsScreen(
                     "connection" -> "自动连接帮助"
                     "diagnostics" -> "连接诊断"
                     "licenses" -> "开源许可"
-                    else -> state.displayName
+                    else -> displayName
                 }
                 Column(Modifier.widthIn(max = 600.dp).fillMaxSize()) {
                     DeviceToolbar(title, page != "device" || collapsed, back,
                         if (page == "device") ({ page = "more" }) else null)
                     Column(Modifier.weight(1f).verticalScroll(scroll).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (page == "device") {
-                            Text(state.displayName, fontSize = 34.sp, color = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 14.dp, top = 10.dp).semantics { heading() })
-                            Hero(state)
-                            if (!state.running) Action("连接耳机", Modifier.fillMaxWidth()) { page = "connection"; onConnect() }
-                            BatteryCard(state)
-                            ListeningControls(state)
-                            SettingsCard {
-                                RowItem("重命名", "在系统蓝牙中修改此设备的名称", value = state.displayName, action = onSystemBluetooth)
-                                RowItem("自动连接帮助", "配对、重连与后台运行") { page = "connection" }
-                            }
-                            DeviceFeatures(state) { page = "spatial" }
-                            Section("系统蓝牙") {
-                                RowItem("音频与设备权限", "AAC、音量同步、通话 / 媒体音频及通讯录权限，由系统管理", action = onSystemBluetooth)
-                            }
-                            SettingsCard {
-                                RowItem("耳机高级设置", "声音、按压手势与均衡器") { page = "advanced" }
-                                RowItem("更多设置", "开盖弹窗、连接诊断与设备信息") { page = "more" }
-                            }
-                        } else when (page) {
-                            "spatial" -> SpatialPanel(state)
-                            "advanced" -> AdvancedSettings(state)
-                            "more" -> MoreSettings(state, onOverlay, onSystemBluetooth) { page = it }
-                            "connection" -> ConnectionHelp(state, onConnect, onSystemBluetooth)
-                            "diagnostics" -> Diagnostics(state)
+                        when (page) {
+                            "device" -> MiuixDevicePage(onConnect, onSystemBluetooth) { page = it }
+                            "spatial" -> LiveDeviceContent { SpatialPanel(it) }
+                            "advanced" -> LiveDeviceContent { AdvancedSettings(it) }
+                            "more" -> MoreSettings(onOverlay, onSystemBluetooth) { page = it }
+                            "connection" -> LiveDeviceContent { ConnectionHelp(it, onConnect, onSystemBluetooth) }
+                            "diagnostics" -> LiveDeviceContent { Diagnostics(it) }
                             "licenses" -> Licenses()
                         }
-                        if (state.message.isNotBlank()) Text(state.message, fontSize = 13.sp, color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        DeviceMessage()
                         Text("HyperPods-X · ${BuildConfig.VERSION_NAME}${if (externalSettings) " · 蓝牙设备设置" else ""}",
                             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp, bottom = 24.dp))
@@ -137,6 +114,53 @@ private fun DeviceToolbar(title: String, showTitle: Boolean, onBack: () -> Unit,
                 modifier = Modifier.alpha(titleAlpha).clearAndSetSemantics { if (showTitle) { contentDescription = title; heading() } })
         }
         if (onMore != null) NavigationButton("更多设置", back = false, onClick = onMore) else Spacer(Modifier.width(48.dp))
+    }
+}
+
+@Composable
+private fun MiuixRuntimeEffects() {
+    val keepOn by rememberDeviceValue { it.diagnosticScanning || it.spatial.calibrationMode }
+    val view = LocalView.current
+    DisposableEffect(view, keepOn) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = keepOn
+        onDispose { view.keepScreenOn = previous }
+    }
+}
+
+@Composable
+private fun LiveDeviceContent(content: @Composable (PodsState) -> Unit) {
+    val state by DeviceRepository.state.collectAsState()
+    content(state)
+}
+
+@Composable
+private fun DeviceMessage() {
+    val message by rememberDeviceValue { it.message }
+    if (message.isNotBlank()) Text(message, fontSize = 13.sp, color = MiuixTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun MiuixDevicePage(onConnect: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
+    val state by DeviceRepository.state.collectAsState()
+    Text(state.displayName, fontSize = 34.sp, color = MiuixTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 14.dp, top = 10.dp).semantics { heading() })
+    Hero(state)
+    if (!state.running) Action("连接耳机", Modifier.fillMaxWidth()) { navigate("connection"); onConnect() }
+    BatteryCard(state)
+    ListeningControls(state)
+    SettingsCard {
+        RowItem("重命名", "在系统蓝牙中修改此设备的名称", value = state.displayName, action = onSystemBluetooth)
+        RowItem("自动连接帮助", "配对、重连与后台运行") { navigate("connection") }
+    }
+    DeviceFeatures(state) { navigate("spatial") }
+    Section("系统蓝牙") {
+        RowItem("音频与设备权限", "AAC、音量同步、通话 / 媒体音频及通讯录权限，由系统管理", action = onSystemBluetooth)
+    }
+    SettingsCard {
+        RowItem("耳机高级设置", "声音、按压手势与均衡器") { navigate("advanced") }
+        RowItem("更多设置", "开盖弹窗、连接诊断与设备信息") { navigate("more") }
     }
 }
 
@@ -181,7 +205,7 @@ private fun DeviceFeatures(state: PodsState, onSpatial: () -> Unit) {
         if (state.earAutomation) Text(earDetectionDescription(state), fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary, modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
         listOf(0x28, 0x26).forEach { id ->
-            Controls.all.find { it.id == id && state.controls[it.id]?.firstOrNull() != null }?.let { ControlRow(it, state) }
+            Controls.all.find { it.id == id && state.controls[it.id]?.firstOrNull() != null }?.let { ControlRow(it) }
         }
     }
 }
@@ -189,11 +213,11 @@ private fun DeviceFeatures(state: PodsState, onSpatial: () -> Unit) {
 @Composable
 private fun AdvancedSettings(state: PodsState) {
     val available = Controls.all.filter { it.id !in setOf(0x0d, 0x0a, 0x28, 0x26, 0x2e) && state.controls[it.id]?.firstOrNull() != null }
-    for ((group, specs) in available.groupBy { it.group }) Section(group) { specs.forEach { ControlRow(it, state) } }
+    for ((group, specs) in available.groupBy { it.group }) Section(group) { specs.forEach { ControlRow(it) } }
     EqualizerSection(state)
     CallControlSection(state)
     if (state.controls[0x0a]?.firstOrNull() != null) Section("耳机传感器设置") {
-        ControlRow(Controls.all.first { it.id == 0x0a }, state)
+        ControlRow(Controls.all.first { it.id == 0x0a })
         Text("耳机侧报告的配置；Android 自动暂停 / 继续由首页的“自动入耳检测”控制。", fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
     }
@@ -207,30 +231,54 @@ private fun AdvancedSettings(state: PodsState) {
 }
 
 @Composable
-private fun MoreSettings(state: PodsState, onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
+private fun PreferenceToggle(title: String, subtitle: String, read: (PodsState) -> Boolean, write: (Boolean) -> Unit) {
+    val checked by rememberDeviceValue(read)
+    ToggleRow(title, subtitle, checked, onChange = write)
+}
+
+@Composable
+private fun NativePreviewRow() {
+    val native by rememberDeviceValue { it.nativePopup }
+    RowItem("预览超级岛", enabled = native) { PodsService.previewIsland() }
+}
+
+@Composable
+private fun FrameworkSettingsRow() {
+    val framework by rememberDeviceValue { it.framework }
+    RowItem("系统蓝牙入口", "$framework · 点击申请作用域") { FrameworkBridge.requestSettingsScope() }
+}
+
+@Composable
+private fun DeviceInformation() {
+    val info by rememberDeviceValue { Triple(it.displayName, it.model, it.firmware) }
+    InfoRow("名称", info.first)
+    InfoRow("型号", info.second.ifBlank { "等待读取" })
+    InfoRow("设备报告版本", info.third.ifBlank { "等待读取" })
+}
+
+@Composable
+private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
     val style by AppearancePreferences.style.collectAsState()
     val changeStyle = LocalChangeUiStyle.current
     Section("外观") {
         ToggleRow(style.label, "切换界面风格", style == UiStyle.IOS, onChange = changeStyle)
     }
     Section("弹窗与提醒") {
-        ToggleRow("开盖弹窗", "仅响应已验证的耳机开盖广播", state.popupEnabled) { DeviceRepository.setPopup(it) }
-        ToggleRow("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", state.nativePopup) { DeviceRepository.setNativePopup(it) }
-        ToggleRow("连接电量卡片", "重新连接时显示真实电量", state.connectionPopup) { DeviceRepository.setConnectionPopup(it) }
-        if (state.nativePopup) RowItem("启用原生弹窗", "在 LSPosed 中授权小米蓝牙作用域") { FrameworkBridge.requestNativeScope() }
+        PreferenceToggle("开盖弹窗", "仅响应已验证的耳机开盖广播", { it.popupEnabled }, DeviceRepository::setPopup)
+        PreferenceToggle("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", { it.nativePopup }, DeviceRepository::setNativePopup)
+        PreferenceToggle("连接电量卡片", "重新连接时显示真实电量", { it.connectionPopup }, DeviceRepository::setConnectionPopup)
+        RowItem("启用系统适配", "在 LSPosed 中授权小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
         RowItem("允许悬浮显示", "原生通道不可用时使用兼容卡片", action = onOverlay)
         RowItem("预览电量卡片") { PodsService.previewPopup() }
-        if (state.nativePopup) RowItem("预览超级岛") { PodsService.previewIsland() }
+        NativePreviewRow()
     }
     Section("连接与系统") {
         RowItem("系统蓝牙设置", "管理配对、音频与设备权限", action = onSystemBluetooth)
-        RowItem("系统蓝牙入口", "${state.framework} · 点击申请作用域") { FrameworkBridge.requestSettingsScope() }
+        FrameworkSettingsRow()
         RowItem("连接诊断", "控制通道、广播与连接记录") { navigate("diagnostics") }
     }
     Section("设备信息") {
-        InfoRow("名称", state.displayName)
-        InfoRow("型号", state.model.ifBlank { "等待读取" })
-        InfoRow("设备报告版本", state.firmware.ifBlank { "等待读取" })
+        DeviceInformation()
         RowItem("开源许可", "GPL-3.0-or-later 与第三方声明") { navigate("licenses") }
     }
 }
@@ -291,31 +339,25 @@ private fun SpatialModeSelector(state: PodsState, showTitle: Boolean = false) {
     val mode = state.spatial.spatialPresentation(state.connected)
     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (showTitle) Text("空间音频", fontSize = 18.sp)
-        FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SpatialMode.entries.forEach { option ->
-                val enabled = when (option) {
-                    SpatialMode.OFF -> mode.offEnabled
-                    SpatialMode.FIXED -> mode.fixedEnabled
-                    SpatialMode.HEAD_TRACKING -> mode.trackingEnabled
-                }
-                Pill(option.label(), selected = mode.selected == option, enabled = enabled) { PodsService.spatialMode(option) }
-            }
-        }
+        SpatialModeSlider(mode) { PodsService.spatialMode(it) }
         Text(mode.description, fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (showTitle && state.spatial.notice.isNotBlank()) Text(state.spatial.notice, fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
     }
 }
 
+private data class ControlRowState(val address: String, val value: Int?, val pending: Boolean, val connected: Boolean, val description: String)
+
 @Composable
-private fun ControlRow(spec: ControlSpec, state: PodsState) {
-    val value = state.controls[spec.id]?.firstOrNull() ?: return
-    val pending = spec.id in state.pending
-    val enabled = state.connected && !pending && spec.writable
+private fun ControlRow(spec: ControlSpec) {
+    val row by rememberDeviceValue { ControlRowState(it.address, it.controls[spec.id]?.firstOrNull(), spec.id in it.pending, it.connected, if (spec.id == 0x28) it.conversation.description else "") }
+    val value = row.value ?: return
+    val pending = row.pending
+    val enabled = row.connected && !pending && spec.writable
     if (spec.range != null) {
         val submitted = if (pending) PodsService.pendingControlValue(spec.id) else null
         // Keep the submitted target while awaiting the device. When pending ends,
         // initialize from the actual report, including a timeout with no value change.
-        var draft by remember(state.address, spec.id, value, pending, submitted) {
+        var draft by remember(row.address, spec.id, value, pending, submitted) {
             mutableFloatStateOf((if (pending) submitted ?: value else value).toFloat())
         }
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -336,7 +378,7 @@ private fun ControlRow(spec: ControlSpec, state: PodsState) {
         val description = when {
             pending -> "等待耳机确认…"
             spec.id == 0x0a -> "耳机固件的传感器配置，不代表 Android 媒体自动化"
-            spec.id == 0x28 -> state.conversation.description
+            spec.id == 0x28 -> row.description
             spec.id == 0x26 -> "根据环境调整聆听音量"
             else -> ""
         }

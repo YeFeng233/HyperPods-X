@@ -70,7 +70,7 @@ android {
         applicationId = "com.hyper.podsrx"
         minSdk = 37
         targetSdk = 37
-        versionCode = 15
+        versionCode = 19
         versionName = "0.4.9-dev"
     }
     compileOptions {

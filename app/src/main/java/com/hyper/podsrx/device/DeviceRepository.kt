@@ -40,6 +40,7 @@ data class PodsState(
     ,val earDetectionStatus:String="等待耳机上报佩戴状态"
     ,val conversation:ConversationState=ConversationState()
     ,val adaptiveTarget:Int?=null
+    ,val controlRefreshUntil:Long=0L
 ) {
     val displayName:String get()=localName.ifBlank{name}
 }
@@ -180,6 +181,7 @@ object DeviceRepository {
                 .put("battery",batterySummary()).put("controls",JSONObject(s.controls.mapKeys{it.key.toString()}.mapValues{it.value.joinToString(",")}))
                 .put("pending",s.pending.joinToString(",")).put("message",s.message).put("log",s.log.joinToString("\n"))
                 .put("adaptiveTarget",s.adaptiveTarget)
+                .put("controlRefreshUntil",s.controlRefreshUntil)
             val file=android.util.AtomicFile(File(app.filesDir,"diagnostics.json"))
             val output=file.startWrite()
             try {output.write(json.toString(2).toByteArray());file.finishWrite(output)}

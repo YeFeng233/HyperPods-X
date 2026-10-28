@@ -9,19 +9,19 @@ import org.junit.Test
 class ListeningControlsTest {
     private val adaptive = PodsState(connected = true, controls = mapOf(0x0d to listOf(4), 0x2e to listOf(50, 0, 0, 0)))
 
-    @Test fun selectorHasExactlyTransparencyAdaptiveCancellationInOrder() {
-        assertEquals(listOf(3, 4, 2), Controls.listeningChoices.map { it.value })
-        assertEquals(listOf("通透", "自适应", "降噪"), Controls.listeningChoices.map { it.label })
+    @Test fun selectorStartsWithOffThenTransparencyAdaptiveCancellation() {
+        assertEquals(listOf(1, 3, 4, 2), Controls.listeningChoices.map { it.value })
+        assertEquals(listOf("关闭", "通透", "自适应", "降噪"), Controls.listeningChoices.map { it.label })
     }
 
     @Test fun offReportsAreNotRemappedToAnotherMode() {
         val ui = listeningPresentation(adaptive.copy(controls = mapOf(0x0d to listOf(1))))
         assertEquals(1, ui.mode)
-        assertFalse(Controls.listeningChoices.any { it.value == ui.mode })
+        assertEquals(1, Controls.listeningChoices.first().value)
         assertTrue(ui.modeEnabled)
         assertFalse(ui.showAdaptive)
         assertFalse(ui.strengthEnabled)
-        assertTrue(ui.notice.contains("关闭"))
+        assertEquals("", ui.notice)
     }
 
     @Test fun adaptiveSliderOnlyAppearsForReportedAdaptiveMode() {

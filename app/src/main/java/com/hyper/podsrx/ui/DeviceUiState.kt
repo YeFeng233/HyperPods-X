@@ -27,7 +27,6 @@ internal fun listeningPresentation(state: PodsState): ListeningPresentation {
             0x2e in state.pending -> "正在发送降噪强度…"
             !state.connected -> "连接耳机后可切换聆听模式"
             mode == null -> "等待读取耳机支持的聆听模式"
-            mode == 1 -> "耳机当前处于关闭模式，请选择一种聆听模式"
             mode == 4 && Controls.adaptiveStrength(state.controls) == null -> "耳机尚未上报自适应幅度，暂不可调整"
             else -> ""
         }

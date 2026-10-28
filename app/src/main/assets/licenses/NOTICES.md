@@ -6,8 +6,9 @@ The optional iOS settings interface is adapted from NEORUAA/HyperPods-X PR #1,
 commit `ae9fa5ec8028e94e0dbbf8243228387756edd78e`, under GPL-3.0-or-later.
 It includes the iOS pages, listening-control state handling, media-volume controller,
 Bluetooth-alias editor and associated listening-control tests. The existing Miuix
-interface remains the default. The PR's separate native Fusion-control integration
-is outside this UI adaptation.
+interface remains the default. The PR's native Fusion-control bridge and scoped
+Bluetooth/MiLink adapters are integrated alongside both interface styles, with
+bound-device freshness checks and commands routed through the existing session.
 
 Glasmio is compiled from https://github.com/NEORUAA/Glasmio at
 `5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`, under Apache-2.0.
