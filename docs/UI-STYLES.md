@@ -17,7 +17,7 @@ python scripts/prepare-ui.py --fonts
 ./gradlew :app:testDebugUnitTest :core:protocol:test :app:lintDebug :app:assembleDeviceTest
 ```
 
-Windows 使用 `gradlew.bat`。准备脚本把 Glasmio 固定到 `5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`，保存在忽略的 `.reference/Glasmio`。若已有不同提交的源码，脚本会提示保留或移走它，不会自动覆盖。自定义位置可使用 `-Pglasmio.sourceDir=/path/Glasmio`。
+Windows 使用 `gradlew.bat`。若仓库路径含非 ASCII 字符，Glasmio 的 CMake 会配置失败，可改用 `scripts/build-windows.ps1`：它通过临时 `subst` 盘符构建，`-Device <adb 序列号>` 可在构建后直接安装。准备脚本把 Glasmio 固定到 `5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`，保存在忽略的 `.reference/Glasmio`。若已有不同提交的源码，脚本会提示保留或移走它，不会自动覆盖。自定义位置可使用 `-Pglasmio.sourceDir=/path/Glasmio`。
 
 `--fonts` 按用户指定的 [SFWindows v27.0.1789118100](https://github.com/bradleyhodges/SFWindows/releases/tag/v27.0.1789118100) 下载 SF Pro 常规和斜体，并验证 SHA-256。字体位于忽略的 `.tooling/fonts/`，通过 `local.properties` 传入，再由构建任务复制到 APK 的生成资源目录。字体文件不进入 Git 或源码包，许可与 GPL 代码分开，见素材说明。
 
