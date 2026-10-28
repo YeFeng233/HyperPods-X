@@ -77,5 +77,12 @@ class HostRestartPolicyTest {
         }
     }
 
+    @Test fun securityCenterRestartIsLimitedToTheWidgetProvider() {
+        val center = "com.miui.securitycenter"
+        assertTrue(HostRestartPolicy.acceptsName(center, "$center.remote"))
+        assertFalse(HostRestartPolicy.acceptsName(center, center))
+        assertFalse(HostRestartPolicy.acceptsName(center, "$center:ui"))
+    }
+
     private fun process(uid: Int, name: String) = HostRestartPolicy.Process(4321, uid, name)
 }

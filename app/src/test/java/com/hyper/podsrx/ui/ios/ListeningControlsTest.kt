@@ -197,7 +197,7 @@ class ListeningControlsTest {
         for (fraction in listOf(Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY)) {
             assertNull(adaptiveStrengthForWrite(fraction))
         }
-        for (model in listOf("A3441", "A3057", "A3442", "")) {
+        for (model in listOf("A3441", "A3065", "A3057", "A3442", "")) {
             for (value in listOf(37, 71)) {
                 val state = adaptive.copy(model = model, controls = adaptive.controls + (0x2e to listOf(value)))
                 assertEquals(value, listeningPresentation(state).strength)

@@ -1,4 +1,8 @@
-# AirPods 5 图片来源
+# AirPods 图片来源
+
+App、系统底部弹窗、超级岛与融合设备中心卡片按耳机型号选用下列图片，型号表见 `hook/.../HeadsetModels.java`。未识别的型号沿用 AirPods 5 图片。系统自带的耳机图片不再使用。
+
+## AirPods 5
 
 取得日期：2026-10-22。用于用户授权的本机开发测试，App 运行时离线读取，不向官网发起请求。
 
@@ -29,11 +33,24 @@ https://support.apple.com/en-ie/109525
 
 ## 0.4.7 超级岛单耳资源
 
-- `:app:generateIslandEarbuds` 在构建时读取上述 `airpods5_pair.png`，沿中央透明间隔分离左右耳，按非透明像素的横向边界裁切，保留 219 像素高度，不缩放、不重绘。
+- `:app:generateIslandEarbuds` 在构建时读取 `drawable-nodpi` 下每张 `*_pair.png`（含上述 `airpods5_pair.png`），沿中央透明间隔分离左右耳，按非透明像素的横向边界裁切，保留 219 像素高度，不缩放、不重绘。
 - 左耳裁切区域 `(1, 0, 132, 219)`，输出 `airpods5_left.png`；右耳区域 `(158, 0, 131, 219)`，输出 `airpods5_right.png`。
 - 输出位于 `app/build/generated/res/island-earbuds/drawable-nodpi/`，由 Android 资源管线自动打包；完整双耳原文件不变。单耳图片仍沿用原素材的权利说明。
 - 本地左耳 PNG SHA-256：`2bffb5e17064db07f9cf5e1de58c6b3bc0f90d774eae1b6ca0a3165acbf07b7e`。
 - 本地右耳 PNG SHA-256：`90b75531d4ab9fa191daebfdd35ab88c280b9e180c75110b5f7824f57cc2eb31`。
+
+## AirPods Pro 3
+
+- 取得日期：2026-10-28。来源为 LibrePods 主分支 `android/app/src/main/res-apple/drawable/`，提交 `4589176f7b7943a6091d5c6907c74f441bcf7780`（2026-10-15，“android: add assets for other AirPod models”）。LibrePods 型号表将 A3063 / A3064 / A3065 列为 AirPods Pro 3。
+- 原样复制，未重绘、抠图或重新编码：
+
+| 本地资源 | LibrePods 文件 | 尺寸 | SHA-256 |
+| --- | --- | --- | --- |
+| `app/src/main/res/drawable-nodpi/airpodspro3_pair.png` | `airpods_pro_3_buds.png` | 306 × 219 RGBA | `648e1e0404bd846eecd7c58bca04f5ebdb9ad829153a80487ad8f3e0c03037de` |
+| `app/src/main/res/drawable-nodpi/airpodspro3_case.png` | `airpods_pro_3_case.png` | 441 × 336 RGBA | `126c02fab5be85b8e96170acba414dfa1be9fda35977981ab4acb6177ae776db` |
+
+- 超级岛单耳不使用 LibrePods 自带的 `airpods_pro_3_left/right.png`，与 AirPods 5 一样由 `:app:generateIslandEarbuds` 从双耳图裁切：左耳区域 `(2, 0, 138, 219)`，右耳区域 `(165, 0, 139, 219)`，输出 `airpodspro3_left.png` / `airpodspro3_right.png`。
+- 权利说明同上：图片版权属于 Apple Inc.，LibrePods 的开源代码许可不覆盖这些图片，仅用于本机开发测试。
 
 ## iOS 界面素材（PR #1）
 

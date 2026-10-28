@@ -1,5 +1,7 @@
 package com.hyper.podsrx.device
 
+import com.hyper.podsrx.protocol.ControlCommands
+
 data class Choice(val value: Int, val label: String)
 data class ControlSpec(val id: Int,val title: String,val group: String,val choices: List<Choice> = emptyList(),val toggle: Boolean=false,val range: IntRange?=null,val writable:Boolean=true)
 
@@ -22,15 +24,13 @@ object Controls {
         ControlSpec(0x1f,"耳机提示音音量","声音与聆听",range=15..100),
         ControlSpec(0x35,"入睡后暂停","佩戴与音频",toggle=true)
     )
-    fun adaptiveStrength(controls: Map<Int, List<Int>>): Int? =
-        controls[0x2e]?.firstOrNull()?.takeIf { it in 0..100 }
+    fun adaptiveStrength(controls: Map<Int, List<Int>>): Int? = ControlCommands.adaptiveStrength(controls)
 
     fun canAdjustAdaptive(connected: Boolean, controls: Map<Int, List<Int>>, pending: Set<Int>): Boolean =
-        connected && controls[0x0d]?.firstOrNull() == 4 && adaptiveStrength(controls) != null &&
-            0x0d !in pending
+        ControlCommands.canAdjustAdaptive(connected, controls, pending)
 
     fun shouldSendAdaptive(value:Int,reported:Int?,target:Int?):Boolean =
-        value != target && (target != null || value != reported)
+        ControlCommands.shouldSendAdaptive(value, reported, target)
 
     fun valuesForWrite(id: Int, value: Int, current: List<Int>): List<Int> =
         // LibrePods sends AUTO_ANC_STRENGTH as one byte; the packet encoder zero-pads it.

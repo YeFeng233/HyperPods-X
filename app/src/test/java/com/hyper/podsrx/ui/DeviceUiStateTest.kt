@@ -1,6 +1,6 @@
 package com.hyper.podsrx.ui
 
-import com.hyper.podsrx.device.Reading
+import com.hyper.podsrx.protocol.Reading
 import com.hyper.podsrx.device.PodsState
 import com.hyper.podsrx.device.SpatialState
 import com.hyper.podsrx.device.SpatialMode
@@ -35,7 +35,7 @@ class DeviceUiStateTest {
     }
 
     @Test fun unknownBatteryIsNotZeroOrCharging() {
-        for (reading in listOf(null, Reading(null, true, true, 0, true), Reading(101, false, true, 0, true))) {
+        for (reading in listOf(null, Reading(null, true, true, 0), Reading(101, false, true, 0))) {
             val value = batteryPresentation(reading)
             assertEquals("—", value.label)
             assertEquals("未读取", value.note)
@@ -44,22 +44,15 @@ class DeviceUiStateTest {
         }
     }
 
-    @Test fun staleBatteryIsMarkedAndDoesNotShowLiveCharging() {
-        val value = batteryPresentation(Reading(80, true, true, 0, false))
-        assertEquals("80%", value.label)
-        assertEquals("上次更新", value.note)
-        assertFalse(value.charging)
-    }
-
     @Test fun approximateCurrentBatteryKeepsItsAccuracyAndChargingState() {
-        val value = batteryPresentation(Reading(70, true, false, 0, true))
+        val value = batteryPresentation(Reading(70, true, false, 0))
         assertEquals("≈70%", value.label)
         assertEquals("充电中", value.note)
         assertTrue(value.charging)
     }
 
     @Test fun emptyBatteryIsAValidReading() {
-        val value = batteryPresentation(Reading(0, false, true, 0, true))
+        val value = batteryPresentation(Reading(0, false, true, 0))
         assertEquals("0%", value.label)
         assertEquals(0, value.level)
         assertEquals("", value.note)
@@ -124,5 +117,11 @@ class DeviceUiStateTest {
         val tracked = SpatialState(bridge = true, compatible = true, nativeActive = true)
         assertEquals(SpatialMode.FIXED, tracked.copy(nativeActive = false).spatialPresentation(true).selected)
         assertEquals(SpatialMode.OFF, tracked.copy(nativeActive = false, compatible = false).spatialPresentation(true).selected)
+    }
+
+    @Test fun capabilitiesNameOnlyWhatFailed() {
+        assertEquals("✓ 2 项已生效", capabilitySummary(mapOf("State hub" to "", "Apple advertisement relay" to "")))
+        assertEquals("✗ Widget headset battery：NoSuchMethodException",
+            capabilitySummary(mapOf("State hub" to "", "Widget headset battery" to "NoSuchMethodException")))
     }
 }

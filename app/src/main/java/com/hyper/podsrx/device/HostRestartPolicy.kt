@@ -7,12 +7,15 @@ internal object HostRestartPolicy {
         Host("com.xiaomi.bluetooth", "小米蓝牙", "com.android.bluetooth.ble.app.MiuiNearbyService"),
         Host("com.milink.service", "设备互联", "com.milink.server.MiLinkProcessAliveService"),
         Host("com.android.settings", "系统设置"),
+        Host("com.miui.securitycenter", "手机管家"),
     )
     private val auxiliary = setOf("com.milink.runtime", "com.milink.crossdeviceservice", "com.xiaomi.vtcamera")
 
     fun acceptsName(pkg: String, name: String): Boolean = hosts.any { it.pkg == pkg } &&
         name.matches(Regex("[A-Za-z0-9_.:]+")) &&
-        (name == pkg || name.startsWith("$pkg:") || pkg == "com.milink.service" && name in auxiliary)
+        // Only the widget provider process of the security center is hooked.
+        if (pkg == "com.miui.securitycenter") name == HostReloadPolicy.WIDGET_PROCESS
+        else name == pkg || name.startsWith("$pkg:") || pkg == "com.milink.service" && name in auxiliary
 
     fun parse(line: String): Process? {
         val parts = line.trim().split(Regex("\\s+"))

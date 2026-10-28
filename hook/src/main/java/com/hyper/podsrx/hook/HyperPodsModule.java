@@ -32,6 +32,7 @@ public final class HyperPodsModule extends XposedModule {
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
         main = new Handler(Looper.getMainLooper());
         processName = param.getProcessName();
+        Compatibility.process(processName);
         ReloadLifecycle.add(() -> {
             main.removeCallbacksAndMessages(null);
             if (preferences != null && listener != null) preferences.unregisterOnSharedPreferenceChangeListener(listener);
@@ -82,22 +83,32 @@ public final class HyperPodsModule extends XposedModule {
         }
         if (pkg.equals("com.milink.service")) {
             if (!processName.equals(pkg) && !processName.equals(pkg+":core") && !processName.equals(pkg+":ui")) return;
-            preferences=getRemotePreferences("device_state");
+            preferences=HubReader.remote();
             if (processName.equals(pkg+":ui")) {
-                try { NativeControlPanelAdapter.install(this,loader,preferences); }
+                try { NativeControlPanelAdapter.install(this,loader,preferences); installed("Native adaptive control row"); }
                 catch (Throwable error) { installationFailure("Native adaptive control row", error); }
             }
-            try { NativeSpatialControlAdapter.install(this,loader,preferences); }
+            try { NativeSpatialControlAdapter.install(this,loader,preferences); installed("Native spatial control"); }
             catch (Throwable error) { installationFailure("Native spatial control", error); }
-            try { NativeSettingsAdapter.install(this,loader,preferences); }
+            try { NativeSettingsAdapter.install(this,loader,preferences); installed("Native headset settings entry"); }
             catch (Throwable error) { installationFailure("Native headset settings entry", error); }
+            return;
+        }
+        if (pkg.equals("com.miui.securitycenter")) {
+            // The battery widget's provider lives in its own process.
+            if (!processName.equals(pkg + ".remote")) return;
+            installDiagnosticBridge();
+            preferences = HubReader.remote();
+            try { WidgetBatteryHost.install(this, loader, (HubReader) preferences); installed("Widget headset battery"); }
+            catch (Throwable error) { installationFailure("Widget headset battery", error); }
             return;
         }
         if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
             try {
-                preferences=getRemotePreferences("device_state");
+                // The hub reads the app's configuration; everything else reads the hub.
+                preferences=pkg.equals(processName)?getRemotePreferences("device_state"):HubReader.remote();
                 if (runningApp != null) installBluetooth(runningApp, pkg);
                 else {
                     Class<?> app = Class.forName("com.android.bluetooth.ble.MiuiApplication", false, loader);
@@ -111,7 +122,7 @@ public final class HyperPodsModule extends XposedModule {
             return;
         }
         try {
-            preferences = getRemotePreferences("device_state");
+            preferences = HubReader.remote();
             listener = (p, key) -> { if (ReloadLifecycle.isActive()) main.post(this::refreshSummary); };
             preferences.registerOnSharedPreferenceChangeListener(listener);
             try {
@@ -125,6 +136,7 @@ public final class HyperPodsModule extends XposedModule {
                     return chain.proceed();
                 });
                 moduleLog(Log.INFO,"HyperPods-X","Bluetooth device arrow hook installed");
+                installed("Bluetooth device arrow");
             } catch(ReflectiveOperationException error) {installationFailure("Bluetooth device arrow", error);}
             int detailHooks = 0;
             for (String name : new String[]{"com.android.settings.bluetooth.DeviceProfilesSettings", "com.android.settings.bluetooth.BluetoothDeviceDetailsFragment"}) {
@@ -142,6 +154,7 @@ public final class HyperPodsModule extends XposedModule {
             }
             if (detailHooks == 0) throw new IllegalStateException("No supported Bluetooth details page");
             moduleLog(Log.INFO, "HyperPods-X", "Bluetooth details hook installed: " + detailHooks);
+            installed("Settings adapter");
         } catch (Throwable error) { installationFailure("Settings adapter", error); }
     }
 
@@ -150,36 +163,51 @@ public final class HyperPodsModule extends XposedModule {
         bluetoothInstalled = true;
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
-            NativePopupHost.install(host);
-            try { NativeControlHost.install(this, host, preferences); }
+            SharedPreferences config = preferences;
+            try { preferences = HubHost.install(this, host, config).reader; installed("State hub"); }
+            catch (Throwable error) { installationFailure("State hub", error); }
+            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); installed("ROM AirPods connection island filter"); }
+            catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
+            try { LidRelayHost.install(this, host.getClassLoader()); installed("Apple advertisement relay"); }
+            catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
+            try { NativeControlHost.install(this, host, preferences); installed("Native control bridge"); }
             catch (Throwable error) { installationFailure("Native control bridge", error); }
-            try { SpatialHost.install(host, preferences); }
+            // The bound address is configuration; the spatial and conversation bridges need nothing live.
+            try { SpatialHost.install(host, config); installed("Spatial bridge"); }
             catch (Throwable error) { installationFailure("Spatial bridge", error); }
-            try { ConversationAudioHost.install(host, preferences); }
+            try { ConversationAudioHost.install(host, config); installed("Conversation bridge"); }
             catch (Throwable error) { installationFailure("Conversation bridge", error); }
         } else {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
                     if (!ReloadLifecycle.isActive()) return;
-                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); }
-                    catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error); }
+                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); installed("Native AirPods dialog adapter"); }
+                    catch (Throwable error) {
+                        Compatibility.failed("Native AirPods dialog adapter", error);
+                        moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error);
+                    }
                 }
                 @Override public void onActivityCreated(Activity activity, Bundle saved) {
-                    if (ReloadLifecycle.isActive()) NativeAirPodsDialogAdapter.autoDismiss(activity);
+                    if (!ReloadLifecycle.isActive()) return;
+                    NativeAirPodsDialogAdapter.autoDismiss(activity);
+                    NativeAirPodsDialogAdapter.followLid(activity, preferences);
                 }
                 @Override public void onActivityStarted(Activity activity) {}
                 @Override public void onActivityResumed(Activity activity) { onActivityPreCreated(activity, null); }
                 @Override public void onActivityPaused(Activity activity) {}
                 @Override public void onActivityStopped(Activity activity) {}
                 @Override public void onActivitySaveInstanceState(Activity activity, Bundle out) {}
-                @Override public void onActivityDestroyed(Activity activity) {}
+                @Override public void onActivityDestroyed(Activity activity) { NativeAirPodsDialogAdapter.stopFollowingLid(activity); }
             };
             host.registerActivityLifecycleCallbacks(callbacks);
             ReloadLifecycle.add(() -> host.unregisterActivityLifecycleCallbacks(callbacks));
         }
     }
 
+    private void installed(String component) { Compatibility.installed(component); }
+
     private void installationFailure(String component, Throwable error) {
+        Compatibility.failed(component, error);
         moduleLog(Log.WARN, "HyperPods-X", component + " unavailable", error);
         if (hotReload) throw new IllegalStateException(component + " reload failed", error);
     }
@@ -268,9 +296,7 @@ public final class HyperPodsModule extends XposedModule {
         if (preference == null || preferences == null) return;
         try {
             String summary = preferences.getString("summary", "查看耳机电量与高级设置");
-            if (System.currentTimeMillis() - preferences.getLong("updated", 0) > 60000) summary = "上次读取 · " + summary;
-            preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference,
-                    summary);
+            preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference, summary);
         } catch (Throwable ignored) { /* a destroyed settings page is harmless */ }
     }
     private static Object call(Object target, String name) throws Exception { return target.getClass().getMethod(name).invoke(target); }

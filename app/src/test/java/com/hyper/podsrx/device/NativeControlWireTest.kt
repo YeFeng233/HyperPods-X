@@ -10,8 +10,10 @@ class NativeControlWireTest {
         connected: Boolean = true, heartbeat: Long = 1000, now: Long = 1001, address: String? = bound) =
         NativeControlWire.isCurrentTarget(target, address, model, enabled, connected, heartbeat, now)
 
-    @Test fun onlyBoundA3441UsesNativeBridge() {
+    @Test fun onlyBoundSupportedModelsUseNativeBridge() {
         assertTrue(matches(target = bound.lowercase()))
+        assertTrue(matches(model = "A3065"))
+        assertFalse(matches(model = "A3057"))
         assertFalse(matches(target = "AA:BB:CC:DD:EE:02"))
         assertFalse(matches(target = null))
         assertFalse(matches(address = null))
@@ -52,6 +54,7 @@ class NativeControlWireTest {
     @Test fun readbackLeaseCannotExposeAnotherDeviceOrStaleSnapshot() {
         assertFalse(presentation(target = "AA:BB:CC:DD:EE:02"))
         assertFalse(presentation(model = "Xiaomi"))
+        assertTrue(presentation(model = "A3065"))
         assertFalse(presentation(heartbeat = 2001))
         assertFalse(presentation(now = 32_000, until = 33_000))
     }

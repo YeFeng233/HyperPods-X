@@ -27,6 +27,8 @@ open class MainActivity:ComponentActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")))
         },onSystemBluetooth={openSystemBluetooth()},onFinish={finish()})}
     }
+    override fun onStart() { super.onStart();DeviceRepository.pageVisible(true) }
+    override fun onStop() { DeviceRepository.pageVisible(false);super.onStop() }
     override fun onResume() {
         super.onResume()
         DeviceRepository.refreshLocalName()
@@ -34,7 +36,7 @@ open class MainActivity:ComponentActivity() {
     }
     private fun connect() {
         if(DeviceRepository.permissionsGranted())DeviceRepository.start()
-        else permissionRequest.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.POST_NOTIFICATIONS))
+        else permissionRequest.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.POST_NOTIFICATIONS))
     }
     private fun openSystemBluetooth() {
         val address=DeviceRepository.state.value.address

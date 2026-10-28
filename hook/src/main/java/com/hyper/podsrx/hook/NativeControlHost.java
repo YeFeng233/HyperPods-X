@@ -1,12 +1,9 @@
 package com.hyper.podsrx.hook;
 
 import android.app.PendingIntent;
-import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
@@ -27,12 +24,8 @@ final class NativeControlHost {
     private final Context context;
     private final SharedPreferences preferences;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private volatile PendingIntent target;
-    private volatile String registeredAddress = "";
     private String lastTargetDiagnostic;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
-    private BroadcastReceiver receiver;
-    private boolean receiverRegistered;
     private final Runnable notify = this::notifyState;
 
     private NativeControlHost(Context context, SharedPreferences preferences) {
@@ -85,30 +78,12 @@ final class NativeControlHost {
     }
 
     private void close() {
-        if (receiverRegistered) { context.unregisterReceiver(receiver); receiverRegistered = false; }
-        receiver = null;
         if (listener != null) { preferences.unregisterOnSharedPreferenceChangeListener(listener); listener = null; }
         main.removeCallbacksAndMessages(null);
-        target = null;
-        registeredAddress = "";
     }
 
+    /** [preferences] is the hub's view; it reports every hub change with a null key. */
     private void register() {
-        receiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context host, Intent request) {
-                long age = SystemClock.elapsedRealtime() - request.getLongExtra("created", -1);
-                if (!ReloadLifecycle.isActive() || !NativeControlWire.REGISTER.equals(request.getAction()) || age < 0 || age > 2000) return;
-                String address = request.getStringExtra("address");
-                PendingIntent callback = request.getParcelableExtra("target", PendingIntent.class);
-                if (!BluetoothAdapter.checkBluetoothAddress(address) || callback == null ||
-                        !NativeControlWire.APP.equals(callback.getCreatorPackage())) return;
-                registeredAddress = address;
-                target = callback;
-                scheduleNotify();
-            }
-        };
-        context.registerReceiver(receiver, new IntentFilter(NativeControlWire.REGISTER), NativeControlWire.PERMISSION, main, Context.RECEIVER_EXPORTED);
-        receiverRegistered = true;
         listener = (prefs, key) -> {
             if (key == null || key.startsWith("panel_") || key.startsWith("native_") || "address".equals(key)) scheduleNotify();
         };
@@ -217,7 +192,10 @@ final class NativeControlHost {
     }
 
     private boolean send(String command, int value) {
-        PendingIntent callback = target;
+        HubHost hub = HubHost.current();
+        // The app hands this over when it joins the hub; it outlives the app's process.
+        PendingIntent callback = hub == null ? null : hub.controlTarget();
+        String registeredAddress = preferences.getString("address", "");
         if (callback == null || !matches(registeredAddress) || !preferences.getBoolean("native_connected", false) ||
             preferences.getLong("panel_readback_until", 0) != 0) return false;
         try {
@@ -226,7 +204,6 @@ final class NativeControlHost {
             DiagnosticLog.i("HyperPods-X", "Forwarded native panel " + command + " request: " + value);
             return true;
         } catch (PendingIntent.CanceledException error) {
-            target = null;
             scheduleNotify();
             return false;
         }
@@ -242,7 +219,7 @@ final class NativeControlHost {
         if (!ReloadLifecycle.isActive()) return;
         try {
             context.getContentResolver().notifyChange(STATE, null, false);
-            String address = registeredAddress;
+            String address = preferences.getString("address", "");
             if (!matches(address)) return;
             for (String key : new String[] {"air_anc", "air_wear_state_format"}) {
                 String value = read(key);

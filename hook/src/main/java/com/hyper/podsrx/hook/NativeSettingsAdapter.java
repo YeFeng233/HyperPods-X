@@ -41,7 +41,7 @@ final class NativeSettingsAdapter {
         String address = preferences.getString("address", "");
         if (!ReloadLifecycle.isActive() || device == null || address == null || address.isEmpty() || age < 0 || age > 30000 ||
             !preferences.getBoolean("enabled", false) || !preferences.getBoolean("native_connected", false) ||
-            !"A3441".equals(preferences.getString("panel_model", "")) ||
+            !HeadsetModels.nativeControls(preferences.getString("panel_model", "")) ||
             !address.equalsIgnoreCase(device.getAddress())) return null;
         return address;
     }

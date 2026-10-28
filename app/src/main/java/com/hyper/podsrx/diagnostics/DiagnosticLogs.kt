@@ -14,6 +14,7 @@ import android.widget.Toast
 import com.hyper.podsrx.BuildConfig
 import com.hyper.podsrx.device.DeviceRepository
 import com.hyper.podsrx.device.HostReloadCoordinator
+import com.hyper.podsrx.device.HostReloadPolicy
 import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.LogRedactor
 import java.io.File
@@ -47,7 +48,7 @@ object DiagnosticLogs {
     private val records = Channel<String>(256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private lateinit var store: RotatingLogStore
     @Volatile private var storageError: String? = null
-    private val hosts = listOf("com.android.settings", "com.xiaomi.bluetooth", "com.milink.service")
+    private val hosts = listOf("com.android.settings", "com.xiaomi.bluetooth", "com.milink.service", "com.miui.securitycenter")
     private val exportRunning = AtomicBoolean(false)
     private val mutableExportState = MutableStateFlow(LogExportState())
     val exportState = mutableExportState.asStateFlow()
@@ -66,8 +67,9 @@ object DiagnosticLogs {
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             try {
                 DiagnosticLog.e("HyperPods-X", "Uncaught exception on ${thread.name}", error)
-                // The normal async writer may not run before Android terminates the process.
+                // The normal async writers may not run before Android terminates the process.
                 runCatching { store.append(DiagnosticLog.snapshot()) }
+                runCatching { DeviceRepository.flushDiagnostics() }
             } finally {
                 previous?.uncaughtException(thread, error)
             }
@@ -99,6 +101,7 @@ object DiagnosticLogs {
 
     private suspend fun export(context: Context, destination: Uri) = withContext(Dispatchers.IO) {
         DiagnosticLog.i("HyperPods-X", "Diagnostic export requested")
+        DeviceRepository.flushDiagnostics()
         val hostLogs = collectHosts(context)
         val snapshot = DeviceRepository.diagnosticSnapshot().apply {
             remove("name")
@@ -155,7 +158,7 @@ object DiagnosticLogs {
                 if (!accepting.get() || resultCode != 1 || resultData == null) return
                 val process = resultData.getString("process") ?: return
                 if (process.length > 100 || !process.matches(Regex("[a-zA-Z0-9_.:-]+"))) return
-                if (hosts.none { process == it || process.startsWith("$it:") } || results.size >= 8) return
+                if (HostReloadPolicy.hostFor(process) == null || results.size >= 8) return
                 val log = resultData.getString("log") ?: return
                 results[process] = LogRedactor.limitUtf8(LogRedactor.redact(log), DiagnosticLog.MAX_BYTES)
             }

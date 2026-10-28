@@ -50,7 +50,7 @@ Miuix: https://github.com/compose-miuix-ui/miuix/tree/v0.9.4
 libxposed: https://github.com/libxposed
 HiddenApiBypass: https://github.com/LSPosed/AndroidHiddenApiBypass
 
-The launcher vector is an original code asset. AirPods 5 product photographs are
+The launcher vector is an original code asset. AirPods 5 and AirPods Pro 3 product photographs are
 copyright Apple Inc. and are excluded from this project's GPL grant. Sources and
 the local-test usage note are recorded in `docs/ARTWORK-SOURCES.md`.
 
@@ -107,6 +107,9 @@ independently of the optional headset firmware control `0x0a`.
 
 `img_airpods_5_wireless_buds` / APK entry `res/E1.png` was extracted byte-for-byte
 as `airpods5_pair.png` (291x219 RGBA); `img_airpods_5_buds` is identical.
+`airpodspro3_pair.png` and `airpodspro3_case.png` are byte-for-byte copies of
+`res-apple/drawable/airpods_pro_3_buds.png` / `airpods_pro_3_case.png` from LibrePods
+commit `4589176f7b7943a6091d5c6907c74f441bcf7780`.
 Asset provenance, hash and separate artwork licensing caveats are recorded in
 `docs/ARTWORK-SOURCES.md`. The APK and decompiled files remain local audit material
 under `.reference/`; they are not shipped in the app.

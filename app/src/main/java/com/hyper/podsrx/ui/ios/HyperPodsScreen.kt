@@ -1,6 +1,8 @@
 // Adapted from NEORUAA/HyperPods-X PR #1 (ae9fa5e), GPL-3.0-or-later.
 package com.hyper.podsrx.ui.ios
 
+import com.hyper.podsrx.ui.BatteryPresentation
+import com.hyper.podsrx.ui.batteryPresentation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -41,7 +43,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplayTransitionEffects
-import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosPageHorizontalPadding
@@ -89,9 +90,9 @@ internal fun IosSettingsScreen(
     val volume by volumeController.state.collectAsState()
     DisposableEffect(volumeController) { onDispose { volumeController.close() } }
     val view = LocalView.current
-    DisposableEffect(state.diagnosticScanning, state.spatial.calibrationMode) {
+    DisposableEffect(state.spatial.calibrationMode) {
         val previous = view.keepScreenOn
-        view.keepScreenOn = state.diagnosticScanning || state.spatial.calibrationMode
+        view.keepScreenOn = state.spatial.calibrationMode
         onDispose { view.keepScreenOn = previous }
     }
     val firstPage = when (initialPage) {
@@ -271,7 +272,7 @@ internal fun IosSettingsScreen(
                                                         }
                                                         item("information") {
                                                             Section("关于") {
-                                                                InfoRow("型号名称", "AirPods 5")
+                                                                InfoRow("型号名称", entryDisplayState.headset.name)
                                                                 InfoRow("型号号码", entryDisplayState.model.ifBlank { "—" })
                                                                 InfoRow("版本", entryDisplayState.firmware.ifBlank { "—" })
                                                             }
@@ -372,7 +373,7 @@ private fun DeviceProducts(state: PodsState) {
     val case = batteryPresentation(state.batteries[8])
     Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.drawable.airpods5_pair), "AirPods", contentScale = ContentScale.Fit,
+            Image(painterResource(state.headset.pairArtwork), "AirPods", contentScale = ContentScale.Fit,
                 modifier = Modifier.size(width = 104.dp, height = 110.dp))
             Spacer(Modifier.height(8.dp))
             if (left == right) BatteryCircle(left, "AirPods")
@@ -382,7 +383,7 @@ private fun DeviceProducts(state: PodsState) {
             }
         }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.drawable.airpods5_case), "充电盒", contentScale = ContentScale.Fit,
+            Image(painterResource(state.headset.caseArtwork), "充电盒", contentScale = ContentScale.Fit,
                 modifier = Modifier.size(width = 132.dp, height = 110.dp))
             Spacer(Modifier.height(8.dp))
             BatteryCircle(case, "充电盒")
@@ -408,7 +409,6 @@ private fun BatteryCircle(battery: BatteryPresentation, label: String, compact: 
         Text(if (compact) "$label ${battery.label}" else battery.label,
             style = if (compact) GlasmioTheme.textStyles.footnote else GlasmioTheme.textStyles.body,
             color = colors.secondaryContent, maxLines = 1)
-        if (battery.note == "上次更新") Text("上次更新", style = GlasmioTheme.textStyles.caption2, color = colors.tertiaryContent)
     }
 }
 

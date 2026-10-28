@@ -8,6 +8,8 @@ import com.hyper.podsrx.hook.SpatialWire
 import com.hyper.podsrx.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -104,7 +106,25 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
                 }
             }
         }
-        scope.launch {while(isActive){refresh();delay(1500)}}
+        scope.launch {
+            while(isActive){
+                refresh()
+                // A visible page or a running session follows the host as it moves; otherwise the
+                // route, the control channel and the pages ask for a refresh when it can change.
+                if(following())withTimeoutOrNull(followMs){wake.receive()} else wake.receive()
+            }
+        }
+        // A session started from a native panel, with no page open, is followed as well.
+        scope.launch {
+            DeviceRepository.state.map{it.spatial.let{s->s.calibrationMode||s.modeChanging||s.trackingRequested}}
+                .distinctUntilChanged().collect{if(it)wake.trySend(Unit)}
+        }
+    }
+    private val wake=Channel<Unit>(Channel.CONFLATED)
+    private val followMs=1500L
+    private fun following():Boolean {
+        val s=DeviceRepository.state.value.spatial
+        return DeviceRepository.pagesVisible.value>0||active||forwarding||s.calibrationMode||s.modeChanging||s.trackingRequested
     }
     private suspend fun bind():IBinder?=withContext(Dispatchers.Main){
         remote?.takeIf{it.isBinderAlive}?.let{return@withContext it}
@@ -144,7 +164,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
             catch(error:Exception){remote=null;Bundle().apply{putString("status",error.message?:error.javaClass.simpleName)}}
         }
     }
-    fun refreshNow(){scope.launch{refresh()}}
+    fun refreshNow(){wake.trySend(Unit)}
     private suspend fun refresh(){
         val current=DeviceRepository.state.value
         if(current.address.isEmpty())return

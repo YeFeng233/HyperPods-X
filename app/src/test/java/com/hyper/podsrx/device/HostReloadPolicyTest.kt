@@ -42,6 +42,14 @@ class HostReloadPolicyTest {
         assertTrue(policy.claim("$milink:core", "STALE", setOf(milink)))
     }
 
+    @Test fun onlyTheWidgetProviderProcessOfTheSecurityCenterIsAHost() {
+        val policy = HostReloadPolicy("100:20", "", emptySet())
+        val center = "com.miui.securitycenter"
+        assertTrue(policy.claim("$center.remote", "STALE", setOf(center)))
+        assertFalse(policy.claim("$center.fake", "STALE", setOf(center)))
+        assertFalse(policy.claim("$center.remote", "STALE", setOf(bluetooth)))
+    }
+
     @Test fun bluetoothPrecedesDependentMilinkProcesses() {
         val processes = listOf("$milink:ui", "com.android.settings", bluetooth, "$milink:core", "$bluetooth:ui")
             .sortedWith(compareBy<String> { HostReloadPolicy.order(it) }.thenBy { it })

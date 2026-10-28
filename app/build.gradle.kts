@@ -2,10 +2,12 @@ import javax.imageio.ImageIO
 import java.io.File
 import java.util.Properties
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -17,44 +19,47 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-/** Builds the two native-island icons from the original transparent pair, without resampling. */
+/** Builds the two native-island icons from each original transparent pair, without resampling. */
 @CacheableTask
 abstract class GenerateIslandEarbuds : DefaultTask() {
-    @get:InputFile
+    @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val sourceImage: RegularFileProperty
+    abstract val sourceImages: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun generate() {
-        val source = checkNotNull(ImageIO.read(sourceImage.get().asFile)) { "Cannot read the AirPods pair artwork" }
-        check(source.colorModel.hasAlpha()) { "The AirPods pair artwork must have transparency" }
-        val middle = source.width / 2
-        check((0 until source.height).all { (source.getRGB(middle, it) ushr 24) == 0 }) {
-            "The AirPods pair artwork needs a transparent gap between the two earbuds"
-        }
         val output = outputDirectory.get().dir("drawable-nodpi").asFile
         check(output.isDirectory || output.mkdirs()) { "Cannot create the island artwork directory" }
-        for ((side, columns) in listOf("left" to (0 until middle), "right" to (middle until source.width))) {
-            val visibleColumns = columns.filter { x ->
-                (0 until source.height).any { y -> (source.getRGB(x, y) ushr 24) != 0 }
+        for (file in sourceImages.files.sortedBy { it.name }) {
+            val product = file.name.removeSuffix("_pair.png")
+            val source = checkNotNull(ImageIO.read(file)) { "Cannot read ${file.name}" }
+            check(source.colorModel.hasAlpha()) { "${file.name} must have transparency" }
+            val middle = source.width / 2
+            check((0 until source.height).all { (source.getRGB(middle, it) ushr 24) == 0 }) {
+                "${file.name} needs a transparent gap between the two earbuds"
             }
-            check(visibleColumns.isNotEmpty()) { "The $side earbud is missing from the pair artwork" }
-            val first = visibleColumns.first()
-            val width = visibleColumns.last() - first + 1
-            val earbud = source.getSubimage(first, 0, width, source.height)
-            check(ImageIO.write(earbud, "png", output.resolve("airpods5_$side.png"))) {
-                "Cannot write the $side island artwork"
+            for ((side, columns) in listOf("left" to (0 until middle), "right" to (middle until source.width))) {
+                val visibleColumns = columns.filter { x ->
+                    (0 until source.height).any { y -> (source.getRGB(x, y) ushr 24) != 0 }
+                }
+                check(visibleColumns.isNotEmpty()) { "The $side earbud is missing from ${file.name}" }
+                val first = visibleColumns.first()
+                val width = visibleColumns.last() - first + 1
+                val earbud = source.getSubimage(first, 0, width, source.height)
+                check(ImageIO.write(earbud, "png", output.resolve("${product}_$side.png"))) {
+                    "Cannot write the $product $side island artwork"
+                }
+                logger.lifecycle("Island $product $side earbud: x=$first, width=$width, height=${source.height}")
             }
-            logger.lifecycle("Island $side earbud: x=$first, width=$width, height=${source.height}")
         }
     }
 }
 
 val generateIslandEarbuds = tasks.register<GenerateIslandEarbuds>("generateIslandEarbuds") {
-    sourceImage.set(layout.projectDirectory.file("src/main/res/drawable-nodpi/airpods5_pair.png"))
+    sourceImages.from(fileTree("src/main/res/drawable-nodpi") { include("*_pair.png") })
     outputDirectory.set(layout.buildDirectory.dir("generated/res/island-earbuds"))
 }
 
@@ -98,6 +103,7 @@ android {
 }
 dependencies {
     implementation(project(":core:protocol"))
+    implementation(project(":core:wire"))
     implementation(project(":hook"))
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")

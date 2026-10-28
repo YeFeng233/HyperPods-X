@@ -30,7 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hyper.podsrx.BuildConfig
-import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
@@ -119,7 +118,7 @@ private fun DeviceToolbar(title: String, showTitle: Boolean, onBack: () -> Unit,
 
 @Composable
 private fun MiuixRuntimeEffects() {
-    val keepOn by rememberDeviceValue { it.diagnosticScanning || it.spatial.calibrationMode }
+    val keepOn by rememberDeviceValue { it.spatial.calibrationMode }
     val view = LocalView.current
     DisposableEffect(view, keepOn) {
         val previous = view.keepScreenOn
@@ -167,7 +166,7 @@ private fun MiuixDevicePage(onConnect: () -> Unit, onSystemBluetooth: () -> Unit
 @Composable
 private fun Hero(state: PodsState) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(painterResource(R.drawable.airpods5_pair), "AirPods 5 双耳透明产品图", contentScale = ContentScale.Fit,
+        Image(painterResource(state.headset.pairArtwork), "${state.headset.name} 双耳透明产品图", contentScale = ContentScale.Fit,
             modifier = Modifier.size(width = 230.dp, height = 218.dp).padding(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(if (state.connected) ChargingGreen else MiuixTheme.colorScheme.onSurfaceSecondary))
@@ -263,7 +262,7 @@ private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, n
         PreferenceToggle("开盖弹窗", "仅响应已验证的耳机开盖广播", { it.popupEnabled }, DeviceRepository::setPopup)
         PreferenceToggle("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", { it.nativePopup }, DeviceRepository::setNativePopup)
         PreferenceToggle("连接电量卡片", "重新连接时显示真实电量", { it.connectionPopup }, DeviceRepository::setConnectionPopup)
-        RowItem("启用系统适配", "在 LSPosed 中授权系统设置、小米蓝牙和设备互联") { FrameworkBridge.requestNativeScope() }
+        RowItem("启用系统适配", "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
         RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
             enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
         RowItem("允许悬浮显示", "原生通道不可用时使用兼容卡片", action = onOverlay)
@@ -435,6 +434,8 @@ private fun Diagnostics(state: PodsState) {
         InfoRow("模块框架", state.framework)
         InfoRow("控制通道", if (state.connected) "已连接" else "未连接")
         InfoRow("原生弹窗", if (state.nativePopup) state.nativePopupStatus else "已关闭")
+        InfoRow("状态中心", state.hubSummary)
+        state.hostCapabilities.forEach { (process, results) -> InfoRow(process, capabilitySummary(results)) }
         InfoRow("绑定身份", if (state.identityReady) "已确认" else "等待密钥")
         InfoRow("广播 / 已验证", "${state.broadcasts} / ${state.trustedBroadcasts}")
         InfoRow("邻近广播 / 身份匹配", "${state.proximityCandidates} / ${state.identityMatches}")
@@ -446,6 +447,5 @@ private fun Diagnostics(state: PodsState) {
     Section("连接记录") {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { state.log.takeLast(15).forEach { Text(it, fontSize = 12.sp) } }
     }
-    Action("2 分钟广播诊断", Modifier.fillMaxWidth()) { PodsService.diagnoseScan() }
     Action("停止耳机服务", Modifier.fillMaxWidth()) { DeviceRepository.stop() }
 }
