@@ -23,10 +23,6 @@ object NativePopupBridge {
         try {
             val state=DeviceRepository.state.value
             FrameworkBridge.publish()
-            fun level(id:Int):String {
-                val b=state.batteries[id]
-                return b?.takeIf{it.current}?.level?.toString()?:"—"
-            }
             val target=PendingIntent.getActivity(context,21,Intent(context,DeviceSettingsActivity::class.java)
                 .putExtra("device_address",state.address),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val request=Intent("${context.packageName}.SHOW_NATIVE_POPUP").setPackage(HOST)
@@ -36,9 +32,9 @@ object NativePopupBridge {
                 .putExtra("native_left",state.batteries[4]?.takeIf{it.current}?.level?:-1)
                 .putExtra("native_right",state.batteries[2]?.takeIf{it.current}?.level?:-1)
                 .putExtra("native_box",state.batteries[8]?.takeIf{it.current}?.level?:-1)
+                .putExtra("native_box_history",state.batteries[8]?.level?:-1)
                 .putExtra("native_charging",listOf(4 to 1,2 to 2,8 to 4).sumOf{(id,mask)->if(state.batteries[id]?.let{it.current&&it.charging}==true)mask else 0})
-                .putExtra("buds",if(preview)"预览"else"${level(4)}/${level(2)}%")
-                .putExtra("case",if(preview)"预览"else"${level(8)}%").putExtra("target",target)
+                .putExtra("target",target)
                 .putExtra("created",SystemClock.elapsedRealtime())
                 .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             context.sendOrderedBroadcast(request,null,object:BroadcastReceiver(){

@@ -26,3 +26,7 @@ https://support.apple.com/en-ie/109525
 - 图片 SHA-256：`674f62db242c73823ea71a976fa9d2dceb289ebfeee01360f0eed64b76789aa4`。
 - 项目来源：https://github.com/librepods-org/librepods 。LibrePods 的开源代码许可不自动证明 Apple 产品图片的再分发授权；保留前述本机测试限制。
 - 旧 `airpods5_pair.jpg` 来自 https://www.apple.com/v/airpods-5/b/images/overview/bento-gallery/bento_pair__c7i9mu5k2zee_large.jpg ，已退出 App 资源，原文件保留于本机 `.reference/`。
+
+## 0.4.7 超级岛单耳资源
+
+`airpods5_left.png`（132 × 219）和 `airpods5_right.png`（131 × 219）由构建任务从上述透明双耳原图裁切生成，分别使用区域 `(1, 0, 132, 219)` 与 `(158, 0, 131, 219)`。保留原始像素及透明度，不缩放、不重绘；完整双耳原文件不变。单耳资源沿用原素材的来源和权利说明，供系统超级岛分别展示左右耳。

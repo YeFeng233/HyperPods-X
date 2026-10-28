@@ -1,14 +1,18 @@
 package com.hyper.podsrx.hook;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.app.Application;
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.View;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -71,6 +75,18 @@ public final class HyperPodsModule extends XposedModule {
             preferences = getRemotePreferences("device_state");
             listener = (p, key) -> main.post(this::refreshSummary);
             preferences.registerOnSharedPreferenceChangeListener(listener);
+            try {
+                Class<?> devicePreference=Class.forName("com.android.settings.bluetooth.BluetoothDevicePreference",false,param.getClassLoader());
+                Method click=devicePreference.getDeclaredMethod("onClick",View.class);
+                hook(click).intercept(chain->{
+                    try {
+                        Object view=chain.getArg(0);
+                        if(view instanceof View&&openDeviceFromArrow(chain.getThisObject(),(View)view))return null;
+                    } catch(Throwable error) {log(Log.WARN,"HyperPods-X","Direct headset settings unavailable",error);}
+                    return chain.proceed();
+                });
+                log(Log.INFO,"HyperPods-X","Bluetooth device arrow hook installed");
+            } catch(ReflectiveOperationException error) {log(Log.WARN,"HyperPods-X","Bluetooth device arrow unavailable",error);}
             for (String name : new String[]{"com.android.settings.bluetooth.DeviceProfilesSettings", "com.android.settings.bluetooth.BluetoothDeviceDetailsFragment"}) {
                 try {
                 Class<?> page = Class.forName(name, false, param.getClassLoader());
@@ -85,6 +101,31 @@ public final class HyperPodsModule extends XposedModule {
             }
             log(Log.INFO, "HyperPods-X", "Bluetooth details hook installed");
         } catch (Throwable error) { log(Log.ERROR, "HyperPods-X", "Settings adapter could not load", error); }
+    }
+
+    private boolean openDeviceFromArrow(Object preference,View arrow)throws Exception {
+        if(preferences==null||!preferences.getBoolean("enabled",false))return false;
+        int detail=arrow.getResources().getIdentifier("preference_detail","id","com.android.settings");
+        if(detail==0||arrow.getId()!=detail)return false;
+        String target=preferences.getString("address","");
+        if(!BluetoothAdapter.checkBluetoothAddress(target))return false;
+        Object cached=call(preference,"getCachedDevice");
+        if(cached==null)return false;
+        Object device=call(cached,"getDevice");
+        if(!(device instanceof BluetoothDevice)||!target.equalsIgnoreCase(((BluetoothDevice)device).getAddress()))return false;
+        Context context=arrow.getContext();
+        Intent intent=new Intent().setClassName("com.hyper.podsrx","com.hyper.podsrx.DeviceSettingsActivity")
+                .putExtra("device_address",target);
+        if(intent.resolveActivity(context.getPackageManager())==null)return false;
+        while(context instanceof ContextWrapper&&!(context instanceof Activity)){
+            Context base=((ContextWrapper)context).getBaseContext();
+            if(base==null||base==context)break;
+            context=base;
+        }
+        if(!(context instanceof Activity))intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+        log(Log.INFO,"HyperPods-X","Opened bound headset settings from Bluetooth device arrow");
+        return true;
     }
 
     private void inject(Object fragment, ClassLoader loader) throws Exception {

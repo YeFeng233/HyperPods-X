@@ -1,2 +1,2 @@
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/airpods5_pair,@drawable/airpods5_case" />
+    tools:keep="@drawable/airpods5_pair,@drawable/airpods5_case,@drawable/airpods5_left,@drawable/airpods5_right" />

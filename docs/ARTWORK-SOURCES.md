@@ -26,3 +26,11 @@ https://support.apple.com/en-ie/109525
 - 图片 SHA-256：`674f62db242c73823ea71a976fa9d2dceb289ebfeee01360f0eed64b76789aa4`。
 - 项目来源：https://github.com/librepods-org/librepods 。LibrePods 的开源代码许可不自动证明 Apple 产品图片的再分发授权；保留前述本机测试限制。
 - 旧 `airpods5_pair.jpg` 来自 https://www.apple.com/v/airpods-5/b/images/overview/bento-gallery/bento_pair__c7i9mu5k2zee_large.jpg ，已退出 App 资源，原文件保留于本机 `.reference/`。
+
+## 0.4.7 超级岛单耳资源
+
+- `:app:generateIslandEarbuds` 在构建时读取上述 `airpods5_pair.png`，沿中央透明间隔分离左右耳，按非透明像素的横向边界裁切，保留 219 像素高度，不缩放、不重绘。
+- 左耳裁切区域 `(1, 0, 132, 219)`，输出 `airpods5_left.png`；右耳区域 `(158, 0, 131, 219)`，输出 `airpods5_right.png`。
+- 输出位于 `app/build/generated/res/island-earbuds/drawable-nodpi/`，由 Android 资源管线自动打包；完整双耳原文件不变。单耳图片仍沿用原素材的权利说明。
+- 本地左耳 PNG SHA-256：`2bffb5e17064db07f9cf5e1de58c6b3bc0f90d774eae1b6ca0a3165acbf07b7e`。
+- 本地右耳 PNG SHA-256：`90b75531d4ab9fa191daebfdd35ab88c280b9e180c75110b5f7824f57cc2eb31`。

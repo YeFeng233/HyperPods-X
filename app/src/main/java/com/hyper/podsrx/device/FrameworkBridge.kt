@@ -30,6 +30,7 @@ object FrameworkBridge {
                 ?.putInt("native_left",s.batteries[4]?.takeIf{it.current}?.level?:-1)
                 ?.putInt("native_right",s.batteries[2]?.takeIf{it.current}?.level?:-1)
                 ?.putInt("native_box",s.batteries[8]?.takeIf{it.current}?.level?:-1)
+                ?.putInt("native_box_history",s.batteries[8]?.level?:-1)
                 ?.putInt("native_charging",listOf(4 to 1,2 to 2,8 to 4).sumOf{(id,mask)->if(s.batteries[id]?.let{it.current&&it.charging}==true)mask else 0})
                 ?.putBoolean("enabled", true)?.apply()
         }

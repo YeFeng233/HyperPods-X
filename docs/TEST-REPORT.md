@@ -271,3 +271,24 @@ App 服务仍存活、悬浮权限有效；控制通道重连失败，系统蓝�
 - 已安装 `0.4.6-dev-device-test` / code 12。归档为 `dist/HyperPods-X-0.4.6-device-test.apk`，SHA-256 `9700bbdedc7934bd0356b5ec93f777b12614020176ff9da0cc864ead63f60a1e`，签名沿用此前证书。
 - 校准文件 SHA-256 仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`，与安装前一致。
 - 使用者随后在目标设备上测试了新版滑条，并于 **2026-10-28** 确认“已经测试完没有问题”，本版本滑条功能验收通过。这是实际使用反馈，未据此将每个中间值的同值回包、断线后的持久化或其他耳机型号记为验证通过。
+
+## 0.4.7 左右耳超级岛与完整电量卡片（2026-10-28）
+
+- 超级岛继续使用系统原生模板，左侧显示左耳图片和百分比，右侧显示右耳百分比和图片，不包含充电盒。实机预览截图已确认两侧单耳图标与各自的真实 100%，记录保存在本机 `.device/island-v047-separated.png`。
+- `:app:generateIslandEarbuds` 从原有透明双耳图生成左右单耳 PNG，区域分别为 `(1, 0, 132, 219)` 和 `(158, 0, 131, 219)`，保留高度、像素和透明度。原图 SHA-256 未改变；原双耳和盒体图供完整电量卡片使用。优化 APK 的资源表确认保留 `airpods5_left` 与 `airpods5_right`，截图确认系统能够读取并显示。
+- 原生底部卡片会在盒体电量未知或双耳未充电时隐藏盒体区域。本版始终显示充电盒图片和电量；实时值优先，缓存值标注“上次”，完全未知时显示“—”。独立传递 `native_box_history`，没有将历史值写成 App 的实时电量。盒体历史数据仅供带标记的底部卡片展示，不进入超级岛。
+- 实机复现了旧行为只显示双耳、缺少盒体；修复后截图确认完整盒体图片和 `87%（上次）`。当时耳机已回盒且控制连接断开，左右耳按当前数据状态显示“—”，未伪造为 0%。截图 `.device/card-v047-preserved.png` 仅保存在本机。
+- App **31 项**与协议 **67 项**测试通过，共 **98 项，0 失败、0 错误**；Android lint **0 错误、18 条既有提醒**。R8 优化构建和 APK v2 签名验证通过，沿用原测试证书。
+- 最终 `0.4.7-dev-device-test` / code 13 已安装，并重新加载小米蓝牙主进程与界面进程。归档 `dist/HyperPods-X-0.4.7-device-test.apk`，SHA-256 `02e9e18c02795616c83c2ede53ffa871ed03d0295a30f3e4846241837a5ff3ec`，与手机安装文件一致。
+- 本轮未执行耳机配置写入。头追校准文件 SHA-256 仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`，与安装前一致。
+
+## 0.4.8 蓝牙设备卡片直达耳机设置（2026-10-28）
+
+- 读取手机当前设置 APK，版本 17 / code 37，SHA-256 为 `2ad1f138457c5f60b045cf41e18babc7e8bcc36c123526f7ddc6ca15b906d655`，与本机既有分析副本一致。确认 Xiaomi 开放式耳机 Pro 的右侧“设备设置”箭头进入 `com.android.settings/plugin.settings.java.JavaActivity`，页面提供空间音频、音效设置和手势操作。
+- 在 `BluetoothDevicePreference.onClick(View)` 接入模块入口，同时核对 `preference_detail` 视图、模块启用状态和绑定设备地址。当前小米设备行子类继承该回调，无需修改蓝牙连接操作。实现边界见 [蓝牙设置入口](BLUETOOTH-SETTINGS.md)。
+- 真机点击已保存、当时未连接的 AirPods 右侧箭头，直接进入 `com.hyper.podsrx/.DeviceSettingsActivity`；返回键回到系统蓝牙列表。已连接的 Xiaomi 开放式耳机 Pro 仍进入原生插件页，其空间音频、音效和手势入口可见。新入口没有将小米耳机绑定到模块。
+- 从模块首页点击“音频与设备权限”，进入原生 `com.android.settings/.Settings$BluetoothDeviceDetailActivity`，可见 AirPods 详情、HD 音频及系统空间音频条目，没有被重新重定向。原有“HyperPods-X 高级设置”条目仍可启动模块；返回后回到原生详情，再逐级返回模块与蓝牙列表。
+- 联调结束时，蓝牙列表仍显示 Xiaomi 开放式耳机 Pro 为“已连接 / 使用中（媒体和通话）”。本轮没有通过设备行连接或断开耳机，也没有执行耳机配置写入；当前 AirPods 未连接，本轮验收范围为设置入口与返回导航，不包含新的音频效果测试。
+- App **31 项**与协议 **67 项**测试通过，共 **98 项，0 失败、0 错误**；Android lint **0 错误、18 条既有提醒**。R8 优化 APK 的 v2 签名验证通过，证书与之前安装包一致。
+- 已安装 `0.4.8-dev-device-test` / code 14。归档 `dist/HyperPods-X-0.4.8-device-test.apk`，大小 **2,464,053 字节**，SHA-256 `5b7eb751d216872bb39619852957f0dd76c12cb9a6af8aaa407e05e3ec6803fc`，与手机实际安装文件一致。
+- 头追校准 SHA-256 仍为 `da1251a2f2f68aa3b04159503b35295be52fb69a85b3ac81defacf3a27ddcf3d`，与安装前一致。入口与系统详情截图分别保存在本机 `.device/bt-airpods-direct-v048.png`、`.device/bt-system-details-v048.png`；系统 APK、设备 UI 和诊断文件不进入仓库。

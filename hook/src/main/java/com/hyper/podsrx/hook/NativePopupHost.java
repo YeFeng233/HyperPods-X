@@ -46,15 +46,15 @@ final class NativePopupHost {
                                 .putExtra("device_name_over_write",(request.getBooleanExtra("preview",false)?"弹窗预览 · ":"")+request.getStringExtra("name"))
                                 .putExtra("hyperpods_preview",request.getBooleanExtra("preview",false))
                                 .putExtra("hyperpods_target",target);
-                        for(String key:new String[]{"left","right","box","charging"})dialog.putExtra("native_"+key,request.getIntExtra("native_"+key,-1));
+                        for(String key:new String[]{"left","right","box","box_history","charging"})dialog.putExtra("native_"+key,request.getIntExtra("native_"+key,-1));
                         dialog.putExtra("native_connected",request.getBooleanExtra("native_connected",false));
                         host.startActivity(dialog);
                         android.util.Log.i("HyperPods-X","Launched built-in AirPods fast-connect dialog");
                         setResultCode(1);return;
                     }
                     JSONObject params = new JSONObject();
-                    params.put("left", area("airpods5_pair", request.getStringExtra("buds")));
-                    params.put("right", area("airpods5_case", request.getStringExtra("case")));
+                    params.put("left", area("airpods5_left", percentage(request.getIntExtra("native_left", -1))));
+                    params.put("right", area("airpods5_right", percentage(request.getIntExtra("native_right", -1))));
                     Class<?> controller = Class.forName("com.xiaomi.dist.statusbar.StatusBarController", false, host.getClassLoader());
                     String category = (String) controller.getField("CATEGORY_VIDEO_TEXT_TEXT_VIDEO").get(null);
                     Bundle bundle = new Bundle();
@@ -79,6 +79,10 @@ final class NativePopupHost {
         }, new IntentFilter(ACTION), PERMISSION, new Handler(Looper.getMainLooper()), Context.RECEIVER_EXPORTED);
         registered = true;
         android.util.Log.i("HyperPods-X", "Native headset popup bridge ready");
+    }
+
+    private static String percentage(int level) {
+        return level >= 0 && level <= 100 ? level + "%" : "—";
     }
 
     private static JSONObject area(String resource, String text) throws Exception {

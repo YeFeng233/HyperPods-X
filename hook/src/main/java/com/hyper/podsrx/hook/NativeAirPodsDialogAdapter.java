@@ -113,13 +113,14 @@ final class NativeAirPodsDialogAdapter {
                     String[] ids={"textViewHeadsetLBatteryPercent","textViewHeadsetRBatteryPercent","textViewBoxBatteryPercent"};
                     for(int i=0;i<keys.length;i++){
                         TextView label=(TextView)find(root,host,ids[i]);
-                        int amount=value(request,preferences,keys[i],-1);
-                        if(label!=null)label.setText(amount>=0&&amount<=100?amount+"%":"—");
+                        int amount=i==2?boxLevel(request,preferences):value(request,preferences,keys[i],-1);
+                        boolean history=i==2&&!validLevel(value(request,preferences,"box",-1))&&validLevel(amount);
+                        if(label!=null)label.setText(validLevel(amount)?amount+"%"+(history?"（上次）":""):"—");
                     }
                     TextView caption=(TextView)find(root,host,"textCharacters");
                     if(caption!=null)caption.setText(request.getBooleanExtra("hyperpods_preview",false)?"弹窗预览":connected(request,preferences)?"已连接":"充电盒已打开");
-                    for(String id:new String[]{"imageViewBoxLayout","textViewBoxBattery"}){
-                        View box=find(root,host,id);if(box!=null)box.setVisibility(value(request,preferences,"box",-1)>=0?View.VISIBLE:View.GONE);
+                    for(String id:new String[]{"imageViewBoxLayout","textViewBoxBattery","textViewBoxBatteryPercent"}){
+                        View box=find(root,host,id);if(box!=null)box.setVisibility(View.VISIBLE);
                     }
                 }
             } catch(Exception | LinkageError error) { report("setConnectSuccessLayoutDetail",error); }
@@ -155,7 +156,7 @@ final class NativeAirPodsDialogAdapter {
                 "Native AirPods adapter skipped incompatible interface: "+operation,error);
     }
     private static int value(Intent request,SharedPreferences preferences,String key,int fallback){
-        return fresh(preferences)?preferences.getInt("native_"+key,fallback):request.getIntExtra("native_"+key,fallback);
+        return fresh(preferences)&&preferences.contains("native_"+key)?preferences.getInt("native_"+key,fallback):request.getIntExtra("native_"+key,fallback);
     }
     private static boolean fresh(SharedPreferences preferences){
         long age=System.currentTimeMillis()-preferences.getLong("updated",0);
@@ -165,7 +166,14 @@ final class NativeAirPodsDialogAdapter {
         return fresh(preferences)?preferences.getBoolean("native_connected",false):request.getBooleanExtra("native_connected",false);
     }
     private static String level(Intent request,SharedPreferences preferences,String key){
-        int value=value(request,preferences,key,-1);return value>=0&&value<=100?String.valueOf(value):"-";
+        int value="box".equals(key)?boxLevel(request,preferences):value(request,preferences,key,-1);
+        return validLevel(value)?String.valueOf(value):"-";
+    }
+    private static boolean validLevel(int level){return level>=0&&level<=100;}
+    private static int boxLevel(Intent request,SharedPreferences preferences){
+        int current=value(request,preferences,"box",-1);
+        int previous=value(request,preferences,"box_history",-1);
+        return validLevel(current)?current:validLevel(previous)?previous:-1;
     }
     private static void populate(Object info,Intent request,SharedPreferences preferences)throws Exception{
         Class<?> type=info.getClass();
@@ -174,7 +182,7 @@ final class NativeAirPodsDialogAdapter {
         type.getMethod("setConnectState",int.class).invoke(info,connected(request,preferences)?2:0);
         type.getMethod("setLeftBattery",int.class).invoke(info,value(request,preferences,"left",-1));
         type.getMethod("setRightBattery",int.class).invoke(info,value(request,preferences,"right",-1));
-        type.getMethod("setBoxBattery",int.class).invoke(info,value(request,preferences,"box",-1));
+        type.getMethod("setBoxBattery",int.class).invoke(info,boxLevel(request,preferences));
         type.getMethod("setChargingState",int.class).invoke(info,value(request,preferences,"charging",0));
         type.getMethod("setWearType",int.class).invoke(info,1);
     }
