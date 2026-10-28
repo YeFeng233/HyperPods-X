@@ -26,6 +26,8 @@ class PodsService: Service() {
     companion object {
         @Volatile private var instance: PodsService?=null
         const val EQ_COMMAND=256
+        private const val SILENT_HANDSHAKE_MS=5000L
+        private const val SILENT_RETRIES=3
         fun setControl(id:Int,value:Int) {
             val current=DeviceRepository.state.value.controls[id].orEmpty()
             instance?.enqueue(id,Controls.valuesForWrite(id,value,current)) ?: DeviceRepository.message("请先连接耳机")
@@ -284,6 +286,7 @@ class PodsService: Service() {
     }
     private suspend fun connectLoop() {
         var attempts=0
+        var silentRetries=0
         while(scope.isActive) {
             val pause=scanOnlyUntil-SystemClock.elapsedRealtime()
             if(pause>0){
@@ -292,6 +295,8 @@ class PodsService: Service() {
                 continue
             }
             var current:BluetoothSocket?=null
+            var watchdog:Job?=null
+            val silent=AtomicBoolean(false)
             try {
                 val adapter=getSystemService(BluetoothManager::class.java).adapter ?: throw IOException("蓝牙不可用")
                 if(!adapter.isEnabled)throw IOException("蓝牙已关闭")
@@ -323,10 +328,22 @@ class PodsService: Service() {
                 synchronized(opened){output.write(Aacp.notifications());output.flush()}
                 delay(200)
                 synchronized(opened){output.write(Aacp.keyRequest(1));output.write(Aacp.keyRequest(4));output.flush()}
+                // An accepted channel can stay silent after the handshake. A blocking read never
+                // returns then, so closing the socket is what lets the loop reconnect.
+                val received=AtomicBoolean(false)
+                watchdog=scope.launch{
+                    delay(SILENT_HANDSHAKE_MS)
+                    if(!received.get()){
+                        silent.set(true)
+                        DeviceRepository.log("握手后 ${SILENT_HANDSHAKE_MS/1000} 秒无响应，重建控制通道")
+                        runCatching{opened.close()}
+                    }
+                }
                 val framer=AacpFramer(); val buffer=ByteArray(65536)
                 while(scope.isActive) {
                     val count=opened.inputStream.read(buffer)
                     if(count<=0)throw IOException("耳机控制通道已关闭")
+                    if(!received.getAndSet(true)){watchdog?.cancel();silentRetries=0}
                     if(count>=8 && buffer.copyOfRange(0,4).contentEquals(Aacp.header) && buffer[4]==0x4b.toByte() && buffer[5]==0.toByte()) {
                         DeviceRepository.update{it.copy(conversation=it.conversation.copy(wirePackets=it.conversation.wirePackets+1))}
                         DeviceRepository.log("对话原始报文：读取 $count 字节，载荷长度 ${(buffer[6].toInt() and 255) or ((buffer[7].toInt() and 255) shl 8)}")
@@ -356,7 +373,12 @@ class PodsService: Service() {
                     }
                 }
                 FrameworkBridge.publish(); DeviceRepository.saveDiagnostics()
-            } finally {runCatching{current?.close()};if(socket===current)socket=null;current?.let{controlSessionIds.remove(it)}}
+            } finally {watchdog?.cancel();runCatching{current?.close()};if(socket===current)socket=null;current?.let{controlSessionIds.remove(it)}}
+            if(silent.get()&&silentRetries<SILENT_RETRIES){
+                // 2, 4 and 8 seconds; a lid open or an ACL connection retries at once.
+                withTimeoutOrNull(2000L shl silentRetries++){reconnect.receive()}
+                continue
+            }
             attempts++
             val requested=if(attempts<2)withTimeoutOrNull(2000){reconnect.receive()} else {
                 DeviceRepository.update{it.copy(status="等待开盖或蓝牙连接")}
