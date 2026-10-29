@@ -29,6 +29,8 @@ concurrency:
 
 jobs:
   build:
+    # Forks lack the signing secret and must not publish releases.
+    if: github.repository == 'YeFeng233/HyperPods-X'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -88,6 +90,9 @@ jobs:
           ./gradlew --no-daemon --console=plain -Dorg.gradle.workers.max=2 \
             :app:testDebugUnitTest :core:protocol:test :core:wire:testDebugUnitTest \
             :app:lintDebug :app:assembleDeviceTest
+
+      - name: Check that R8 kept the module entry
+        run: python3 .github/scripts/check_module_entry.py app/build/outputs/apk/deviceTest/app-deviceTest.apk
 
       - name: Verify the APK and package the release
         shell: bash
