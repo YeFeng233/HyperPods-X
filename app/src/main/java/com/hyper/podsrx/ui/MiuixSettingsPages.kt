@@ -322,7 +322,7 @@ private fun LazyListScope.connectionSettings(state: PodsState, onConnect: () -> 
         val name = try { device.name } catch (_: SecurityException) { null }
         RowItem(name ?: "AirPods") { DeviceRepository.bind(device) }
     }
-    miuixFootnote("connectionHelp", "先在系统蓝牙中连接 AirPods，再允许附近设备、位置和后台运行权限。")
+    miuixFootnote("connectionHelp", "请先在系统蓝牙中配对连接 AirPods，并允许附近设备和后台运行权限。")
     if (state.running) miuixGroupedItems("stopService", listOf("stop")) {
         BasicComponent(onClick = DeviceRepository::stop) {
             Text("停止耳机服务", color = MiuixStatusColors.lowBattery, style = MiuixTheme.textStyles.headline1)

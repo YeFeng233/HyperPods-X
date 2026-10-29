@@ -1,57 +1,60 @@
 # 文档索引
 
-更新日期：2026-10-29。
+本目录收录 HyperPods-X 的架构设计、技术实现细节、真机适配基线与维护流程文档。
 
-## 目录约定
+---
 
-| 位置 | 放什么 |
-| --- | --- |
-| `docs/` 根目录 | 长期有效的**说明**和**记录**：功能怎么用、适配细节、真机基线、测试记录、发布流程。内容随代码更新 |
-| `docs/plans/` | **正在进行**的计划书。每份开头写清版本、日期和状态 |
-| `docs/archive/` | **已完成或已被取代**的计划和分析。只在开头补一段完成情况和后续去向，正文保持原样，不再更新 |
-| `docs/releases/` | 每个版本的发布说明，文件名和 tag 一致（如 `v0.4.10.md`），发布工作流直接读取 |
+## 目录结构
 
-计划完成后移进 `archive/`，在开头注明完成提交和遗留项的去向，并在本页更新。真机结果写进 [联调报告](TEST-REPORT.md)，不写在计划书里。
+| 目录 / 路径 | 说明 | 维护原则 |
+| --- | --- | --- |
+| `docs/` 根目录 | 长期有效的**功能技术方案**、**系统接入说明**与**测试记录** | 内容随代码演进实时更新 |
+| `docs/plans/` | 正在推进中的**开发计划与重构方案** | 明确标记目标版本与当前进展 |
+| `docs/archive/` | 已完成或被新方案替代的**历史规划与可行性分析** | 归档保留，仅在文首注明完成状态与去向，正文不再变更 |
+| `docs/releases/` | 各版本**发布说明（Release Notes）** | 文件名严格与 Git Tag 对应（如 `v0.5.0.md`），供 CI 流水线直接提取 |
 
-`ARTWORK-SOURCES.md` 和 `UI-STYLES.md` 的路径被 `THIRD_PARTY.md`、应用内许可页（`app/src/main/assets/licenses/`）和 `settings.gradle.kts` 引用，**不要移动**。
+> **路径约束**：`ARTWORK-SOURCES.md` 与 `UI-STYLES.md` 被项目内多处配置（`THIRD_PARTY.md`、应用内置许可资源、`settings.gradle.kts`）直接引用，请勿移动或重命名。
 
-## 说明
+---
 
-| 文档 | 内容 |
-| --- | --- |
-| [MIUIX-UI-GUIDELINES.md](MIUIX-UI-GUIDELINES.md) | 适配 HyperPods 实机架构的 miuix 页面与组件规范 |
-| [UI-STYLES.md](UI-STYLES.md) | miuix 与 iOS 两套界面的切换方式，以及 Glasmio 源码和字体的构建准备 |
-| [NATIVE-POPUP.md](NATIVE-POPUP.md) | HyperOS 原生耳机弹窗、超级岛的复用方式，以及开盖检测与弹窗时序 |
-| [NATIVE-FUSION.md](NATIVE-FUSION.md) | 融合设备中心（设备互联）耳机卡片的适配 |
-| [BLUETOOTH-SETTINGS.md](BLUETOOTH-SETTINGS.md) | 系统蓝牙列表中耳机卡片箭头直达模块设置 |
-| [LOGS.md](LOGS.md) | 日志导出的内容与格式 |
-| [RELEASING.md](RELEASING.md) | 构建与发布工作流、签名 Secret 的维护 |
-| [ARTWORK-SOURCES.md](ARTWORK-SOURCES.md) | 耳机图片的来源、取得日期和哈希 |
-
-## 记录
-
-| 文档 | 内容 |
-| --- | --- |
-| [DEVICE-BASELINE.md](DEVICE-BASELINE.md) | 目标真机的型号、系统版本、Root 与 LSPosed 环境 |
-| [TEST-REPORT.md](TEST-REPORT.md) | 按版本记录的真机联调结果，最新内容在末尾 |
-| [SPATIAL-AUDIO-TEST.md](SPATIAL-AUDIO-TEST.md) | 空间音频与动态头追的实现和验证记录 |
-
-## 进行中的计划
-
-| 文档 | 状态 |
-| --- | --- |
-| [plans/ENGINEERING-PLAN.md](plans/ENGINEERING-PLAN.md) | 工程规范化：CI、代码规范、构建配置、代码结构，以及 AACP 运行时迁入 Hub（阶段 8）。M1 的 A1、A3、A5、B1 和 A8 的 Actions 部分已提交，待合并 |
-| [plans/CONVERSATION-AWARENESS-PLAN.md](plans/CONVERSATION-AWARENESS-PLAN.md) | 对话感知：独立音轨降音的听感已通过，轻声识别灵敏度、后台和中断恢复待验收。迁入 Hub 的部分见工程规范化计划 E4 |
-
-## 归档
+## 核心技术文档
 
 | 文档 | 说明 |
 | --- | --- |
-| [archive/HOST-HUB-MIGRATION-PLAN.md](archive/HOST-HUB-MIGRATION-PLAN.md) | 蓝牙宿主状态中心迁移，阶段 0–7 已于 2026-10-29 完成 |
-| [archive/SPATIAL-AUDIO-FEASIBILITY.md](archive/SPATIAL-AUDIO-FEASIBILITY.md) | 0.2.0 阶段的空间音频可行性分析，已由 SPATIAL-AUDIO-TEST.md 取代 |
-| [archive/HyperPods-X-Development-Proposal-v0.1.md](archive/HyperPods-X-Development-Proposal-v0.1.md) | 项目最初的开发方案书（2026-10-22） |
+| [NATIVE-POPUP.md](NATIVE-POPUP.md) | HyperOS 原生耳机底部弹窗、超级岛对接方案与开合盖检测时序 |
+| [NATIVE-FUSION.md](NATIVE-FUSION.md) | HyperOS 控制中心“融合设备中心”（设备互联）耳机卡片适配 |
+| [BLUETOOTH-SETTINGS.md](BLUETOOTH-SETTINGS.md) | 系统蓝牙列表中耳机卡片设置直达逻辑 |
+| [UI-STYLES.md](UI-STYLES.md) | miuix 与 iOS（Glasmio）双风格切换机制及字体、渲染依赖准备 |
+| [MIUIX-UI-GUIDELINES.md](MIUIX-UI-GUIDELINES.md) | 项目内遵循的 Miuix 页面与组件规范 |
+| [LOGS.md](LOGS.md) | 统一诊断日志结构、脱敏机制与导出说明 |
+| [RELEASING.md](RELEASING.md) | 构建环境准备、自动化流水线与签名密钥维护说明 |
+| [ARTWORK-SOURCES.md](ARTWORK-SOURCES.md) | 耳机外观素材来源、哈希校验与版权说明 |
 
-## 代码约定
+---
 
-- hook 模块里只写 Java 胶水代码：注册回调、调用系统接口、接入 `ReloadLifecycle`。判断和状态机写成纯 Kotlin，放进 `core:protocol`，时间由调用方传入，便于单测。
-- app 和各宿主进程之间的协议常量、Bundle 编解码只放在 `core:wire`。
+## 测试与基线记录
+
+| 文档 | 说明 |
+| --- | --- |
+| [DEVICE-BASELINE.md](DEVICE-BASELINE.md) | 目标真机基线环境：系统指纹、Root / LSPosed 环境与宿主版本 |
+| [TEST-REPORT.md](TEST-REPORT.md) | 各版本真机联调验收与回归测试记录 |
+| [SPATIAL-AUDIO-TEST.md](SPATIAL-AUDIO-TEST.md) | 空间音频、姿态采集与动态头部追踪系统接入记录 |
+
+---
+
+## 开发计划与历史归档
+
+- **进行中的计划**：
+  - [plans/ENGINEERING-PLAN.md](plans/ENGINEERING-PLAN.md)：工程规范化、代码结构优化与 AACP 迁移
+  - [plans/CONVERSATION-AWARENESS-PLAN.md](plans/CONVERSATION-AWARENESS-PLAN.md)：对话感知独立音轨调节与复杂场景优化
+- **历史归档**：
+  - [archive/HOST-HUB-MIGRATION-PLAN.md](archive/HOST-HUB-MIGRATION-PLAN.md)：蓝牙宿主状态中心迁移方案（0.5.0 已完成）
+  - [archive/SPATIAL-AUDIO-FEASIBILITY.md](archive/SPATIAL-AUDIO-FEASIBILITY.md)：早期空间音频可行性调研
+  - [archive/HyperPods-X-Development-Proposal-v0.1.md](archive/HyperPods-X-Development-Proposal-v0.1.md)：项目初期立项方案（2026-10-22）
+
+---
+
+## 模块设计约定
+
+- **Hook 层最小化**：`hook` 仅保留宿主内的 Java 胶水逻辑（系统接口挂接、回调分发与生命周期管理）；所有业务状态判断与协议解析统一使用 Kotlin 沉淀至 `core:protocol`，以便开展纯 JVM 单元测试。
+- **IPC 契约解耦**：App 界面与各系统宿主之间的通信协议、常量和序列化数据包统一在 `core:wire` 维护。

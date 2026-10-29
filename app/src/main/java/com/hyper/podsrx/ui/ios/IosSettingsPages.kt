@@ -423,7 +423,7 @@ private fun LazyListScope.ConnectionSettings(state: PodsState, onConnect: () -> 
             }
         }
     }
-    item("connectionHelp") { SettingsFootnote("先在系统蓝牙中连接 AirPods，再允许附近设备、位置和后台运行权限。") }
+    item("connectionHelp") { SettingsFootnote("请先在系统蓝牙中配对连接 AirPods，并允许附近设备和后台运行权限。") }
     if (state.running) item("stopService") {
         SettingsCard {
             GlasmioListRow("停止耳机服务", titleColor = GlasmioTheme.colors.destructive, showTopSeparator = false, showDisclosure = false,
