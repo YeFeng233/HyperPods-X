@@ -2,17 +2,9 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
   push:
     branches:
       - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +15,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Changes to Markdown, docs/ and the licence alone skip the build. The
+  # filter lives here rather than in paths-ignore so the required CI check
+  # still reports on such pull requests.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Look for changes outside the docs
+        id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] \
+              || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
+              || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            code=true
+          elif git diff --name-only "$BASE" HEAD | grep -qvE '(\.md$|^docs/|^LICENSE$)'; then
+            code=true
+          else
+            code=false
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -76,3 +104,21 @@ jobs:
             core/*/build/test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # The one check to require on main: passes when the build passed or was
+  # skipped for a docs-only change, fails otherwise.
+  result:
+    name: CI
+    needs: [changes, check]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarise
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CHECK: ${{ needs.check.result }}
+        run: |
+          echo "changes: $CHANGES, check: $CHECK"
+          [ "$CHANGES" = success ] && { [ "$CHECK" = success ] || [ "$CHECK" = skipped ]; }
