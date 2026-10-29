@@ -35,6 +35,7 @@ object FrameworkBridge {
                 ?.putString("name", s.displayName)
                 ?.putBoolean("popup_enabled", s.popupEnabled)
                 ?.putBoolean("native_popup", s.nativePopup)
+                ?.putBoolean("battery_alerts", s.batteryAlerts)
                 // Known from an advertisement before the first session reports the model.
                 ?.putInt("panel_product", s.product)
                 ?.putBoolean("enabled", true)?.apply()

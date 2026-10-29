@@ -22,6 +22,8 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import com.hyper.podsrx.protocol.Battery;
+import com.hyper.podsrx.protocol.BatteryAlert;
+import com.hyper.podsrx.protocol.BatteryAlerts;
 import com.hyper.podsrx.protocol.BatteryLedger;
 import com.hyper.podsrx.protocol.CaseThrottle;
 import com.hyper.podsrx.protocol.Proximity;
@@ -59,6 +61,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     private final AdvertisementParser parser = new AdvertisementParser();
     private final LidController lid = new LidController(this);
     private final WidgetDriver widget;
+    private final BatteryNotifier notifier;
     private final CaseThrottle caseThrottle = new CaseThrottle(CaseThrottle.REFRESH_MS);
     private final long started = SystemClock.elapsedRealtime();
     /** Hook results by process, from {@link Compatibility}. */
@@ -70,6 +73,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     // Guarded by this.
     private final BatteryLedger ledger = new BatteryLedger();
+    private BatteryAlerts alerts;
     private HubBundles.Control control = HubBundles.Control.DISCONNECTED;
     /** Written under the lock, read anywhere. */
     private volatile String address;
@@ -120,6 +124,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         }
         instance = host;
         host.scan.start();
+        host.sight();
         host.publish();
         host.announceReady();
         DiagnosticLog.i(TAG, "State hub ready");
@@ -139,6 +144,8 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         if (address.isEmpty()) address = keys.address();
         scan = new ScanEngine(context, this);
         widget = new WidgetDriver(context);
+        notifier = new BatteryNotifier(context);
+        alerts = notifier.restore(address);
         attachInterface(null, HubWire.DESCRIPTOR);
     }
 
@@ -258,6 +265,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         synchronized (this) { product = status.getModelId(); }
         if (!lid.observe(status.getLidOpen(), capturedAt, source)) return;
         synchronized (this) { ledger.apply(status.getBatteries(), status.getPrecise(), false, SystemClock.elapsedRealtime()); }
+        alert();
     }
 
     @Override public void caseStatus(List<Battery> values) {
@@ -265,6 +273,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         long now = SystemClock.elapsedRealtime();
         if (!caseThrottle.admit(values, now)) return;
         synchronized (this) { ledger.apply(values, true, false, now); }
+        alert();
     }
 
     @Override public void opened() {
@@ -299,6 +308,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         lid.screen(on);
         // Nothing was heard with the scans off; the readings age again from now.
         if (on) synchronized (this) { ledger.touch(SystemClock.elapsedRealtime()); }
+        sight();
         publish();
     }
 
@@ -328,11 +338,6 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     private PopupDriver.Request popupRequest(boolean preview, boolean island) {
         HubBundles.State s = state;
-        String name = s.control.name;
-        if (name.isEmpty()) {
-            try { name = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(s.address).getAlias(); }
-            catch (RuntimeException unavailable) { name = null; }
-        }
         PendingIntent target;
         synchronized (this) { target = popupCredential; }
         // A host restart forgets the app's credential; the settings page opens the same way.
@@ -341,8 +346,46 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Map<Integer, Reading> r = s.readings;
         int charging = (charging(r, 4) ? 1 : 0) | (charging(r, 2) ? 2 : 0) | (charging(r, 8) ? 4 : 0);
-        return new PopupDriver.Request(s.address, name == null || name.isEmpty() ? "AirPods" : name, s.control.model, s.product,
+        return new PopupDriver.Request(s.address, headsetName(s), s.control.model, s.product,
             preview, island, s.controlAlive(), level(r, 4), level(r, 2), level(r, 8), charging, target);
+    }
+
+    /** The name the control channel reports, else the system alias. */
+    private String headsetName(HubBundles.State s) {
+        String name = s.control.name;
+        if (name.isEmpty()) {
+            try { name = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(s.address).getAlias(); }
+            catch (RuntimeException unavailable) { name = null; }
+        }
+        return name == null || name.isEmpty() ? "AirPods" : name;
+    }
+
+    // Battery alerts
+
+    /** Runs the alerts on the merged readings after a report; any thread. */
+    private void alert() {
+        List<BatteryAlert> fired;
+        String bound;
+        synchronized (this) {
+            if (closed) return;
+            boolean low = alerts.getLowArmed(), full = alerts.getFullArmed();
+            fired = alerts.observe(ledger.getReadings(), SystemClock.elapsedRealtime());
+            bound = address;
+            if (low != alerts.getLowArmed() || full != alerts.getFullArmed()) notifier.save(bound, alerts.getLowArmed(), alerts.getFullArmed());
+        }
+        if (fired.isEmpty()) return;
+        main.post(() -> {
+            if (closed || !bound.equals(address)) return;
+            HubBundles.State s = state;
+            notifier.show(fired, headsetName(s), s.control.model, s.product, preferences.getBoolean("battery_alerts", true));
+        });
+    }
+
+    /** With the screen off and no control channel nothing refreshes the readings. Main thread. */
+    private void sight() {
+        if (Looper.myLooper() != Looper.getMainLooper()) { main.post(this::sight); return; }
+        boolean live = scan.screenOn() || controlConnected();
+        synchronized (this) { alerts.sight(live, SystemClock.elapsedRealtime()); }
     }
 
     private static int level(Map<Integer, Reading> readings, int component) {
@@ -437,6 +480,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             loseControl();
         }
         DiagnosticLog.i(TAG, "App left the hub");
+        sight();
         publish();
         scan.refresh();
     }
@@ -452,6 +496,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         address = next;
         keys.forgetUnless(next);
         ledger.clear();
+        alerts = notifier.restore(next);
         product = -1;
         DiagnosticLog.i(TAG, "Hub bound to a new headset");
     }
@@ -492,6 +537,8 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
                     control = next;
                     ledger.apply(next.batteries, true, true, SystemClock.elapsedRealtime());
                 }
+                sight();
+                alert();
                 publish();
                 scan.refresh();
                 return HubWire.OK;
@@ -549,6 +596,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             loseControl();
             bind(hello.address);
         }
+        sight();
         publish();
         scan.refresh();
         response.putAll(state.toBundle());
