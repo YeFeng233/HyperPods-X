@@ -33,6 +33,7 @@ import com.hyper.podsrx.BuildConfig
 import com.hyper.podsrx.device.*
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -256,7 +257,14 @@ private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, n
     val style by AppearancePreferences.style.collectAsState()
     val changeStyle = LocalChangeUiStyle.current
     Section("外观") {
-        ToggleRow(style.label, "切换界面风格", style == UiStyle.IOS, onChange = changeStyle)
+        WindowDropdownPreference(
+            title = "UI 风格",
+            items = UiStyle.entries.map { it.label },
+            selectedIndex = style.ordinal,
+            onSelectedIndexChange = { index ->
+                if (index != style.ordinal) changeStyle(UiStyle.entries[index])
+            },
+        )
     }
     Section("弹窗与提醒") {
         PreferenceToggle("开盖弹窗", "仅响应已验证的耳机开盖广播", { it.popupEnabled }, DeviceRepository::setPopup)

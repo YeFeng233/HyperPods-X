@@ -22,6 +22,7 @@ import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.icons.SfIcon
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedTableFooter
 import io.github.neoruaa.glasmio.ui.GlasmioListRow
+import io.github.neoruaa.glasmio.ui.GlasmioPopUpButton
 import io.github.neoruaa.glasmio.ui.GlasmioSectionTitle
 import io.github.neoruaa.glasmio.ui.GlasmioSlider
 
@@ -309,7 +310,14 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
         val style by AppearancePreferences.style.collectAsState()
         val changeStyle = LocalChangeUiStyle.current
         Section("外观") {
-            ToggleRow(style.label, "切换界面风格", style == UiStyle.IOS, onChange = changeStyle)
+            GlasmioListRow("UI 风格", showTopSeparator = false, trailing = {
+                GlasmioPopUpButton(
+                    selected = style,
+                    items = UiStyle.entries,
+                    onSelected = changeStyle,
+                    label = { it.label },
+                )
+            })
         }
     }
 

@@ -4,7 +4,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.hyper.podsrx.ui.ios.IosSettingsScreen
 
-internal val LocalChangeUiStyle = staticCompositionLocalOf<(Boolean) -> Unit> {
+internal val LocalChangeUiStyle = staticCompositionLocalOf<(UiStyle) -> Unit> {
     error("Settings appearance host is required")
 }
 
@@ -20,9 +20,11 @@ fun HyperPodsScreen(
     val style by AppearancePreferences.style.collectAsState()
     var entryPage by rememberSaveable { mutableStateOf(initialPage) }
     val logExport = rememberLogExport()
-    CompositionLocalProvider(LocalLogExport provides logExport, LocalChangeUiStyle provides { ios ->
-        entryPage = "more"
-        AppearancePreferences.setStyle(if (ios) UiStyle.IOS else UiStyle.MIUIX)
+    CompositionLocalProvider(LocalLogExport provides logExport, LocalChangeUiStyle provides { selected ->
+        if (selected != style) {
+            entryPage = "more"
+            AppearancePreferences.setStyle(selected)
+        }
     }) {
         key(style.name) {
             if (style == UiStyle.IOS) {

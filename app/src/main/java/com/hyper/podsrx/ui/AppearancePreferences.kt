@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class UiStyle(val label: String) {
-    MIUIX("miuix风格"), IOS("iOS风格");
+    MIUIX("miuix"), IOS("iOS");
 
     companion object {
         fun fromStored(value: String?): UiStyle = entries.firstOrNull { it.name == value } ?: MIUIX

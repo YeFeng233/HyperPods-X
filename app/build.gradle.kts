@@ -117,6 +117,7 @@ dependencies {
     implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.0")
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.2")
     testImplementation("junit:junit:4.13.2")
