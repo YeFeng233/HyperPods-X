@@ -1,6 +1,6 @@
 # HyperPods-X 工程规范化计划
 
-版本：v1.0 · 日期：2026-10-29 · 分支：feat/popup-logic-rebase · 状态：待用户确认
+版本：v1.1 · 日期：2026-10-29 · 状态：进行中（A1、A3、A5、A8 的 Actions 部分、B1 已提交到 `ci/pr-checks`）
 
 本计划在 [Hub 迁移](../archive/HOST-HUB-MIGRATION-PLAN.md)（阶段 0–7 已完成）之后，统一安排 CI、代码规范、构建配置、代码结构和 AACP 运行时迁移这几条线。CI 部分参照 HyperMusicCover（`zyl6932/HyperMusicCover`）已经跑通的四个工作流。
 
@@ -48,6 +48,15 @@ HyperPods-X 特有的难点：Glasmio 用源码 composite build，需要 NDK 27.
 ## 1. 计划表
 
 "本地构建"一列：**是** 表示要在本机编译、跑单测或 lint，开始前先问用户。
+
+**进度（2026-10-29）：** 分支 `ci/pr-checks` 已提交以下各项，等合并后按各行的"验收"一列验证：
+
+- **A1**：`ci.yml` 已加，按计划执行。
+- **A3**：`:core:wire` 的测试已由上游 0.5.0 补上。R8 存活检查写成 `.github/scripts/check_module_entry.py`：APK 里 `META-INF/xposed/` 下的文件要和 hook 源码逐字一致，`java_init.list` 中的每个类都要以原名出现在 dex 里。已用本地已有的 deviceTest APK 验证通过；把入口类改名后的 APK 会被拒绝。
+- **A5**：发布 job 限定在 `YeFeng233/HyperPods-X`（第 3 节第 1 项）。
+- **A8**：先只覆盖 github-actions，每周一个合并的 PR；Gradle 部分等 C1 完成。
+- **B1**：`.editorconfig` 已加，没有重排现有文件。
+- **D4**：已写进 [文档索引](../README.md) 的代码约定一节。
 
 ### A. CI 与发布
 
@@ -117,7 +126,7 @@ B3、B4 也可以提到 M3 之前做，代价是 M1 之后先停下来做一次�
 
 ## 3. 待用户决定
 
-1. **发布仓库。** 本地 `origin` 是 `zyl6932/HyperPods-X`，`upstream` 是 `YeFeng233/HyperPods-X`，README 里的 Releases 和构建记录链接指向 upstream。A5 的 fork 保护、A6 的 nightly 应该绑定哪一个仓库？
+1. ~~**发布仓库。**~~ 已定为 `YeFeng233/HyperPods-X`（upstream，README 的 Releases 链接指向这里）。A5 已按此设置，A6 的 nightly 也绑定它。
 2. **`-rN` 修订版。** 已经发过 `v0.4.10-r1`。MusicCover 的公式只认 `vX.Y.Z`。建议以后不再用 `-rN`，有修订就升修订号（0.4.11）。如果要保留，可以规定 `-rN` 的 versionCode 为 `基数 + 900 + N`，nightly 限制在 `基数 + 1` 到 `基数 + 899` 之间。
 3. **nightly 和 Telegram 要不要做**（A6、A7）。
 4. **全量格式化的时机**（第 2 节末尾）。

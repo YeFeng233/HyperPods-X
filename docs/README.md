@@ -39,7 +39,7 @@
 
 | 文档 | 状态 |
 | --- | --- |
-| [plans/ENGINEERING-PLAN.md](plans/ENGINEERING-PLAN.md) | 工程规范化：CI、代码规范、构建配置、代码结构，以及 AACP 运行时迁入 Hub（阶段 8）。待用户确认 |
+| [plans/ENGINEERING-PLAN.md](plans/ENGINEERING-PLAN.md) | 工程规范化：CI、代码规范、构建配置、代码结构，以及 AACP 运行时迁入 Hub（阶段 8）。M1 的 A1、A3、A5、B1 和 A8 的 Actions 部分已提交，待合并 |
 | [plans/CONVERSATION-AWARENESS-PLAN.md](plans/CONVERSATION-AWARENESS-PLAN.md) | 对话感知：独立音轨降音的听感已通过，轻声识别灵敏度、后台和中断恢复待验收。迁入 Hub 的部分见工程规范化计划 E4 |
 
 ## 归档
