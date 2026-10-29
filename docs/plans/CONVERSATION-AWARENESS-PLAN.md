@@ -32,7 +32,7 @@
 | 媒体联动 | 已有自动入耳检测控制器，没有对话降音控制器 | 需要明确两项功能的执行顺序与恢复责任 |
 | 系统 Hook | `HyperPodsModule.java` 仍精确限定 `OS4.0.4.0.XPBCNXM` | 当前 4.0.5 不满足源码中的适配条件，须先复核系统桥接 |
 
-计划阶段只进行了代码阅读、上游资料查阅和设备只读诊断；试验构建与真机交互已在用户授权后进入实施。历史配置验证见 [联调报告](TEST-REPORT.md)，原始功能目标见 [开发方案](HyperPods-X-Development-Proposal-v0.1.md)。
+计划阶段只进行了代码阅读、上游资料查阅和设备只读诊断；试验构建与真机交互已在用户授权后进入实施。历史配置验证见 [联调报告](../TEST-REPORT.md)，原始功能目标见 [开发方案](../archive/HyperPods-X-Development-Proposal-v0.1.md)。
 
 ### 实施阶段记录
 
@@ -79,7 +79,7 @@ LibrePods 的公开实现把设置与实时通知分开处理：
 | 结束状态 | LibrePods main 使用 `6、8、9`；本机 2.0.0-alpha.3 还处理 `7`，本次真机均已出现 | 使用 `6、7、8、9` 映射，后续验证实际释放与恢复 |
 | 其他状态 | 本次真机还收到 `4`，尚无充分依据解释其完整语义 | 保留原值，不猜测开始/结束，也不无限延长降音 |
 
-依据：[LibrePods AACP 定义](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/AACPManager.kt)、[报文识别](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/data/Packets.kt)、[事件处理](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt)。资料读取日期为 2026-10-26。本机 alpha.3 的 `i` / `n52` 提供事件解析依据，`yw1` 提供扩展状态映射；APK 版本、校验值和具体来源见 [第三方说明](../THIRD_PARTY.md)。真机已确认这些状态出现，但完整检测语义与媒体效果仍需对照验证。
+依据：[LibrePods AACP 定义](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/AACPManager.kt)、[报文识别](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/data/Packets.kt)、[事件处理](https://github.com/librepods-org/librepods/blob/main/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt)。资料读取日期为 2026-10-26。本机 alpha.3 的 `i` / `n52` 提供事件解析依据，`yw1` 提供扩展状态映射；APK 版本、校验值和具体来源见 [第三方说明](../../THIRD_PARTY.md)。真机已确认这些状态出现，但完整检测语义与媒体效果仍需对照验证。
 
 本机 alpha.3 的 `i.f` / `j.d` / `h70` / `k` 使用 AACP 1.3 握手（第七字节 `03`）、`D7 00 00 00 00 00 00 00` source capabilities、全量通知订阅及 200 ms 初始化间隔。当前试验实现已按这些依据调整。未发现额外的对话感知专用 capability bit；`FF` 试验没有明确收益，不能用它解释后续事件恢复。其 `v4` / `yn` 型号表也将 A3441 列入对话感知能力集合。
 
