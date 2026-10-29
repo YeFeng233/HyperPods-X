@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Changes to Markdown, docs/ and the licence alone skip the build. The
+  # filter lives here rather than in paths-ignore so the required CI check
+  # still reports on such pull requests.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Look for changes outside the docs
+        id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] \
+              || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
+              || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            code=true
+          elif git diff --name-only "$BASE" HEAD | grep -qvE '(\.md$|^docs/|^LICENSE$)'; then
+            code=true
+          else
+            code=false
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
+  check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          set +o pipefail
+          yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
+          "$sdkmanager" --install 'platforms;android-37.0' 'build-tools;37.0.0'
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      # Fonts are skipped: the build falls back to the system font.
+      - name: Prepare pinned iOS UI source
+        run: python3 scripts/prepare-ui.py
+
+      - name: Test, lint and build
+        shell: bash
+        run: |
+          ./gradlew --console=plain -Dorg.gradle.workers.max=2 \
+            :core:protocol:test :core:wire:testDebugUnitTest :app:testDebugUnitTest \
+            :app:lintDebug :app:assembleDebug
+
+      # No APK upload: the CI debug signature differs from the installed test build.
+      - name: Upload test and lint reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports
+          path: |
+            */build/reports/
+            core/*/build/reports/
+            */build/test-results/
+            core/*/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # The one check to require on main: passes when the build passed or was
+  # skipped for a docs-only change, fails otherwise.
+  result:
+    name: CI
+    needs: [changes, check]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarise
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CHECK: ${{ needs.check.result }}
+        run: |
+          echo "changes: $CHANGES, check: $CHECK"
+          [ "$CHANGES" = success ] && { [ "$CHECK" = success ] || [ "$CHECK" = skipped ]; }

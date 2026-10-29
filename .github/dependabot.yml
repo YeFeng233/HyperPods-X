@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Gradle joins once the versions move into gradle/libs.versions.toml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - '*'
