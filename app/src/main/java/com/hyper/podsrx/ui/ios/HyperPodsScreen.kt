@@ -42,11 +42,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
-import androidx.navigation3.ui.NavDisplayTransitionEffects
 import com.hyper.podsrx.device.*
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosPageHorizontalPadding
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
+import io.github.neoruaa.glasmio.glass.LocalBlurBackdrop
+import io.github.neoruaa.glasmio.glass.glassBackdropSource
+import io.github.neoruaa.glasmio.glass.trackBackdropPosition
+import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
 import io.github.neoruaa.glasmio.icons.SfIcon
 import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.scaffold.*
@@ -175,139 +178,147 @@ internal fun IosSettingsScreen(
                 modifier = Modifier.fillMaxSize(),
                 sampledContent = { Box(Modifier.fillMaxSize().background(background)) },
                 overlayContent = {
-                    GlasmioTextSelectionHost(
-                        labels = GlasmioTextSelectionLabels(cut = "剪切", copy = "复制", paste = "粘贴", selectAll = "全选",
-                            autofill = "自动填充", more = "更多", expanded = "已展开", collapsed = "已折叠"),
-                    ) {
-                        GlasmioNavigationScaffold(
-                            motion = headerMotion,
-                            header = { entryKey ->
-                                val key = entryKey as String
-                                val page = key.settingsRouteName()
-                                GlasmioHeaderSpec(
-                                    title = settingsTitle(page, state),
-                                    leading = listOf(
-                                        GlasmioHeaderGroup("navigation", listOf(
-                                            GlasmioHeaderAction("navigation.back", "chevron.backward", "返回", back) {
-                                                SfIcon(SfSymbol.ChevronBack, null, mirrored = true)
-                                            },
-                                        )),
-                                    ),
-                                    scrollState = headerScrollStates[key] ?: topHeader,
-                                )
-                            },
-                        ) { headerPadding ->
-                            CompositionLocalProvider(LocalSettingsBodyPadding provides headerPadding) {
-                                GlasmioNavDisplay(
+                    val renderedPage = rememberLayerBackdrop()
+                    CompositionLocalProvider(LocalBlurBackdrop provides renderedPage) {
+                        GlasmioTextSelectionHost(
+                            labels = GlasmioTextSelectionLabels(cut = "剪切", copy = "复制", paste = "粘贴", selectAll = "全选",
+                                autofill = "自动填充", more = "更多", expanded = "已展开", collapsed = "已折叠"),
+                        ) {
+                            Box(Modifier.fillMaxSize().glassBackdropSource(renderedPage).trackBackdropPosition(renderedPage)) {
+                                GlasmioNavigationScaffold(
                                     motion = headerMotion,
-                                    backStack = backStack,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onBack = back,
-                                    transitionEffects = remember {
-                                        NavDisplayTransitionEffects(enableCornerClip = true, dimAmount = .5f, blockInputDuringTransition = false)
-                                    },
-                                    entryProvider = { entryKey ->
-                                        NavEntry(key = entryKey, contentKey = entryKey) {
-                                            val entryDisplayState = latestDisplayState.value
-                                            val page = entryKey.settingsRouteName()
-                                            val listState = rememberLazyListState()
-                                            val collapseDistance = with(LocalDensity.current) { 56.dp.toPx() }
-                                            val scrollState = remember(listState, collapseDistance) {
-                                                GlasmioHeaderScrollState(
-                                                    collapseProgress = { 1f },
-                                                    scrollEdgeProgress = {
-                                                        if (listState.firstVisibleItemIndex > 0) 1f
-                                                        else (listState.firstVisibleItemScrollOffset / collapseDistance).coerceIn(0f, 1f)
+                                    header = { entryKey ->
+                                        val key = entryKey as String
+                                        val page = key.settingsRouteName()
+                                        GlasmioHeaderSpec(
+                                            title = settingsTitle(page, state),
+                                            leading = listOf(
+                                                GlasmioHeaderGroup("navigation", listOf(
+                                                    GlasmioHeaderAction("navigation.back", "chevron.backward", "返回", back) {
+                                                        SfIcon(SfSymbol.ChevronBack, null, mirrored = true)
                                                     },
-                                                )
-                                            }
-                                            SideEffect { headerScrollStates[entryKey] = scrollState }
-                                            DisposableEffect(entryKey) {
-                                                if (page == "spatial") PodsService.spatialRefresh()
-                                                onDispose { if (page == "spatial") PodsService.spatialCancelCalibration() }
-                                            }
-                                            val hostPadding = LocalSettingsBodyPadding.current
-                                            val bodyPadding = PaddingValues(
-                                                start = IosPageHorizontalPadding,
-                                                top = hostPadding.calculateTopPadding(),
-                                                end = IosPageHorizontalPadding,
-                                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
-                                            )
-                                            GlasmioPageBody(contentPadding = bodyPadding) { padding ->
-                                                LazyColumn(
-                                                    state = listState,
-                                                    modifier = Modifier.fillMaxSize().consumeWindowInsets(padding),
-                                                    contentPadding = padding,
-                                                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                                                ) {
-                                                    if (page == "device") {
-                                                        item("products") { DeviceProducts(entryDisplayState) }
-                                                        item("name") { DeviceName(entryDisplayState) { navigate("name") } }
-                                                        item("listening") {
-                                                            Column { GlasmioSectionTitle("聆听模式"); ListeningControls(entryDisplayState) }
-                                                        }
-                                                        item("volume") {
-                                                            Column {
-                                                                GlasmioSectionTitle("音量")
-                                                                GlasmioVolumeSlider(volume.fraction, volumeController::setFraction,
-                                                                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "音量" },
-                                                                    enabled = volume.maximum > 0,
-                                                                    onValueChangeFinished = volumeController::refresh)
+                                                )),
+                                            ),
+                                            scrollState = headerScrollStates[key] ?: topHeader,
+                                        )
+                                    },
+                                ) { headerPadding ->
+                                    CompositionLocalProvider(LocalSettingsBodyPadding provides headerPadding) {
+                                        GlasmioNavDisplay(
+                                            motion = headerMotion,
+                                            backStack = backStack,
+                                            modifier = Modifier.fillMaxSize(),
+                                            onBack = back,
+                                            entryProvider = { entryKey ->
+                                                NavEntry(key = entryKey, contentKey = entryKey) {
+                                                    val entryDisplayState = latestDisplayState.value
+                                                    val page = entryKey.settingsRouteName()
+                                                    val listState = rememberLazyListState()
+                                                    val collapseDistance = with(LocalDensity.current) { 56.dp.toPx() }
+                                                    val scrollState = remember(listState, collapseDistance) {
+                                                        GlasmioHeaderScrollState(
+                                                            collapseProgress = { 1f },
+                                                            scrollEdgeProgress = {
+                                                                if (listState.firstVisibleItemIndex > 0) 1f
+                                                                else (listState.firstVisibleItemScrollOffset / collapseDistance).coerceIn(0f, 1f)
+                                                            },
+                                                        )
+                                                    }
+                                                    SideEffect { headerScrollStates[entryKey] = scrollState }
+                                                    DisposableEffect(entryKey) {
+                                                        if (page == "spatial") PodsService.spatialRefresh()
+                                                        onDispose { if (page == "spatial") PodsService.spatialCancelCalibration() }
+                                                    }
+                                                    val hostPadding = LocalSettingsBodyPadding.current
+                                                    val bodyPadding = PaddingValues(
+                                                        start = IosPageHorizontalPadding,
+                                                        top = hostPadding.calculateTopPadding(),
+                                                        end = IosPageHorizontalPadding,
+                                                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                                                    )
+                                                    Box(Modifier.fillMaxSize()) {
+                                                        GlasmioPageBody(
+                                                            contentPadding = bodyPadding,
+                                                            topBarBlurProgress = scrollState.scrollEdgeProgress(),
+                                                        ) { padding ->
+                                                            LazyColumn(
+                                                                state = listState,
+                                                                modifier = Modifier.fillMaxSize().consumeWindowInsets(padding),
+                                                                contentPadding = padding,
+                                                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                                            ) {
+                                                                if (page == "device") {
+                                                                    item("products") { DeviceProducts(entryDisplayState) }
+                                                                    item("name") { DeviceName(entryDisplayState) { navigate("name") } }
+                                                                    item("listening") {
+                                                                        Column { GlasmioSectionTitle("聆听模式"); ListeningControls(entryDisplayState) }
+                                                                    }
+                                                                    item("volume") {
+                                                                        Column {
+                                                                            GlasmioSectionTitle("音量")
+                                                                            GlasmioVolumeSlider(volume.fraction, volumeController::setFraction,
+                                                                                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "音量" },
+                                                                                enabled = volume.maximum > 0,
+                                                                                onValueChangeFinished = volumeController::refresh)
+                                                                        }
+                                                                    }
+                                                                    item("features") {
+                                                                        SettingsCard {
+                                                                            FeatureLink("音频与路径", "speaker.wave.3.fill", Color(0xffff2d55), false) { navigate("audio") }
+                                                                            FeatureLink("控制与手势", "hand.pinch.fill", Color(0xff8e8e93)) { navigate("controls") }
+                                                                            FeatureLink("无障碍", "accessibility", Color(0xff00a7ed)) { navigate("accessibility") }
+                                                                        }
+                                                                    }
+                                                                    item("battery") {
+                                                                        SettingsCard { FeatureLink("电池", "battery.100percent", Color(0xff34c759), false) { navigate("battery") } }
+                                                                    }
+                                                                    if (!entryDisplayState.running) item("connection") {
+                                                                        SettingsCard {
+                                                                            RowItem("连接 AirPods") { navigate("connection"); onConnect() }
+                                                                        }
+                                                                    }
+                                                                    item("information") {
+                                                                        Section("关于") {
+                                                                            InfoRow("型号名称", entryDisplayState.headset.name)
+                                                                            InfoRow("型号号码", entryDisplayState.model.ifBlank { "—" })
+                                                                            InfoRow("版本", entryDisplayState.firmware.ifBlank { "—" })
+                                                                        }
+                                                                    }
+                                                                    item("module") {
+                                                                        SettingsCard {
+                                                                            RowItem("更多设置") { navigate("module") }
+                                                                            RowItem("关于 HyperPods-X") { navigate("about") }
+                                                                        }
+                                                                    }
+                                                                } else if (page == "name") {
+                                                                    item("nameEditor") {
+                                                                        DeviceNameEditor(nameValue, {
+                                                                            nameValue = it
+                                                                            nameError = null
+                                                                        }, nameError, finishName)
+                                                                    }
+                                                                } else IosSettingsPageContent(page, entryDisplayState, onConnect, onOverlay, onSystemBluetooth, navigate)
+                                                                if (page in setOf("module", "connection", "diagnostics") && entryDisplayState.message.isNotBlank()) {
+                                                                    item("message") { SettingsFootnote(entryDisplayState.message) }
+                                                                }
                                                             }
                                                         }
-                                                        item("features") {
-                                                            SettingsCard {
-                                                                FeatureLink("音频与路径", "speaker.wave.3.fill", Color(0xffff2d55), false) { navigate("audio") }
-                                                                FeatureLink("控制与手势", "hand.pinch.fill", Color(0xff8e8e93)) { navigate("controls") }
-                                                                FeatureLink("无障碍", "accessibility", Color(0xff00a7ed)) { navigate("accessibility") }
-                                                            }
-                                                        }
-                                                        item("battery") {
-                                                            SettingsCard { FeatureLink("电池", "battery.100percent", Color(0xff34c759), false) { navigate("battery") } }
-                                                        }
-                                                        if (!entryDisplayState.running) item("connection") {
-                                                            SettingsCard {
-                                                                RowItem("连接 AirPods") { navigate("connection"); onConnect() }
-                                                            }
-                                                        }
-                                                        item("information") {
-                                                            Section("关于") {
-                                                                InfoRow("型号名称", entryDisplayState.headset.name)
-                                                                InfoRow("型号号码", entryDisplayState.model.ifBlank { "—" })
-                                                                InfoRow("版本", entryDisplayState.firmware.ifBlank { "—" })
-                                                            }
-                                                        }
-                                                        item("module") {
-                                                            SettingsCard {
-                                                                RowItem("更多设置") { navigate("module") }
-                                                                RowItem("关于 HyperPods-X") { navigate("about") }
-                                                            }
-                                                        }
-                                                    } else if (page == "name") {
-                                                        item("nameEditor") {
-                                                            DeviceNameEditor(nameValue, {
-                                                                nameValue = it
-                                                                nameError = null
-                                                            }, nameError, finishName)
-                                                        }
-                                                    } else IosSettingsPageContent(page, entryDisplayState, onConnect, onOverlay, onSystemBluetooth, navigate)
-                                                    if (page in setOf("module", "connection", "diagnostics") && entryDisplayState.message.isNotBlank()) {
-                                                        item("message") { SettingsFootnote(entryDisplayState.message) }
+                                                        GlasmioPageTitle(entryKey)
                                                     }
                                                 }
-                                            }
-                                        }
-                                    },
-                                )
+                                            },
+                                        )
+                                    }
+                                }
                             }
+                            GlasmioAlertDialog(
+                                visible = actionError != null,
+                                onDismissRequest = { actionError = null },
+                                title = "未能完成操作",
+                                message = actionError,
+                                buttons = listOf(GlasmioAlertButtonSpec("好", { actionError = null })),
+                            )
                         }
-                        GlasmioAlertDialog(
-                            visible = actionError != null,
-                            onDismissRequest = { actionError = null },
-                            title = "未能完成操作",
-                            message = actionError,
-                            buttons = listOf(GlasmioAlertButtonSpec("好", { actionError = null })),
-                        )
                     }
                 },
             )

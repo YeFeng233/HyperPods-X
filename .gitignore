@@ -4,6 +4,8 @@
 .tooling/
 .device/
 .reference/
+.local-research/
+.DS_Store
 dist/
 local.properties
 *.jks

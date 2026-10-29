@@ -11,7 +11,7 @@ Bluetooth/MiLink adapters are integrated alongside both interface styles, with
 bound-device freshness checks and commands routed through the existing session.
 
 Glasmio is compiled from https://github.com/NEORUAA/Glasmio at
-`5fcc8aa4c9ea4ed229fd181849f2c5e1982dda5d`, under Apache-2.0.
+`bbba63b2f2584c4819bd88043332e241820d1ca0`, under Apache-2.0.
 Glasmio incorporates Backdrop, Shapes and Capsule graphics dependencies and
 Material icon fallbacks; dependency license and notice resources are retained.
 
