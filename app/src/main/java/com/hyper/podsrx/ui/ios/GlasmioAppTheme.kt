@@ -128,7 +128,7 @@ fun GlasmioAppTheme(isDark: Boolean = isSystemInDarkTheme(), content: @Composabl
     if (loaded == null) {
         Box(Modifier.background(if (isDark) Color.Black else Color(0xfff2f2f7)))
     } else {
-        GlasmioTheme(isDark = isDark, typography = loaded.typography, letterSpacing = .6.sp) {
+        GlasmioTheme(isDark = isDark, typography = loaded.typography, letterSpacing = .2.sp) {
             GlasmioIconProvider(symbolTypeface = loaded.symbolTypeface, content = content)
         }
     }
