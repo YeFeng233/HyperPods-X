@@ -18,10 +18,12 @@ import java.util.List;
 final class AdvertisementParser {
     interface Sink {
         void proximity(Proximity status, long capturedAt, String source);
-        void caseStatus(List<Battery> values);
+        void caseStatus(List<Battery> values, String source);
     }
 
     int broadcasts, trusted, candidates, matches;
+    /** Case status messages heard, and those the bound headset's key decrypted. */
+    int caseMessages, caseDecoded;
 
     void parse(ScanResult result, String address, byte[] irk, byte[] enc, String source, Sink sink) {
         ScanRecord record = result.getScanRecord();
@@ -37,11 +39,13 @@ final class AdvertisementParser {
         List<byte[]> proximity = new ArrayList<>();
         for (byte[] message : messages) {
             if (message[1] == CaseStatusCodec.LENGTH) {
+                caseMessages++;
                 List<Battery> values = CaseStatusCodec.INSTANCE.decode(message, enc);
                 if (values == null) continue;
+                caseDecoded++;
                 List<Battery> known = new ArrayList<>();
                 for (Battery value : values) if (value.getLevel() != null) known.add(value);
-                sink.caseStatus(known);
+                sink.caseStatus(known, source);
             } else proximity.add(message);
         }
         if (!bound) return;

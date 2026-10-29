@@ -268,12 +268,24 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         alert();
     }
 
-    @Override public void caseStatus(List<Battery> values) {
+    @Override public void caseStatus(List<Battery> values, String source) {
         scan.heard();
         long now = SystemClock.elapsedRealtime();
         if (!caseThrottle.admit(values, now)) return;
+        DiagnosticLog.i(TAG, "Case status " + source + ": " + describe(values));
         synchronized (this) { ledger.apply(values, true, false, now); }
         alert();
+    }
+
+    /** Such as "L100+ R98 C89", a plus marking a charging part. */
+    private static String describe(List<Battery> values) {
+        StringBuilder out = new StringBuilder();
+        for (Battery value : values) {
+            if (out.length() > 0) out.append(' ');
+            out.append(value.getComponent() == 4 ? "L" : value.getComponent() == 2 ? "R" : value.getComponent() == 8 ? "C" : "#" + value.getComponent())
+                .append(value.getLevel()).append(value.getCharging() ? "+" : "");
+        }
+        return out.length() == 0 ? "no levels" : out.toString();
     }
 
     @Override public void opened() {
@@ -321,7 +333,9 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             long controlFreshAt = controlConnected() ? now : controlLostAt;
             expired = ledger.expire(STALE_READING_MS, controlFreshAt, now);
         }
-        if (expired) DiagnosticLog.i(TAG, "Hub hid readings unheard for " + STALE_READING_MS / 1000 + " s");
+        if (expired) DiagnosticLog.i(TAG, "Hub hid readings unheard for " + STALE_READING_MS / 1000 + " s; case status heard "
+            + parser.caseMessages + ", decoded " + parser.caseDecoded + "; scan " + scan.mode() + ", screen " + (scan.screenOn() ? "on" : "off")
+            + ", control " + (controlConnected() ? "up" : "down"));
         publish();
         // The widget forgets the grip on a launcher restart; this repeats it slowly.
         widget.update(state);
