@@ -1,6 +1,6 @@
 # AirPods 图片来源
 
-App、系统底部弹窗、超级岛与融合设备中心卡片按耳机型号选用下列图片，型号表见 `hook/.../HeadsetModels.java`。未识别的型号沿用 AirPods 5 图片。系统自带的耳机图片不再使用。
+App、系统底部弹窗、超级岛与融合设备中心卡片按耳机型号选用下列图片，型号表见 `hook/.../HeadsetModels.java`。未识别的型号沿用 AirPods 5 图片。iOS 主题继续使用下列分型号图片；miuix 主题使用的系统设置素材见本文末尾。
 
 ## AirPods 5
 
@@ -64,3 +64,31 @@ https://support.apple.com/en-ie/109525
 | listening_adaptive.png | `8286ad51be85a13c1799ab7ac6ce08378a39ec964ee2185025b43682fab4e1ed` |
 
 iOS 界面的 SF Pro 字体按用户提供的 SFWindows v27.0.1789118100 获取，下载来源为该固定标签下的 SF Pro 常规体与斜体。字体属于 Apple 的独立专有授权；SFWindows 仓库的 MIT 声明不覆盖字体二进制。字体存放于本机忽略目录，仅通过构建任务进入生成的 APK assets，不写入 Git 或源码 ZIP。构建输入摘要与无字体回退方法见 `docs/UI-STYLES.md`。
+
+
+## Miuix native Settings artwork
+
+The Miuix theme alone uses resources extracted on 2026-10-30 from the user's
+installed HyperOS Settings headphone plugin, `com.xiaomi.settings.headsetplugin`
+version 1.85, activity `plugin.settings.java.JavaActivity`.
+
+- `miuix_airpods_open_case.webp`: unchanged `airpodsinear/0.webp` from Settings'
+  device-resource cache; 550 x 580 RGBA, including the original transparent padding.
+  SHA-256: `d61211e0bfdc45a2784ae6d4ca34df8b63af26e4f82bd255296c0a890b438d64`.
+- `miuix_listening_{background,selected}.xml`: background circles and selection
+  rings from the plugin's `closeanc_off/on` vectors, with `drawable-night` variants.
+  Original background/ring paths, fills, alpha and geometry are retained; the
+  inner glyph paths are omitted. Both themes use the existing `listening_*` PNGs
+  for the four inner mode symbols. Unselected backgrounds use a 130-unit viewport.
+  Both selected backgrounds use the light variant's 162-unit viewport and
+  outer-ring geometry. The dark variant retains its native `#0073dd` blue
+  so the selected disk, outer ring and circular hit region match in both themes.
+- `res/font/hyperos_battery_symbols.ttf`: a 20-glyph variable-font subset of the
+  user-provided `HyperOSSymbols-Content-RegularVF.ttf` (version 1.020), viewed in
+  Font Book. U+F03E1..U+F03EA are 10..100 percent battery fills; U+F03EB..U+F03F4
+  are the matching charging symbols. Original naming and copyright records remain.
+
+These OEM resources retain their original owners' rights and are excluded from
+HyperPods-X's GPL grant. Full APKs, decompiled code and device resource caches are
+kept only in the ignored local research directory. Existing iOS photographs and
+listening symbols are unchanged.

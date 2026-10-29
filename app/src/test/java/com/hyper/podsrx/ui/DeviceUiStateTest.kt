@@ -4,6 +4,7 @@ import com.hyper.podsrx.protocol.Reading
 import com.hyper.podsrx.device.PodsState
 import com.hyper.podsrx.device.SpatialState
 import com.hyper.podsrx.device.SpatialMode
+import com.hyper.podsrx.device.Controls
 import com.hyper.podsrx.protocol.Event
 import com.hyper.podsrx.protocol.WearState
 import org.junit.Assert.*
@@ -26,6 +27,39 @@ class DeviceUiStateTest {
         assertEquals("等待耳机上报佩戴状态", earDetectionDescription(state))
         assertEquals(earDetectionDescription(state), earDetectionDescription(state.copy(controls = mapOf(0x0a to listOf(2)))))
         assertEquals("自动入耳检测已关闭", earDetectionDescription(state.copy(earAutomation = false)))
+        assertTrue(SettingsToggle.EAR_AUTOMATION.checked(state.copy(controls = mapOf(0x0a to listOf(2)))))
+        assertFalse(SettingsToggle.EAR_AUTOMATION.checked(state.copy(earAutomation = false, controls = mapOf(0x0a to listOf(1)))))
+    }
+
+    @Test fun settingsCatalogFiltersMissingReadbacksWithoutReorderingSupportedControls() {
+        val state = PodsState(connected = true, controls = linkedMapOf(
+            0x23 to listOf(1), 0x25 to listOf(2), 0xff to listOf(1), 0x17 to emptyList(),
+        ), pending = setOf(0x25))
+        val available = SettingsCatalog.availableControls(state, SettingsCatalog.swipeControls)
+        assertEquals(listOf(0x25, 0x23), available.map { it.id })
+        assertFalse(SettingsCatalog.controlEnabled(state, available[0]))
+        assertTrue(SettingsCatalog.controlEnabled(state, available[1]))
+        assertFalse(SettingsCatalog.controlEnabled(state.copy(connected = false), available[1]))
+        assertFalse(SettingsCatalog.controlEnabled(state, available[1].copy(writable = false)))
+        assertTrue(SettingsCatalog.availableControls(state, listOf(0x17, 0xff)).isEmpty())
+        assertEquals("耳机侧入耳检测", SettingsCatalog.toggleTitle(Controls.all.first { it.id == 0x0a }))
+    }
+
+    @Test fun settingsRoutesPreserveExternalAliasesAndDeviceSpecificTitles() {
+        val state = PodsState(name = "AirPods", localName = "本机的耳机")
+        assertEquals(SettingsPage.MODULE, SettingsCatalog.initialPage("more"))
+        assertEquals(SettingsPage.AUDIO, SettingsCatalog.initialPage("advanced"))
+        assertEquals(SettingsPage.SPATIAL, SettingsCatalog.initialPage("spatial"))
+        assertNull(SettingsCatalog.initialPage("name"))
+        assertNull(SettingsCatalog.initialPage("unknown"))
+        assertEquals(SettingsPage.AUDIO, SettingsCatalog.page("audio#retained-entry"))
+        assertEquals("本机的耳机", SettingsCatalog.title("name", state))
+        assertEquals("本机的耳机", SettingsCatalog.title("device", state))
+        assertEquals("麦克风", SettingsCatalog.title(SettingsCatalog.controlRoute(0x01), state))
+        assertEquals("设置", SettingsCatalog.title("control/255", state))
+        assertEquals(SettingsPage.AUDIO.route, SettingsCatalog.parentRoute("control/1"))
+        assertEquals(SettingsPage.CONTROLS.route, SettingsCatalog.parentRoute("call/end"))
+        assertNull(SettingsCatalog.parentRoute("device"))
     }
 
     @Test fun localBluetoothAliasTakesPrecedenceOverHeadsetName() {

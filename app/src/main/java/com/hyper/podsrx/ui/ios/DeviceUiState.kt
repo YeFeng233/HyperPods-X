@@ -3,6 +3,7 @@ package com.hyper.podsrx.ui.ios
 
 import com.hyper.podsrx.device.PodsState
 import com.hyper.podsrx.device.Controls
+import com.hyper.podsrx.ui.SettingsCatalog
 import kotlin.math.roundToInt
 
 internal data class ListeningPresentation(
@@ -195,8 +196,5 @@ internal fun expireListeningTarget(intent: ListeningIntentState, target: Listeni
         if (synced.inFlight?.target == target) finishListeningFlight(synced, true) else synced
     } else intent
 
-internal val IosListeningChoices = listOf(
-    com.hyper.podsrx.device.Choice(1, "关闭"), com.hyper.podsrx.device.Choice(3, "通透模式"),
-    com.hyper.podsrx.device.Choice(4, "自适应"), com.hyper.podsrx.device.Choice(2, "降噪"),
-)
-internal val IosAdaptiveAnchors = listOf(0, 50, 100)
+internal val IosListeningChoices = SettingsCatalog.listeningChoices
+internal val IosAdaptiveAnchors = SettingsCatalog.adaptiveAnchors

@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hyper.podsrx.ui.AppearancePreferences
+import com.hyper.podsrx.ui.SettingsCatalog
+import com.hyper.podsrx.ui.SettingsToggle
 import com.hyper.podsrx.ui.LocalChangeUiStyle
 import com.hyper.podsrx.ui.LocalLogExport
 import com.hyper.podsrx.ui.UiStyle
@@ -55,79 +57,105 @@ internal fun LazyListScope.IosSettingsPageContent(
 internal fun SettingsFootnote(text: String) { GlasmioGroupedTableFooter(text) }
 
 private fun LazyListScope.AudioSettings(state: PodsState, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
-    if (0x26 in state.controls) item("personalizedVolume") {
-        Column {
-            AvailableControls(state, listOf(0x26), navigate)
-            SettingsFootnote("根据所处环境调整整体音量。")
-        }
-    }
-    if (0x28 in state.controls) item("conversationAwareness") {
-        Column {
-            AvailableControls(state, listOf(0x28), navigate)
-            SettingsFootnote("开始与他人讲话时降低媒体音量并减少背景噪声。")
-        }
-    }
-    state.equalizer?.takeIf { it.size >= 4 }?.let { equalizer ->
-        item("equalizer") {
-            SettingsCard { RowItem("均衡器", value = if (equalizer[0] == 2) "自定" else "关闭") { navigate("equalizer") } }
-        }
-    }
-    item("earDetection") {
-        Column {
-            SettingsCard { ToggleRow("自动入耳检测", "", state.earAutomation) { DeviceRepository.setEarAutomation(it) } }
-            SettingsFootnote("戴上 AirPods 时自动播放音频，摘下时自动暂停。")
-        }
-    }
-    item("spatial") {
-        Section("空间音频") { RowItem("空间音频", value = state.spatial.mode?.label() ?: "—") { navigate("spatial") } }
-    }
-    ControlGroup("microphone", state, listOf(0x01), navigate)
-    ControlGroup("sleepPause", state, listOf(0x35), navigate)
-    item("systemAudio") {
-        Column {
-            SettingsCard { RowItem("音频与设备权限", action = onSystemBluetooth) }
-            SettingsFootnote("在系统蓝牙中管理 AAC、音量同步和通话音频。")
+    SettingsCatalog.audioSectionOrder.forEach { key ->
+        when (key) {
+            SettingsCatalog.personalizedVolume.key -> {
+                val group = SettingsCatalog.personalizedVolume
+                if (group.controlIds.single() in state.controls) item(group.key) {
+                    Column {
+                        AvailableControls(state, group.controlIds, navigate)
+                        SettingsFootnote("根据所处环境调整整体音量。")
+                    }
+                }
+            }
+            SettingsCatalog.conversationAwareness.key -> {
+                val group = SettingsCatalog.conversationAwareness
+                if (group.controlIds.single() in state.controls) item(group.key) {
+                    Column {
+                        AvailableControls(state, group.controlIds, navigate)
+                        SettingsFootnote("开始与他人讲话时降低媒体音量并减少背景噪声。")
+                    }
+                }
+            }
+            "equalizer" -> state.equalizer?.takeIf { it.size >= 4 }?.let { equalizer ->
+                item(key) {
+                    SettingsCard { RowItem("均衡器", value = if (equalizer[0] == 2) "自定" else "关闭") { navigate("equalizer") } }
+                }
+            }
+            "earDetection" -> item(key) {
+                Column {
+                    SettingsCard { ToggleRow(SettingsToggle.EAR_AUTOMATION.title, "", SettingsToggle.EAR_AUTOMATION.checked(state)) { DeviceRepository.setEarAutomation(it) } }
+                    SettingsFootnote("戴上 AirPods 时自动播放音频，摘下时自动暂停。")
+                }
+            }
+            "spatial" -> item(key) {
+                Section("空间音频") { RowItem("空间音频", value = state.spatial.mode?.label() ?: "—") { navigate("spatial") } }
+            }
+            "systemAudio" -> item(key) {
+                Column {
+                    SettingsCard { RowItem("音频与设备权限", action = onSystemBluetooth) }
+                    SettingsFootnote("在系统蓝牙中管理 AAC、音量同步和通话音频。")
+                }
+            }
+            else -> SettingsCatalog.audioControlGroups.firstOrNull { it.key == key }?.let { group ->
+                ControlGroup(group.key, state, group.controlIds, navigate, group.title)
+            }
         }
     }
 }
 
 private fun LazyListScope.GestureSettings(state: PodsState, navigate: (String) -> Unit) {
-    if (state.controls[0x24]?.getOrNull(1)?.let { it in 2..3 } == true) item("callControls") { CallControlSettings(state, navigate) }
-    ControlGroup("swipeControls", state, listOf(0x25, 0x23), navigate, "滑动控制")
-    if (listOf(0x25, 0x23, 0x24).none { it in state.controls }) item("connection") { ConnectionNeeded(state, navigate) }
+    SettingsCatalog.gestureSectionOrder.forEach { key ->
+        when (key) {
+            "callControls" -> if (state.controls[0x24]?.getOrNull(1)?.let { it in 2..3 } == true) {
+                item(key) { CallControlSettings(state, navigate) }
+            }
+            "connection" -> if (SettingsCatalog.gesturePresenceIds.none { it in state.controls }) {
+                item(key) { ConnectionNeeded(state, navigate) }
+            }
+            else -> SettingsCatalog.gestureControlGroups.firstOrNull { it.key == key }?.let { group ->
+                ControlGroup(group.key, state, group.controlIds, navigate, group.title)
+            }
+        }
+    }
 }
 
 private fun LazyListScope.AccessibilitySettings(state: PodsState, navigate: (String) -> Unit) {
-    if (0x17 in state.controls) item("pressSpeed") {
-        Column {
-            ControlChoices(state, 0x17, "按下速度", mapOf(1 to "较慢"))
-            SettingsFootnote("调整按下 AirPods 两次或三次所需的速度。")
+    SettingsCatalog.accessibilitySectionOrder.forEach { key ->
+        val group = SettingsCatalog.accessibilityControlGroups.firstOrNull { it.key == key }
+        when (key) {
+            SettingsCatalog.pressSpeed.key -> if (group != null && group.controlIds.single() in state.controls) item(group.key) {
+                Column {
+                    ControlChoices(state, group.controlIds.single(), group.title, group.choiceLabels)
+                    SettingsFootnote("调整按下 AirPods 两次或三次所需的速度。")
+                }
+            }
+            SettingsCatalog.pressDuration.key -> if (group != null && group.controlIds.single() in state.controls) item(group.key) {
+                Column {
+                    ControlChoices(state, group.controlIds.single(), group.title, group.choiceLabels)
+                    SettingsFootnote("调整按住 AirPods 所需的时长。")
+                }
+            }
+            SettingsCatalog.noiseControls.key -> if (group != null && group.controlIds.any { it in state.controls }) item(group.key) {
+                Column {
+                    AvailableControls(state, group.controlIds, navigate, group.title)
+                    if (0x1b in state.controls) SettingsFootnote("允许仅一只 AirPod 在耳中时，进入降噪模式。")
+                }
+            }
+            SettingsCatalog.adaptiveAudio.key -> if (group != null && group.controlIds.single() in state.controls) item(group.key) {
+                Column { GlasmioSectionTitle(requireNotNull(group.title)); AdaptiveStrengthControl(state) }
+            }
+            SettingsCatalog.sensors.key -> if (group != null && group.controlIds.single() in state.controls) item(group.key) {
+                Column {
+                    AvailableControls(state, group.controlIds, navigate, group.title)
+                    SettingsFootnote("此选项控制耳机的传感器配置，自动播放与暂停由“音频与路径”中的“自动入耳检测”管理。")
+                }
+            }
+            "connection" -> if (SettingsCatalog.accessibilityPresenceIds.none { it in state.controls }) {
+                item(key) { ConnectionNeeded(state, navigate) }
+            }
+            else -> group?.let { ControlGroup(it.key, state, it.controlIds, navigate, it.title) }
         }
-    }
-    if (0x18 in state.controls) item("pressDuration") {
-        Column {
-            ControlChoices(state, 0x18, "按住时长")
-            SettingsFootnote("调整按住 AirPods 所需的时长。")
-        }
-    }
-    if (0x1b in state.controls || 0x34 in state.controls) item("noiseControls") {
-        Column {
-            AvailableControls(state, listOf(0x1b, 0x34), navigate, "噪声控制")
-            if (0x1b in state.controls) SettingsFootnote("允许仅一只 AirPod 在耳中时，进入降噪模式。")
-        }
-    }
-    ControlGroup("chimeVolume", state, listOf(0x1f), navigate, "音效音量")
-    if (0x2e in state.controls) item("adaptiveAudio") {
-        Column { GlasmioSectionTitle("自适应音频"); AdaptiveStrengthControl(state) }
-    }
-    if (0x0a in state.controls) item("sensors") {
-        Column {
-            AvailableControls(state, listOf(0x0a), navigate, "耳机传感器")
-            SettingsFootnote("此选项控制耳机的传感器配置，自动播放与暂停由“音频与路径”中的“自动入耳检测”管理。")
-        }
-    }
-    if (listOf(0x17, 0x18, 0x1b, 0x34, 0x1f, 0x2e, 0x0a).none { it in state.controls }) {
-        item("connection") { ConnectionNeeded(state, navigate) }
     }
 }
 
@@ -137,7 +165,7 @@ private fun LazyListScope.ControlGroup(key: String, state: PodsState, ids: List<
 
 @Composable
 private fun AvailableControls(state: PodsState, ids: List<Int>, navigate: (String) -> Unit, title: String? = null) {
-    val specs = ids.mapNotNull { id -> Controls.all.firstOrNull { it.id == id && state.controls[id]?.firstOrNull() != null } }
+    val specs = SettingsCatalog.availableControls(state, ids)
     if (specs.isEmpty()) return
     val content: @Composable ColumnScope.() -> Unit = { specs.forEach { ControlSetting(it, state, navigate) } }
     if (title == null) SettingsCard(content) else Section(title, content)
@@ -147,7 +175,7 @@ private fun AvailableControls(state: PodsState, ids: List<Int>, navigate: (Strin
 private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (String) -> Unit) {
     val current = state.controls[spec.id]?.firstOrNull() ?: return
     val pending = spec.id in state.pending
-    val enabled = state.connected && !pending && spec.writable
+    val enabled = SettingsCatalog.controlEnabled(state, spec)
     if (spec.range != null) {
         val submitted = if (pending) PodsService.pendingControlValue(spec.id) else null
         var draft by remember(state.address, spec.id, current, pending, submitted) {
@@ -166,16 +194,12 @@ private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (Strin
                 })
         }
     } else if (spec.toggle) {
-        val title = when (spec.id) {
-            0x0a -> "耳机侧入耳检测"
-            0x1b -> "一只 AirPod 入耳时使用降噪"
-            else -> spec.title
-        }
+        val title = SettingsCatalog.toggleTitle(spec)
         ToggleRow(title, "", current == 1, enabled) {
             PodsService.setControl(spec.id, if (it) 1 else 2)
         }
     } else RowItem(spec.title, enabled = enabled, value = spec.choices.firstOrNull { it.value == current }?.label ?: "—") {
-        navigate("control/${spec.id}")
+        navigate(SettingsCatalog.controlRoute(spec.id))
     }
 }
 
@@ -183,7 +207,7 @@ private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (Strin
 private fun ControlChoices(state: PodsState, id: Int?, title: String? = null, labels: Map<Int, String> = emptyMap()) {
     val spec = Controls.all.firstOrNull { it.id == id } ?: return
     val current = state.controls[spec.id]?.firstOrNull() ?: return
-    val enabled = state.connected && spec.id !in state.pending && spec.writable
+    val enabled = SettingsCatalog.controlEnabled(state, spec)
     val content: @Composable ColumnScope.() -> Unit = {
         spec.choices.forEachIndexed { index, choice ->
             GlasmioListRow(title = labels[choice.value] ?: choice.label,
@@ -306,53 +330,77 @@ private fun BatterySettings(state: PodsState) {
 }
 
 private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, navigate: (String) -> Unit) {
-    item("appearance") {
-        val style by AppearancePreferences.style.collectAsState()
-        val changeStyle = LocalChangeUiStyle.current
-        Section("外观") {
-            GlasmioListRow("UI 风格", showTopSeparator = false, trailing = {
-                GlasmioPopUpButton(
-                    selected = style,
-                    items = UiStyle.entries,
-                    onSelected = changeStyle,
-                    label = { it.label },
-                )
-            })
-        }
-    }
-
-    item("popups") {
-        Section("弹窗与提醒") {
-            ToggleRow("开盖弹窗", "", state.popupEnabled) { DeviceRepository.setPopup(it) }
-            ToggleRow("系统原生弹窗", "", state.nativePopup) { DeviceRepository.setNativePopup(it) }
-            ToggleRow("连接电量卡片", "", state.connectionPopup) { DeviceRepository.setConnectionPopup(it) }
-            ToggleRow("电量提醒", "", state.batteryAlerts) { DeviceRepository.setBatteryAlerts(it) }
-        }
-    }
-    item("previews") {
-        SettingsCard {
-            RowItem("电量卡片预览") { PodsService.previewPopup() }
-            if (state.nativePopup) RowItem("超级岛预览") { PodsService.previewIsland() }
-        }
-    }
-    item("systemIntegration") {
-        val hostRestart by HostRestartCoordinator.state.collectAsState()
-        Section("系统集成") {
-            RowItem("系统原生适配", "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
-            RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
-                enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
-            RowItem("悬浮显示权限", action = onOverlay)
-            RowItem("系统蓝牙设置", action = onSystemBluetooth)
-        }
-    }
-    item("moduleInformation") {
-        val logExport = LocalLogExport.current
-        SettingsCard {
-            RowItem("连接设置") { navigate("connection") }
-            RowItem("连接诊断") { navigate("diagnostics") }
-            RowItem(if (logExport.busy) "正在导出日志…" else "导出日志", logExport.status,
-                enabled = !logExport.busy, action = logExport.export)
-            RowItem("关于 HyperPods-X") { navigate("about") }
+    SettingsCatalog.moduleSections.forEach { section ->
+        item(section.key) {
+            when (section.key) {
+                "appearance" -> {
+                    val style by AppearancePreferences.style.collectAsState()
+                    val changeStyle = LocalChangeUiStyle.current
+                    Section(requireNotNull(section.title)) {
+                        section.items.forEach { key ->
+                            if (key == "style") GlasmioListRow(SettingsCatalog.moduleLabel(key), showTopSeparator = false, trailing = {
+                                GlasmioPopUpButton(
+                                    selected = style,
+                                    items = UiStyle.entries,
+                                    onSelected = changeStyle,
+                                    label = { it.label },
+                                )
+                            })
+                        }
+                    }
+                }
+                "popups" -> Section(requireNotNull(section.title)) {
+                    section.items.forEach { key ->
+                        SettingsToggle.entries.firstOrNull { it.key == key }?.let { toggle ->
+                            ToggleRow(toggle.title, "", toggle.checked(state)) { enabled ->
+                                when (toggle) {
+                                    SettingsToggle.EAR_AUTOMATION -> DeviceRepository.setEarAutomation(enabled)
+                                    SettingsToggle.OPEN_CASE_POPUP -> DeviceRepository.setPopup(enabled)
+                                    SettingsToggle.NATIVE_POPUP -> DeviceRepository.setNativePopup(enabled)
+                                    SettingsToggle.CONNECTION_POPUP -> DeviceRepository.setConnectionPopup(enabled)
+                                    SettingsToggle.BATTERY_ALERTS -> DeviceRepository.setBatteryAlerts(enabled)
+                                }
+                            }
+                        }
+                    }
+                }
+                "previews" -> SettingsCard {
+                    section.items.forEach { key ->
+                        when (key) {
+                            "batteryPreview" -> RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewPopup() }
+                            "islandPreview" -> if (state.nativePopup) RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewIsland() }
+                        }
+                    }
+                }
+                "systemIntegration" -> {
+                    val hostRestart by HostRestartCoordinator.state.collectAsState()
+                    Section(requireNotNull(section.title)) {
+                        section.items.forEach { key ->
+                            when (key) {
+                                "nativeScope" -> RowItem(SettingsCatalog.moduleLabel(key), "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
+                                "restartHosts" -> RowItem(if (hostRestart.running) "正在重启作用域…" else SettingsCatalog.moduleLabel(key), hostRestart.message,
+                                    enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
+                                "overlayPermission" -> RowItem(SettingsCatalog.moduleLabel(key), action = onOverlay)
+                                "bluetoothSettings" -> RowItem(SettingsCatalog.moduleLabel(key), action = onSystemBluetooth)
+                            }
+                        }
+                    }
+                }
+                "moduleInformation" -> {
+                    val logExport = LocalLogExport.current
+                    SettingsCard {
+                        section.items.forEach { key ->
+                            when (key) {
+                                "connection" -> RowItem(SettingsCatalog.moduleLabel(key)) { navigate("connection") }
+                                "diagnostics" -> RowItem(SettingsCatalog.moduleLabel(key)) { navigate("diagnostics") }
+                                "exportLogs" -> RowItem(if (logExport.busy) "正在导出日志…" else SettingsCatalog.moduleLabel(key), logExport.status,
+                                    enabled = !logExport.busy, action = logExport.export)
+                                "about" -> RowItem(SettingsCatalog.moduleLabel(key)) { navigate("about") }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

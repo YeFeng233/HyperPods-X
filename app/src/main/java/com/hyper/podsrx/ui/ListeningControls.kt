@@ -1,144 +1,186 @@
 package com.hyper.podsrx.ui
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.semantics.*
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hyper.podsrx.device.Controls
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.PodsService
 import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.ui.ios.ListeningIntentState
+import com.hyper.podsrx.ui.ios.expireListeningTarget
+import com.hyper.podsrx.ui.ios.nextListeningTarget
+import com.hyper.podsrx.ui.ios.requestListeningMode
+import com.hyper.podsrx.ui.ios.requestListeningStrength
+import com.hyper.podsrx.ui.ios.startListeningTarget
+import com.hyper.podsrx.ui.ios.syncListeningIntent
+import com.hyper.podsrx.ui.ios.listeningPresentation as intentPresentation
+import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/** Both renderers use the same tested intent reducer and the existing device command queue. */
+private class MiuixListeningController {
+    var intent by mutableStateOf(ListeningIntentState())
+    fun mode(value: Int) { intent = requestListeningMode(intent, value) }
+    fun strength(value: Int) { intent = requestListeningStrength(intent, value) }
+}
+
+private val LocalMiuixListeningController = staticCompositionLocalOf<MiuixListeningController?> { null }
+
+@Composable
+internal fun MiuixListeningIntentHost(state: PodsState, content: @Composable () -> Unit) {
+    val controller = rememberMiuixListeningController(state,
+        { PodsService.setControl(0x0d, it) }, { PodsService.setControl(0x2e, it) })
+    CompositionLocalProvider(LocalMiuixListeningController provides controller, content = content)
+}
+
+@Composable
+private fun rememberMiuixListeningController(
+    state: PodsState,
+    onModeChange: (Int) -> Unit,
+    onStrengthChange: (Int) -> Unit,
+): MiuixListeningController {
+    val controller = remember(state.address, state.running) { MiuixListeningController() }
+    val currentState by rememberUpdatedState(state)
+    val modeChange by rememberUpdatedState(onModeChange)
+    val strengthChange by rememberUpdatedState(onStrengthChange)
+    LaunchedEffect(controller, state, controller.intent) {
+        val synced = syncListeningIntent(controller.intent, state)
+        controller.intent = synced
+        nextListeningTarget(synced, state)?.let { target ->
+            val started = startListeningTarget(synced, target, state.message)
+            if (started.inFlight?.target == target) {
+                controller.intent = started
+                if (target.control == 0x0d) modeChange(target.value) else strengthChange(target.value)
+            }
+        }
+    }
+    val flight = controller.intent.inFlight?.target
+    LaunchedEffect(controller, flight) {
+        if (flight != null) {
+            delay(13_000)
+            controller.intent = expireListeningTarget(controller.intent, flight, currentState)
+        }
+    }
+    return controller
+}
 
 @Composable
 internal fun ListeningControls(
     state: PodsState,
     onModeChange: (Int) -> Unit = { PodsService.setControl(0x0d, it) },
-    onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) }
+    onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) },
 ) {
-    val ui = listeningPresentation(state)
-    var draft by remember(state.address) {
-        mutableIntStateOf(ui.strength ?: 50)
-    }
-    var editing by remember(state.address) {
-        mutableStateOf(false)
-    }
-    var dragging by remember(state.address) { mutableStateOf(false) }
-    val pending = 0x2e in state.pending
-    val submitted = state.adaptiveTarget
-    val submit by rememberUpdatedState(newValue = {
-        // The service deduplicates against the latest target, including same-frame reversals.
-        if (ui.strengthEnabled) onStrengthChange(draft)
-    })
-    LaunchedEffect(state.address, state.connected, ui.mode, ui.strength, pending, submitted, dragging) {
-        if (!state.connected || ui.mode != 4) {
-            editing = false
-            dragging = false
-        } else if (!dragging) {
-            if (submitted != null) {
-                draft = submitted
-                editing = true
-            } else {
-                draft = ui.strength ?: 50
-                editing = false
-            }
-        }
-    }
-    val change: (Int) -> Unit = {
-        draft = it
-        editing = true
-        submit()
-    }
-    val finish = { submit() }
-    val cancel = {
-        draft = submitted ?: ui.strength ?: 50
-        editing = submitted != null
-    }
-    val shownStrength = if (editing) draft else submitted ?: ui.strength
-    val primary = MiuixTheme.colorScheme.primary
-    val secondary = MiuixTheme.colorScheme.onSurfaceSecondary
-    val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) "左" else "右"
-    val track = secondary.copy(alpha = .09f)
+    val controller = LocalMiuixListeningController.current
+        ?: rememberMiuixListeningController(state, onModeChange, onStrengthChange)
+    val ui = intentPresentation(state, controller.intent)
+    val caption = ui.modeNotice.ifBlank { if (ui.showAdaptive) ui.strengthNotice else "" }
     SettingsCard {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp)) {
-            val compact = maxWidth < 380.dp || LocalDensity.current.fontScale > 1.3f
-            val expanded = ui.showAdaptive && !compact
-            val adaptiveWeight by animateFloatAsState(if (expanded) 3f else 1f, tween(240), label = "adaptiveWidth")
-            Column(Modifier.animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth().selectableGroup().drawBehind {
-                    drawRoundRect(track, size = Size(size.width, 68.dp.toPx()), cornerRadius = CornerRadius(34.dp.toPx()))
-                }) {
-                    Controls.listeningChoices.forEach { choice ->
-                        val selected = ui.mode == choice.value
-                        Column(Modifier.weight(if (choice.value == 4) adaptiveWeight else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (choice.value == 4 && expanded) {
-                                LibrePodsAdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel) { dragging = it }
-                                Text("自适应", fontSize = 15.sp, color = primary, textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(top = 8.dp).clearAndSetSemantics {})
-                            } else {
-                                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                                    .selectable(selected, enabled = ui.modeEnabled, role = Role.RadioButton) {
-                                        if (!selected) onModeChange(choice.value)
-                                    }.alpha(if (ui.modeEnabled || selected) 1f else .45f),
-                                    horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Box(Modifier.fillMaxWidth().height(68.dp), contentAlignment = Alignment.Center) {
-                                        Box(Modifier.size(56.dp).then(if (selected) Modifier.border(1.5.dp, primary, CircleShape) else Modifier)
-                                            .padding(4.dp).clip(CircleShape).background(if (selected) primary else Color.Transparent),
-                                            contentAlignment = Alignment.Center) {
-                                            ListeningGlyph(choice.value, if (selected) Color.White else secondary)
-                                        }
-                                    }
-                                    Text(choice.label, fontSize = 15.sp, color = if (selected) primary else MiuixTheme.colorScheme.onSurface,
-                                        textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp))
-                                }
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 16.dp)) {
+            Row(Modifier.fillMaxWidth().selectableGroup()) {
+                SettingsCatalog.listeningChoices.forEach { choice ->
+                    val selected = ui.mode == choice.value
+                    // Adaptive audio does not change the native selector's four-item layout.
+                    val enabled = ui.modeEnabled && (choice.value != 1 || state.controls[0x34]?.firstOrNull() != 2)
+                    Column(Modifier.weight(1f)
+                        .graphicsLayer { alpha = if (enabled || selected) 1f else .4f },
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.height(64.dp), contentAlignment = Alignment.Center) {
+                            NativeListeningIcon(choice.value, choice.label, selected, enabled) {
+                                if (!selected) controller.mode(choice.value)
                             }
                         }
+                        if (caption.isBlank()) Text(choice.label, fontSize = 15.sp, lineHeight = 20.sp,
+                            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp).heightIn(min = 22.dp).clearAndSetSemantics {})
                     }
                 }
-                if (ui.showAdaptive) {
-                    if (compact) LibrePodsAdaptiveSlider(shownStrength, ui.strengthEnabled, change, finish, cancel) { dragging = it }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("更通透", fontSize = 12.sp, color = secondary)
-                        Text(when {
-                            pending -> "目标 ${adaptiveStrengthLabel(draft)} · 正在发送"
-                            submitted != null && !dragging -> "${adaptiveStrengthLabel(submitted)} · 已发送"
-                            editing -> "${adaptiveStrengthLabel(draft)} · 正在调节"
-                            ui.strength == null -> "降噪幅度未读取"
-                            else -> "降噪幅度 · ${adaptiveStrengthLabel(ui.strength)}"
-                        }, fontSize = 12.sp, color = primary, textAlign = TextAlign.Center,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                        Text("更降噪", fontSize = 12.sp, color = secondary)
-                    }
-                    Text("向${direction}滑动增强降噪，连续调节。", fontSize = 12.sp, color = secondary,
-                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    if (submitted != null) Text("耳机当前回读：${ui.strength?.let { adaptiveStrengthLabel(it) } ?: "等待读取"}", fontSize = 12.sp,
-                        color = secondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            }
+            if (caption.isNotBlank()) ListeningNotice(caption)
+            if (ui.showAdaptive) {
+                Spacer(Modifier.height(12.dp))
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val cellWidth = maxWidth / SettingsCatalog.listeningChoices.size
+                    val firstDiameter = if (ui.mode == SettingsCatalog.listeningChoices.first().value) 59.8.dp else 48.dp
+                    val lastDiameter = if (ui.mode == SettingsCatalog.listeningChoices.last().value) 59.8.dp else 48.dp
+                    AdaptiveStrengthControl(state, showNotice = false,
+                        modifier = Modifier.padding(
+                            start = ((cellWidth - firstDiameter) / 2).coerceAtLeast(0.dp),
+                            end = ((cellWidth - lastDiameter) / 2).coerceAtLeast(0.dp),
+                        ))
                 }
-                if (ui.notice.isNotBlank()) Text(ui.notice, fontSize = 12.sp, color = secondary,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite })
             }
         }
     }
+}
+
+@Composable
+private fun NativeListeningIcon(mode: Int, label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val resource = when (mode) {
+        2 -> R.drawable.listening_anc
+        3 -> R.drawable.listening_transparency
+        4 -> R.drawable.listening_adaptive
+        else -> R.drawable.listening_off
+    }
+    Box(Modifier.size(if (selected) 59.8.dp else 48.dp)
+        .clip(CircleShape)
+        .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+        Image(painterResource(if (selected) R.drawable.miuix_listening_selected else R.drawable.miuix_listening_background),
+            null, modifier = Modifier.matchParentSize())
+        // SrcIn tint keeps each PNG pixel's alpha, including the off symbol's faint ring.
+        Icon(painterResource(resource), null, Modifier.size(30.dp),
+            tint = MiuixStatusColors.listeningIcon(mode, selected, dark))
+    }
+}
+
+@Composable
+internal fun AdaptiveStrengthControl(state: PodsState, showNotice: Boolean = true, modifier: Modifier = Modifier) {
+    val controller = LocalMiuixListeningController.current ?: rememberMiuixListeningController(state,
+        { PodsService.setControl(0x0d, it) }, { PodsService.setControl(0x2e, it) })
+    val ui = intentPresentation(state, controller.intent)
+    val notice = ui.modeNotice.ifBlank { ui.strengthNotice }
+    Column(modifier.fillMaxWidth()) {
+        Slider(value = (ui.strength ?: 50).toFloat(), enabled = ui.strengthEnabled,
+            valueRange = 0f..100f, onValueChange = { value ->
+                if (ui.strengthEnabled) controller.strength(adaptiveStrengthAt(value / 100f))
+            })
+        if (notice.isBlank()) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            SettingsCatalog.adaptiveAnchors.forEach { anchor ->
+                Text(com.hyper.podsrx.ui.ios.adaptiveStrengthLabel(anchor), style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
+        }
+        else if (showNotice) ListeningNotice(notice)
+    }
+}
+
+@Composable
+private fun ListeningNotice(message: String) {
+    Text(message, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(min = 22.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite })
 }

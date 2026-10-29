@@ -174,7 +174,7 @@ implementation is redistributed with this experiment.
 
 ## 0.4.6 LibrePods adaptive slider
 
-`app/src/main/java/com/hyper/podsrx/ui/LibrePodsAdaptiveSlider.kt` adapts the
+In version 0.4.6, the former `ui/LibrePodsAdaptiveSlider.kt` adapted the
 integrated adaptive slider from LibrePods' GPL-3.0-or-later
 [`NoiseControlSettings.kt`](https://github.com/librepods-org/librepods/blob/80aa7461df414470f379ebdfe540b2e8889fcbe2/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/NoiseControlSettings.kt),
 commit `80aa7461df414470f379ebdfe540b2e8889fcbe2`, blob
@@ -194,3 +194,15 @@ readback or measured acoustic effect. HyperPods-X does not copy LibrePods'
 optimistic update into its confirmed device controls. No decompiled UI source
 is redistributed; this component derives from the public source linked above.
 The GPL license is included in `LICENSE` and the app's license assets.
+
+The current Miuix renderer replaces that former component with the native Miuix
+Slider and the shared intent reducer from the iOS settings integration described
+above. The historical slider attribution is retained for earlier versions.
+
+## Miuix settings renderer
+
+The Miuix settings renderer follows Mishka's UI guidelines at commit
+`bbd7960527d38c50b330a5e72ff93b605d1df644`, adapted in
+`docs/MIUIX-UI-GUIDELINES.md`. Its native headphone artwork and battery-symbol font
+subset retain the OEM owners' rights; see `docs/ARTWORK-SOURCES.md` for provenance.
+These resources do not replace the iOS theme's assets.

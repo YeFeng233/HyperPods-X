@@ -43,6 +43,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.ui.SettingsCatalog
+import com.hyper.podsrx.ui.SettingsPageLink
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosPageHorizontalPadding
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
@@ -98,12 +100,7 @@ internal fun IosSettingsScreen(
         view.keepScreenOn = state.spatial.calibrationMode
         onDispose { view.keepScreenOn = previous }
     }
-    val firstPage = when (initialPage) {
-        "spatial", "audio", "controls", "accessibility", "module", "connection", "battery" -> initialPage
-        "more" -> "module"
-        "advanced" -> "audio"
-        else -> null
-    }
+    val firstPage = SettingsCatalog.initialPage(initialPage)?.route
     val backStack = rememberSaveable(
         saver = listSaver<SnapshotStateList<String>, String>(save = { it.toList() }, restore = { it.toMutableStateList() }),
     ) {
@@ -264,13 +261,13 @@ internal fun IosSettingsScreen(
                                                                     }
                                                                     item("features") {
                                                                         SettingsCard {
-                                                                            FeatureLink("音频与路径", "speaker.wave.3.fill", Color(0xffff2d55), false) { navigate("audio") }
-                                                                            FeatureLink("控制与手势", "hand.pinch.fill", Color(0xff8e8e93)) { navigate("controls") }
-                                                                            FeatureLink("无障碍", "accessibility", Color(0xff00a7ed)) { navigate("accessibility") }
+                                                                            SettingsCatalog.rootFeatureLinks.forEachIndexed { index, link ->
+                                                                                FeatureLink(link, index > 0) { navigate(link.page.route) }
+                                                                            }
                                                                         }
                                                                     }
                                                                     item("battery") {
-                                                                        SettingsCard { FeatureLink("电池", "battery.100percent", Color(0xff34c759), false) { navigate("battery") } }
+                                                                        SettingsCard { FeatureLink(SettingsCatalog.batteryLink, false) { navigate(SettingsCatalog.batteryLink.page.route) } }
                                                                     }
                                                                     if (!entryDisplayState.running) item("connection") {
                                                                         SettingsCard {
@@ -286,8 +283,9 @@ internal fun IosSettingsScreen(
                                                                     }
                                                                     item("module") {
                                                                         SettingsCard {
-                                                                            RowItem("更多设置") { navigate("module") }
-                                                                            RowItem("关于 HyperPods-X") { navigate("about") }
+                                                                            SettingsCatalog.rootSettingsLinks.forEach { link ->
+                                                                                RowItem(link.title) { navigate(link.page.route) }
+                                                                            }
                                                                         }
                                                                     }
                                                                 } else if (page == "name") {
@@ -329,50 +327,15 @@ internal fun IosSettingsScreen(
 private fun settingsEntryKey(route: String) = "$route#${java.util.UUID.randomUUID()}"
 private fun String.settingsRouteName() = substringBefore('#')
 
-private fun actionFailureMessage(message: String): String? = when {
-    message.startsWith("聆听模式未确认目标值") ||
-        message.startsWith("自适应降噪幅度未确认目标值") -> null
-    message.endsWith("未确认目标值，已保留设备回读结果") ->
-        "${message.substringBefore("未确认目标值")}未能更新，请重试。"
-    message.startsWith("设置发送失败：") -> "无法更新耳机设置，请重试。"
-    else -> when (message) {
-        "请先连接耳机", "耳机控制尚未连接" -> "耳机已断开连接，请重新连接后重试。"
-        "请在自适应模式下调整降噪幅度" -> "请先切换到自适应模式。"
-        "请等待自适应模式与降噪幅度读取完成" -> "正在读取耳机设置，请稍后重试。"
-        "请等待降噪幅度确认后再切换模式" -> "正在更新自适应音频，请稍后切换模式。"
-        "请等待降噪指令发送完成后再切换模式" -> "正在发送自适应音频设置，请稍后切换模式。"
-        "当前设置或取值尚未开放写入" -> "此设置暂时无法更改。"
-        "无法调节媒体音量" -> message
-        "请先连接并佩戴双耳" -> message
-        "请先取得姿态流并完成三轴校准" -> "请先完成三轴校准。"
-        "系统追踪启动失败" -> "无法开启头部追踪，请重试。"
-        else -> null
-    }
-}
+private fun actionFailureMessage(message: String): String? = SettingsCatalog.actionFailureMessage(message)
 
-private fun settingsTitle(page: String, state: PodsState): String = when {
-    page.startsWith("control/") -> Controls.all.firstOrNull { it.id == page.substringAfter('/').toIntOrNull() }?.title ?: "设置"
-    page == "call/mute" -> "静音与取消静音"
-    page == "call/end" -> "结束通话"
-    page == "audio" -> "音频与路径"
-    page == "controls" -> "控制与手势"
-    page == "accessibility" -> "无障碍"
-    page == "spatial" -> "空间音频"
-    page == "equalizer" -> "均衡器"
-    page == "battery" -> "电池"
-    page == "module" -> "更多设置"
-    page == "connection" -> "连接设置"
-    page == "diagnostics" -> "连接诊断"
-    page == "licenses" -> "开源许可"
-    page == "about" -> "关于"
-    else -> state.displayName
-}
+private fun settingsTitle(page: String, state: PodsState): String = SettingsCatalog.title(page, state)
 
 @Composable
-private fun FeatureLink(title: String, symbol: String, color: Color, separator: Boolean = true, onClick: () -> Unit) {
-    GlasmioListRow(title = title, leading = {
-        Box(Modifier.size(29.dp).clip(GlasmioTheme.shapes.extraSmall).background(color), contentAlignment = Alignment.Center) {
-            SfIcon(symbol, null, size = 23.dp, tint = Color.White)
+private fun FeatureLink(link: SettingsPageLink, separator: Boolean = true, onClick: () -> Unit) {
+    GlasmioListRow(title = link.title, leading = {
+        Box(Modifier.size(29.dp).clip(GlasmioTheme.shapes.extraSmall).background(Color(requireNotNull(link.argb))), contentAlignment = Alignment.Center) {
+            SfIcon(requireNotNull(link.symbol), null, size = 23.dp, tint = Color.White)
         }
     }, onClick = onClick, showTopSeparator = separator)
 }

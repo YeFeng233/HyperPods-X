@@ -19,6 +19,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [MIUIX-UI-GUIDELINES.md](MIUIX-UI-GUIDELINES.md) | 适配 HyperPods 实机架构的 miuix 页面与组件规范 |
 | [UI-STYLES.md](UI-STYLES.md) | miuix 与 iOS 两套界面的切换方式，以及 Glasmio 源码和字体的构建准备 |
 | [NATIVE-POPUP.md](NATIVE-POPUP.md) | HyperOS 原生耳机弹窗、超级岛的复用方式，以及开盖检测与弹窗时序 |
 | [NATIVE-FUSION.md](NATIVE-FUSION.md) | 融合设备中心（设备互联）耳机卡片的适配 |
