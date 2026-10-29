@@ -318,6 +318,7 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
             ToggleRow("开盖弹窗", "", state.popupEnabled) { DeviceRepository.setPopup(it) }
             ToggleRow("系统原生弹窗", "", state.nativePopup) { DeviceRepository.setNativePopup(it) }
             ToggleRow("连接电量卡片", "", state.connectionPopup) { DeviceRepository.setConnectionPopup(it) }
+            ToggleRow("电量提醒", "", state.batteryAlerts) { DeviceRepository.setBatteryAlerts(it) }
         }
     }
     item("previews") {

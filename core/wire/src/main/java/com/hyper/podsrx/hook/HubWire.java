@@ -30,6 +30,12 @@ public final class HubWire {
     public static final String PROVIDER_URI = "content://com.android.bluetooth.ble.app.headsetdata.provider/AirpodsModel";
     public static final String STATE_METHOD = "hyperpods_state";
 
+    /**
+     * The app's channel for the battery alerts. The app makes {@link #HOST} its notification
+     * delegate, so the hub posts them as the app even while it is not running.
+     */
+    public static final String ALERT_CHANNEL = "battery_alerts";
+
     // app -> hub
     public static final int HELLO = 1, PUSH_CONTROL = 2, PUSH_KEYS = 3, REQUEST_POPUP = 4,
         GET_STATE = 5, GET_DIAGNOSTICS = 6;

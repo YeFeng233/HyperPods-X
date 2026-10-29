@@ -41,6 +41,7 @@ data class PodsState(
     ,val lidOpen:Boolean?=null
     ,val nativePopup:Boolean=true
     ,val nativePopupStatus:String="等待原生弹窗连接"
+    ,val batteryAlerts:Boolean=true
     ,val spatial:SpatialState=SpatialState()
     ,val localName:String=""
     ,val wearing:Event.Wearing?=null
@@ -75,7 +76,7 @@ object DeviceRepository {
         keys = SecureKeys(app)
         val p = app.getSharedPreferences("app", Context.MODE_PRIVATE)
         update { it.copy(address = p.getString("address", "")!!, name = p.getString("name", "AirPods")!!,
-            popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),nativePopup=p.getBoolean("nativePopup",true),product=p.getInt("product",-1)) }
+            popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),nativePopup=p.getBoolean("nativePopup",true),batteryAlerts=p.getBoolean("batteryAlerts",true),product=p.getInt("product",-1)) }
         // The case advertises its status even with the lid closed, so readings are never restored from disk.
         app.deleteSharedPreferences("battery_history")
     }
@@ -127,7 +128,7 @@ object DeviceRepository {
     fun bind(device: BluetoothDevice) {
         if (state.value.running) stop()
         app.getSharedPreferences("app",Context.MODE_PRIVATE).edit().putString("address",device.address).putString("name",device.name ?: "AirPods").remove("product").apply()
-        update { PodsState(name=device.name ?: "AirPods", address=device.address,framework=it.framework,frameworkApi=it.frameworkApi,popupEnabled=it.popupEnabled,earAutomation=it.earAutomation,connectionPopup=it.connectionPopup,nativePopup=it.nativePopup) }
+        update { PodsState(name=device.name ?: "AirPods", address=device.address,framework=it.framework,frameworkApi=it.frameworkApi,popupEnabled=it.popupEnabled,earAutomation=it.earAutomation,connectionPopup=it.connectionPopup,nativePopup=it.nativePopup,batteryAlerts=it.batteryAlerts) }
         refreshLocalName()
         FrameworkBridge.publish()
         start()
@@ -151,6 +152,9 @@ object DeviceRepository {
     }
     fun setNativePopup(enabled:Boolean) {
         app.getSharedPreferences("app",0).edit().putBoolean("nativePopup",enabled).apply();update{it.copy(nativePopup=enabled)};FrameworkBridge.publish()
+    }
+    fun setBatteryAlerts(enabled:Boolean) {
+        app.getSharedPreferences("app",0).edit().putBoolean("batteryAlerts",enabled).apply();update{it.copy(batteryAlerts=enabled)};FrameworkBridge.publish()
     }
     /** The verified advertisement names the product before the first AACP session of this run. */
     fun product(id:Int) {
@@ -197,7 +201,7 @@ object DeviceRepository {
                 .put("identityReady",s.identityReady).put("broadcasts",s.broadcasts).put("trustedBroadcasts",s.trustedBroadcasts)
                 .put("proximityCandidates",s.proximityCandidates).put("identityMatches",s.identityMatches).put("cardStatus",s.cardStatus.joinToString(","))
                 .put("lidOpen",s.lidOpen)
-                .put("nativePopup",s.nativePopup).put("nativePopupStatus",s.nativePopupStatus)
+                .put("nativePopup",s.nativePopup).put("nativePopupStatus",s.nativePopupStatus).put("batteryAlerts",s.batteryAlerts)
                 .put("earAutomation",s.earAutomation).put("earDetectionStatus",s.earDetectionStatus)
                 .put("wearingPrimary",s.wearing?.primary?.name).put("wearingSecondary",s.wearing?.secondary?.name)
                 .put("spatial",s.spatial.diagnostic())

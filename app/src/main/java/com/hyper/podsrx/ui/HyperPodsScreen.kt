@@ -262,6 +262,7 @@ private fun MoreSettings(onOverlay: () -> Unit, onSystemBluetooth: () -> Unit, n
         PreferenceToggle("开盖弹窗", "仅响应已验证的耳机开盖广播", { it.popupEnabled }, DeviceRepository::setPopup)
         PreferenceToggle("HyperOS 原生弹窗", "优先使用系统弹窗与超级岛", { it.nativePopup }, DeviceRepository::setNativePopup)
         PreferenceToggle("连接电量卡片", "重新连接时显示真实电量", { it.connectionPopup }, DeviceRepository::setConnectionPopup)
+        PreferenceToggle("电量提醒", "低电量、充满电和放回充电盒时发送通知", { it.batteryAlerts }, DeviceRepository::setBatteryAlerts)
         RowItem("启用系统适配", "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
         RowItem(if (hostRestart.running) "正在重启作用域…" else "重启作用域", hostRestart.message,
             enabled = !hostRestart.running, action = HostRestartCoordinator::restart)

@@ -72,13 +72,28 @@ final class PopupDriver {
         JSONObject params = new JSONObject();
         params.put("left", area(headset.artwork + "_left", percentage(request.left)));
         params.put("right", area(headset.artwork + "_right", percentage(request.right)));
+        island(host, "CATEGORY_VIDEO_TEXT_TEXT_VIDEO", params, request.target);
+        DiagnosticLog.i("HyperPods-X", "Submitted native headset popup to SystemUI");
+        return true;
+    }
+
+    /** The case and its level in the one-area template the ROM uses for its own headset notices. */
+    static void caseIsland(Context host, String model, int product, int level, PendingIntent target) throws Exception {
+        HeadsetModels.Model headset = HeadsetModels.of(model, product);
+        JSONObject params = new JSONObject();
+        params.put("left", new JSONObject().put("iconParams", icon(headset.artwork + "_case")));
+        params.put("right", new JSONObject().put("textParams", text(percentage(level))));
+        island(host, "CATEGORY_VIDEO_TEXT", params, target);
+    }
+
+    private static void island(Context host, String template, JSONObject params, PendingIntent target) throws Exception {
         Class<?> controller = Class.forName("com.xiaomi.dist.statusbar.StatusBarController", false, host.getClassLoader());
-        String category = (String) controller.getField("CATEGORY_VIDEO_TEXT_TEXT_VIDEO").get(null);
+        String category = (String) controller.getField(template).get(null);
         Bundle bundle = new Bundle();
         // SystemUI routes this native AirPods template by its built-in id.
         bundle.putString("notifyId", "headset_wear_notification");
         bundle.putString("strong_toast_category", category);
-        bundle.putParcelable("target", request.target);
+        bundle.putParcelable("target", target);
         bundle.putLong("duration", 5000);
         bundle.putString("status_bar_strong_toast", "show_custom_strong_toast");
         bundle.putString("package_name", APP);
@@ -86,8 +101,6 @@ final class PopupDriver {
         Object statusBar = host.getSystemService("statusbar");
         statusBar.getClass().getMethod("setStatus", int.class, String.class, Bundle.class)
             .invoke(statusBar, 1, "strong_toast_action", bundle);
-        DiagnosticLog.i("HyperPods-X", "Submitted native headset popup to SystemUI");
-        return true;
     }
 
     /** Slides out the bound device's headset dialog in the ROM's dialog process. */
@@ -133,10 +146,15 @@ final class PopupDriver {
     }
 
     private static JSONObject area(String resource, String text) throws Exception {
-        JSONObject icon = new JSONObject().put("iconResName", resource).put("iconType", 0)
+        return new JSONObject().put("iconParams", icon(resource)).put("textParams", text(text));
+    }
+
+    private static JSONObject icon(String resource) throws Exception {
+        return new JSONObject().put("iconResName", resource).put("iconType", 0)
             .put("iconFormat", "png").put("category", "drawable");
-        JSONObject label = new JSONObject().put("text", text == null ? "—" : text)
-            .put("textColor", -1).put("turnAnim", true);
-        return new JSONObject().put("iconParams", icon).put("textParams", label);
+    }
+
+    private static JSONObject text(String text) throws Exception {
+        return new JSONObject().put("text", text == null ? "—" : text).put("textColor", -1).put("turnAnim", true);
     }
 }

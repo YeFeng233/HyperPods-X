@@ -92,7 +92,7 @@ OS serialization 描述读取器限制长度、深度、对象数量和引用，
 
 ## 0.3.0 历史试验记录
 
-日期：2026-10-22，Asia/Hong_Kong。范围限于 [真机基线](DEVICE-BASELINE.md) 中的 Xiaomi 17 Pro Max、HyperOS OS4.0.4.0.XPBCNXM 与 AirPods 5 / A3441。前期接口分析见 [可行性分析](SPATIAL-AUDIO-FEASIBILITY.md)。
+日期：2026-10-22，Asia/Hong_Kong。范围限于 [真机基线](DEVICE-BASELINE.md) 中的 Xiaomi 17 Pro Max、HyperOS OS4.0.4.0.XPBCNXM 与 AirPods 5 / A3441。前期接口分析见 [可行性分析](archive/SPATIAL-AUDIO-FEASIBILITY.md)。
 
 **固定空间音频已实现并实测；系统姿态接入自检通过；使用真实耳机姿态的动态头部追踪尚未完成。**
 
