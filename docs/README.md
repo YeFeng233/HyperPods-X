@@ -24,6 +24,7 @@
 | [NATIVE-POPUP.md](NATIVE-POPUP.md) | HyperOS 原生耳机底部弹窗、超级岛对接方案与开合盖检测时序 |
 | [NATIVE-FUSION.md](NATIVE-FUSION.md) | HyperOS 控制中心“融合设备中心”（设备互联）耳机卡片适配 |
 | [BLUETOOTH-SETTINGS.md](BLUETOOTH-SETTINGS.md) | 系统蓝牙列表中耳机卡片设置直达逻辑 |
+| [WIDGET.md](WIDGET.md) | 桌面电量小组件：系统组件图标不可替换的原因、快照推送通路与组件规格 |
 | [UI-STYLES.md](UI-STYLES.md) | miuix 与 iOS（Glasmio）双风格切换机制及字体、渲染依赖准备 |
 | [MIUIX-UI-GUIDELINES.md](MIUIX-UI-GUIDELINES.md) | 项目内遵循的 Miuix 页面与组件规范 |
 | [LOGS.md](LOGS.md) | 统一诊断日志结构、脱敏机制与导出说明 |
