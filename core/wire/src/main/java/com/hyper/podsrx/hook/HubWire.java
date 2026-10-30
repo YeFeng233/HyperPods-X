@@ -14,6 +14,15 @@ public final class HubWire {
     public static final String READY = APP + ".HUB_READY";
     /** Sent to each consuming host on a content change; carries no data. */
     public static final String CHANGED = APP + ".HUB_CHANGED";
+    /** The app's widget asks for a snapshot; the hub answers with {@link #CHANGED} and {@link #EXTRA_STATE}. */
+    public static final String SNAPSHOT = APP + ".HUB_SNAPSHOT";
+    /** {@link #CHANGED} payload for the app: the same bundle {@link #STATE_METHOD} returns. */
+    public static final String EXTRA_STATE = "state";
+    /**
+     * Remote preference: the app has a widget bound. The hub announces content changes to the app
+     * only while this is set, so a phone without the widget never wakes it for battery updates.
+     */
+    public static final String WIDGET_PREF = "widget_installed";
     /** Each scoped process reports which of its hooks installed; see GET_DIAGNOSTICS. */
     public static final String CAPABILITIES = APP + ".HUB_CAPABILITIES";
     public static final String PERMISSION = NativeControlWire.PERMISSION;

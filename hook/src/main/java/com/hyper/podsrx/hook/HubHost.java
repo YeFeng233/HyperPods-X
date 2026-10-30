@@ -70,6 +70,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     /** The hub's own view for the adapters in this process. */
     final HubReader reader = HubReader.local(() -> this.state);
     private BroadcastReceiver receiver;
+    private BroadcastReceiver snapshotReceiver;
 
     // Guarded by this.
     private final BatteryLedger ledger = new BatteryLedger();
@@ -116,6 +117,15 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
         };
         context.registerReceiver(host.capabilityReceiver, new IntentFilter(HubWire.CAPABILITIES), null, host.main, Context.RECEIVER_EXPORTED);
+        host.snapshotReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent intent) {
+                if (host.closed || !ReloadLifecycle.isActive() || !HubWire.SNAPSHOT.equals(intent.getAction())) return;
+                // The ROM's headset provider answers scoped system hosts only, so the widget asks here.
+                // The reply is addressed to this module's own app, so the request itself carries no data.
+                host.main.post(host::sendSnapshot);
+            }
+        };
+        context.registerReceiver(host.snapshotReceiver, new IntentFilter(HubWire.SNAPSHOT), null, host.main, Context.RECEIVER_EXPORTED);
         hookProvider(module, context.getClassLoader());
         try { hookAirCore(module, context.getClassLoader()); Compatibility.installed("ROM AACP channel guard"); }
         catch (Exception | LinkageError error) {
@@ -222,12 +232,13 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         if (closed) return;
         closed = true;
         if (instance == this) instance = null;
-        for (BroadcastReceiver registered : new BroadcastReceiver[] {receiver, capabilityReceiver}) {
+        for (BroadcastReceiver registered : new BroadcastReceiver[] {receiver, capabilityReceiver, snapshotReceiver}) {
             if (registered == null) continue;
             try { context.unregisterReceiver(registered); } catch (IllegalArgumentException ignored) {}
         }
         receiver = null;
         capabilityReceiver = null;
+        snapshotReceiver = null;
         unlinkCallback();
         scan.close();
         lid.close();
@@ -453,9 +464,28 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
                 DiagnosticLog.w(TAG, "Hub change notice failed: " + consumer, error);
             }
         }
+        if (preferences.getBoolean(HubWire.WIDGET_PREF, false)) notifyApp(current);
         reader.changed();
         widget.update(current);
         callApp(HubWire.ON_STATE, current.toBundle());
+    }
+
+    /** The widget's own notice: it cannot read the ROM provider, so the state travels with it. */
+    private void notifyApp(HubBundles.State current) {
+        if (closed) return;
+        try {
+            context.sendBroadcast(new Intent(HubWire.CHANGED).setPackage(HubWire.APP)
+                .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+                .putExtra(HubWire.EXTRA_STATE, current.toBundle()), null, shareIdentity());
+        } catch (RuntimeException error) {
+            DiagnosticLog.w(TAG, "Hub widget notice failed", error);
+        }
+    }
+
+    /** Answers a widget that appeared while nothing had changed yet. */
+    private void sendSnapshot() {
+        if (closed) return;
+        notifyApp(state);
     }
 
     private void callApp(int code, Bundle payload) {

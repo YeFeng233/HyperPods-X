@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget palette; the night counterparts live in values-night. -->
+    <color name="widget_surface">#F5FFFFFF</color>
+    <color name="widget_level">#E6000000</color>
+    <color name="widget_label">#8A000000</color>
+    <color name="widget_icon">#CC000000</color>
+    <color name="widget_bolt">#FF16A34A</color>
+    <color name="widget_ring_track">#26000000</color>
+    <color name="widget_ring_progress">#FF16A34A</color>
+</resources>

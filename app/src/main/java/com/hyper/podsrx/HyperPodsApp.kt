@@ -8,6 +8,7 @@ import com.hyper.podsrx.device.FrameworkBridge
 import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.ui.AppearancePreferences
 import com.hyper.podsrx.diagnostics.DiagnosticLogs
+import com.hyper.podsrx.widget.WidgetPresence
 
 class HyperPodsApp : Application() {
     override fun onCreate() {
@@ -15,6 +16,8 @@ class HyperPodsApp : Application() {
         DiagnosticLogs.initialize(this)
         AppearancePreferences.initialize(this)
         DeviceRepository.initialize(this)
+        // Runs before the framework service publishes configuration; the hub reads the flag there.
+        WidgetPresence.sync(this)
         FrameworkBridge.initialize()
         prepareBatteryAlerts()
     }

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_language">应用语言</string>
     <string name="language_follow_system">跟随系统</string>
@@ -584,4 +584,10 @@
     <string name="more_cancellation">"更降噪"</string>
     <string name="strength_swipe_hint">"向%1$s滑动增强降噪，连续调节。"</string>
     <string name="file_picker_failed">"无法打开文件保存界面，请稍后重试"</string>
+    <string name="widget_label">"耳机电量"</string>
+    <string name="widget_description">"显示已绑定 AirPods 的左右耳与充电盒电量。"</string>
+    <string name="widget_cell_description">"%1$s %2$s"</string>
+    <string name="widget_summary_separator">"，"</string>
+    <string name="widget_label_ring">"耳机电量·环"</string>
+    <string name="widget_ring_description">"以环形弧长显示左耳、右耳与充电盒电量。"</string>
 </resources>

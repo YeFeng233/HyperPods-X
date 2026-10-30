@@ -1,7 +1,9 @@
 package com.hyper.podsrx.device
 
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.text
+import com.hyper.podsrx.widget.WidgetPresence
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 
@@ -41,6 +43,8 @@ object FrameworkBridge {
                 ?.putBoolean("auto_connect", s.autoConnect)
                 // Known from an advertisement before the first session reports the model.
                 ?.putInt("panel_product", s.product)
+                // The hub wakes this app for battery changes only while a widget is bound.
+                ?.putBoolean(HubWire.WIDGET_PREF, WidgetPresence.installed)
                 ?.putBoolean("enabled", true)?.apply()
         }
     }

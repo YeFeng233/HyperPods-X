@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">HyperPods-X</string>
     <string name="app_language">App Language</string>
@@ -587,4 +587,11 @@
     <string name="more_cancellation">"More Cancellation"</string>
     <string name="strength_swipe_hint">"Slide %1$s to continuously increase noise cancellation."</string>
     <string name="file_picker_failed">"Unable to open the save dialog. Try again later"</string>
+    <string name="widget_label">"Earbud Battery"</string>
+    <string name="widget_description">"Left, right and case battery of the bound AirPods."</string>
+    <string name="widget_cell_description">"%1$s %2$s"</string>
+    <string name="widget_summary_separator">", "</string>
+    <string name="widget_level_unknown" translatable="false">"—"</string>
+    <string name="widget_label_ring">"Earbud Battery Ring"</string>
+    <string name="widget_ring_description">"Left, right and case levels drawn as an arc around each icon."</string>
 </resources>

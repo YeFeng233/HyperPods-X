@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_surface">#F22C2C2C</color>
+    <color name="widget_level">#E6FFFFFF</color>
+    <color name="widget_label">#8AFFFFFF</color>
+    <color name="widget_icon">#CCFFFFFF</color>
+    <color name="widget_bolt">#FF4ADE80</color>
+    <color name="widget_ring_track">#33FFFFFF</color>
+    <color name="widget_ring_progress">#FF4ADE80</color>
+</resources>
