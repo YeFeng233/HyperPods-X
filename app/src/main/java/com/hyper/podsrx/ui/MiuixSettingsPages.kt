@@ -41,7 +41,7 @@ internal fun LazyListScope.miuixSettingsPageContent(
         page == "module" -> moduleSettings(state, onOverlay, onSystemBluetooth, navigate)
         page == "connection" -> connectionSettings(state, onConnect, onSystemBluetooth)
         page == "diagnostics" -> diagnosticsSettings(state, strings)
-        page == "about" -> aboutSettings(state, navigate)
+        page == "about" -> aboutSettings(state, navigate, strings)
         page == "licenses" -> licenseSettings()
     }
 }
@@ -357,9 +357,9 @@ private fun LazyListScope.connectionNeeded(state: PodsState, navigate: (String) 
     }
 }
 
-private fun LazyListScope.aboutSettings(state: PodsState, navigate: (String) -> Unit) {
-    val information = listOf("名称" to state.displayName, "型号" to state.model.ifBlank { "—" },
-        "固件版本" to state.firmware.ifBlank { "—" }, "HyperPods-X" to BuildConfig.VERSION_NAME)
+private fun LazyListScope.aboutSettings(state: PodsState, navigate: (String) -> Unit, strings: Strings) {
+    val information = listOf("名称" to state.displayName, "型号" to state.model.ifBlank { "—" }) +
+        firmwareRows(state, strings).map { it.title to it.value } + ("HyperPods-X" to BuildConfig.VERSION_NAME)
     miuixGroupedItems("information", information, itemKey = { it.first }) { (title, value) -> InfoRow(title, value) }
     miuixGroupedItems("licenses", listOf("licenses")) { RowItem("开源许可") { navigate("licenses") } }
 }

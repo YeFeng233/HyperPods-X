@@ -36,6 +36,7 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.rememberStrings
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -165,7 +166,7 @@ internal fun MiuixSettingsScreen(
                         ) {
                             when (page) {
                                 SettingsPage.DEVICE.route -> miuixDevicePage(entryState, volume,
-                                    volumeController::setFraction, volumeController::refresh, onConnect, navigate)
+                                    volumeController::setFraction, volumeController::refresh, onConnect, navigate, strings)
                                 SettingsPage.NAME.route -> miuixItem("name.editor") {
                                     MiuixNameEditor(nameValue, { nameValue = it; nameError = null }, nameError, finishName)
                                 }
@@ -194,6 +195,7 @@ private fun LazyListScope.miuixDevicePage(
     onVolumeFinished: () -> Unit,
     onConnect: () -> Unit,
     navigate: (String) -> Unit,
+    strings: Strings,
 ) {
     miuixItem("device.product") {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -229,12 +231,10 @@ private fun LazyListScope.miuixDevicePage(
     if (!state.running) miuixGroupedItems("device.connection", listOf(Unit)) {
         RowItem("连接 AirPods") { navigate(SettingsPage.CONNECTION.route); onConnect() }
     }
-    miuixGroupedItems("device.information", listOf("model", "number", "firmware"), title = "关于") { row ->
-        when (row) {
-            "model" -> InfoRow("型号名称", state.headset.name)
-            "number" -> InfoRow("型号号码", state.model.ifBlank { "—" })
-            else -> InfoRow("版本", state.firmware.ifBlank { "—" })
-        }
+    val information = listOf(DeviceInformationRow("model", "型号名称", state.headset.name),
+        DeviceInformationRow("number", "型号号码", state.model.ifBlank { "—" })) + firmwareRows(state, strings)
+    miuixGroupedItems("device.information", information, itemKey = { it.key }, title = "关于") { row ->
+        InfoRow(row.title, row.value)
     }
     miuixGroupedItems("device.settings", SettingsCatalog.rootSettingsLinks, itemKey = { it.page.route }) { link ->
         RowItem(link.title) { navigate(link.page.route) }

@@ -576,6 +576,9 @@
     <string name="choose_airpods">"Choose AirPods"</string>
     <string name="connection_permissions_footnote">"Connect AirPods in system Bluetooth settings first, then allow Nearby Devices and background operation."</string>
     <string name="firmware_version">"Firmware Version"</string>
+    <string name="firmware_internal_version">"Internal Version"</string>
+    <string name="firmware_identifier">"Firmware Identifier"</string>
+    <string name="firmware_not_provided">"Not reported by earbuds"</string>
     <string name="artwork_sources">"Artwork Sources"</string>
     <string name="adaptive_accessibility_state">"%1$s, increase noise cancellation toward the %2$s"</string>
     <string name="more_transparency">"More Transparency"</string>

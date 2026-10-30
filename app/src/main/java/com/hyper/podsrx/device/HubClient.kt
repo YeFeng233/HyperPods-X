@@ -17,6 +17,8 @@ import com.hyper.podsrx.DeviceSettingsActivity
 import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.HubBundles
 import com.hyper.podsrx.hook.HubWire
+import com.hyper.podsrx.hook.ControlSocketWire
+import java.io.IOException
 import com.hyper.podsrx.hook.NativeControlWire
 import com.hyper.podsrx.i18n.UiText
 import com.hyper.podsrx.i18n.stringResolver
@@ -50,6 +52,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO.limitedParallelism(1))
     private val controlBatteries=MutableStateFlow<List<Battery>>(emptyList())
     @Volatile private var hub:IBinder?=null
+    @Volatile private var transportVersion=0
     private var hubDeath:IBinder.DeathRecipient?=null
     @Volatile private var closed=false
     private var retry:Job?=null
@@ -96,6 +99,25 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
     fun controlBatteries(values:List<Battery>) { controlBatteries.value=values }
 
     fun pushKeys() { scope.launch{sendKeys()} }
+
+    /** Obtains a single host-owned socket. Never falls back to a competing local channel on API 36. */
+    suspend fun openControl(address:String):ControlSocketWire.Channel {
+        val binder=withTimeoutOrNull(8000L) {
+            while(hub==null&&!closed)delay(100)
+            hub
+        }?:throw IOException(strings(R.string.hub_not_ready))
+        if(transportVersion!=ControlSocketWire.VERSION)throw IOException(strings(R.string.hub_version_mismatch))
+        val request=Bundle().apply{putBinder("callback",callback);putString("address",address)}
+        val (status,response)=transact(binder,HubWire.OPEN_CONTROL,request)
+        if(status!=HubWire.OK)throw IOException(strings(R.string.hub_connection_rejected))
+        if(response.getInt(ControlSocketWire.EXTRA_VERSION)!=ControlSocketWire.VERSION)
+            throw IOException(strings(R.string.hub_version_mismatch))
+        val socket=response.getBinder(ControlSocketWire.EXTRA_SOCKET)
+            ?:throw IOException(strings(R.string.hub_version_unsupported))
+        val channel=ControlSocketWire.Client(socket)
+        if(closed||hub!==binder){runCatching{channel.close()};throw IOException(strings(R.string.hub_exited))}
+        return channel
+    }
 
     /** Which hooks each scoped process installed, as the hub collected them. */
     fun refreshDiagnostics() {
@@ -154,6 +176,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         }
         val recipient=IBinder.DeathRecipient{scope.launch{if(hub===binder){drop();connect()}}}
         if(runCatching{binder.linkToDeath(recipient,0)}.isFailure){scheduleRetry(text(R.string.hub_exited));return}
+        transportVersion=reply.getInt(ControlSocketWire.EXTRA_VERSION,0)
         hub=binder;hubDeath=recipient;backoffMs=MIN_BACKOFF_MS
         DeviceRepository.update{it.copy(hubStatus=text(R.string.hub_connected))}
         DeviceRepository.hub(HubBundles.State.from(reply))
@@ -205,7 +228,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
 
     private fun drop() {
         val binder=hub;val recipient=hubDeath
-        hub=null;hubDeath=null
+        hub=null;hubDeath=null;transportVersion=0
         if(binder!=null&&recipient!=null)runCatching{binder.unlinkToDeath(recipient,0)}
     }
 

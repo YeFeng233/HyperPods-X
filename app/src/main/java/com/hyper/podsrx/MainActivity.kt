@@ -32,7 +32,8 @@ open class MainActivity:ComponentActivity() {
     override fun onResume() {
         super.onResume()
         DeviceRepository.refreshLocalName()
-        if(DeviceRepository.permissionsGranted()&&DeviceRepository.state.value.address.isNotBlank()&&!DeviceRepository.state.value.running)DeviceRepository.start()
+        // Discover a single paired headset even before its address has been saved.
+        if(DeviceRepository.permissionsGranted()&&!DeviceRepository.state.value.running)DeviceRepository.start()
     }
     private fun connect() {
         if(DeviceRepository.permissionsGranted())DeviceRepository.start()

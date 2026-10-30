@@ -480,7 +480,7 @@ private fun LazyListScope.AboutSettings(state: PodsState, navigate: (String) -> 
         SettingsCard {
             InfoRow(strings(R.string.name), state.displayName)
             InfoRow(strings(R.string.model), state.model.ifBlank { "—" })
-            InfoRow(strings(R.string.firmware_version), state.firmware.ifBlank { "—" })
+            com.hyper.podsrx.ui.firmwareRows(state, strings).forEach { row -> InfoRow(row.title, row.value) }
             InfoRow("HyperPods-X", BuildConfig.VERSION_NAME)
         }
     }

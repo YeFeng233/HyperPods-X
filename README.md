@@ -4,7 +4,7 @@ HyperPods-X 是专为小米 HyperOS 打造的 AirPods 深度集成工具（Andro
 
 支持开盖原生底部弹窗与超级岛实时电量、系统蓝牙列表设置直达、HyperOS 融合设备中心控制、基于真实耳机姿态的动态头部追踪空间音频，并提供精致的 miuix 与 iOS 双风格控制面板。
 
-- **支持环境**：Xiaomi 17 Pro Max / HyperOS 4（Android 17, API 37）及后续兼容机型
+- **支持环境**：最低 Android 16（API 36）；当前主要在 Xiaomi 17 Pro Max / HyperOS 4（Android 17, API 37）上验证
 - **支持耳机**：AirPods 5、AirPods Pro 3
 - **底层架构**：现代 libxposed API 102，采用小米蓝牙宿主状态中心（Hub）持久化架构
 - **当前版本**：0.5.1 预览版（包名 `com.hyper.podsrx`）
@@ -69,7 +69,7 @@ HyperPods-X 读取 AirPods 内置运动传感器的六轴姿态数据，并桥�
 
 ## 支持环境与已知限制
 
-- **系统基线**：针对搭载 HyperOS 4（Android 17 / API 37）的 Xiaomi 17 Pro Max 进行开发验证；
+- **系统基线**：最低安装版本为 Android 16 / API 36；功能完整性当前针对搭载 HyperOS 4（Android 17 / API 37）的 Xiaomi 17 Pro Max 验证；
 - **耳机型号**：已完整覆盖 AirPods 5 与 AirPods Pro 3；
 - **超级岛交互**：目前仅作为电量状态提示，点击暂不触发页面跳转；
 - **生态差异**：不支持 Apple 查找网络（Find My）及固件升级；空间音频长周期漂移补偿等高级体验仍在持续优化中。

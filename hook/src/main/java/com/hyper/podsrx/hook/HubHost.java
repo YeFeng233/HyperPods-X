@@ -3,6 +3,7 @@ package com.hyper.podsrx.hook;
 import android.app.BroadcastOptions;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.ScanResult;
@@ -26,6 +27,7 @@ import com.hyper.podsrx.protocol.BatteryAlert;
 import com.hyper.podsrx.protocol.BatteryAlerts;
 import com.hyper.podsrx.protocol.BatteryLedger;
 import com.hyper.podsrx.protocol.CaseThrottle;
+import com.hyper.podsrx.protocol.Event;
 import com.hyper.podsrx.protocol.Proximity;
 import com.hyper.podsrx.protocol.Reading;
 import java.lang.reflect.Method;
@@ -62,6 +64,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     private final LidController lid = new LidController(this);
     private final WidgetDriver widget;
     private final BatteryNotifier notifier;
+    private ControlSocketWire.Server controlSocket;
     private final CaseThrottle caseThrottle = new CaseThrottle(CaseThrottle.REFRESH_MS);
     private final long started = SystemClock.elapsedRealtime();
     /** Hook results by process, from {@link Compatibility}. */
@@ -195,8 +198,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
      * alive the bound headset is its alone; without the app the ROM keeps its own controls.
      */
     private static void hookAirCore(HyperPodsModule module, ClassLoader loader) throws Exception {
-        Class<?> storage = Class.forName("com.xiaomi.bluetooth.modules.airlibrary.db.AirLocalStorage", false, loader);
-        Method support = storage.getDeclaredMethod("isFeatureSupport", Context.class, BluetoothDevice.class, String.class);
+        Method support = RomHeadsetMethods.featureSupport(name -> Class.forName(name, false, loader));
         module.hook(support).intercept(chain -> {
             if (!ReloadLifecycle.isActive() || !"ConnectL2cap".equals(chain.getArg(2))) return chain.proceed();
             try {
@@ -211,6 +213,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
             return chain.proceed();
         });
+        DiagnosticLog.i(TAG, "ROM AACP channel guard ready: " + support.getDeclaringClass().getName());
     }
 
     private boolean mayRead(int uid) {
@@ -233,6 +236,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         lid.close();
         widget.close();
         main.removeCallbacksAndMessages(null);
+        closeControlSocket();
     }
 
     /** A running app reconnects at once instead of waiting out its backoff. */
@@ -481,6 +485,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     // App link
 
     private void unlinkCallback() {
+        closeControlSocket();
         if (callback != null && death != null) {
             try { callback.unlinkToDeath(death, 0); } catch (RuntimeException ignored) {}
         }
@@ -508,12 +513,19 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     private void bind(String next) {
         if (next == null || next.isEmpty() || next.equalsIgnoreCase(address)) return;
+        closeControlSocket();
         address = next;
         keys.forgetUnless(next);
         ledger.clear();
         alerts = notifier.restore(next);
         product = -1;
         DiagnosticLog.i(TAG, "Hub bound to a new headset");
+    }
+
+    private synchronized void closeControlSocket() {
+        if (controlSocket == null) return;
+        try { controlSocket.close(); } catch (java.io.IOException ignored) {}
+        controlSocket = null;
     }
 
     @Override protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
@@ -544,6 +556,20 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         }
         switch (code) {
             case HubWire.HELLO: return hello(HubBundles.Hello.from(request), response);
+            case HubWire.OPEN_CONTROL: {
+                synchronized (this) {
+                    if (closed || !ReloadLifecycle.isActive() || callback == null || !callback.isBinderAlive() ||
+                            !BluetoothAdapter.checkBluetoothAddress(address) ||
+                            request.getBinder("callback") != callback ||
+                            !address.equalsIgnoreCase(request.getString("address", ""))) return HubWire.DENIED;
+                    closeControlSocket();
+                    controlSocket = new ControlSocketWire.Server(appUid,
+                        new HubControlSession(context.getSystemService(BluetoothManager.class), address));
+                    response.putBinder(ControlSocketWire.EXTRA_SOCKET, controlSocket);
+                    response.putInt(ControlSocketWire.EXTRA_VERSION, ControlSocketWire.VERSION);
+                }
+                return HubWire.OK;
+            }
             case HubWire.PUSH_CONTROL: {
                 HubBundles.Control next = HubBundles.Control.from(request);
                 synchronized (this) {
@@ -593,6 +619,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     private int hello(HubBundles.Hello hello, Bundle response) throws RemoteException {
         response.putInt("version", HubWire.VERSION);
+        response.putInt(ControlSocketWire.EXTRA_VERSION, ControlSocketWire.VERSION);
         if (hello.version != HubWire.VERSION) {
             DiagnosticLog.w(TAG, "Hub version mismatch: app " + hello.version + ", host " + HubWire.VERSION);
             return HubWire.VERSION_MISMATCH;

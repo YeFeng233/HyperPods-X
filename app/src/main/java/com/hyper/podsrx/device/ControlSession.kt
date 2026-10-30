@@ -3,13 +3,15 @@ package com.hyper.podsrx.device
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothSocket
+import android.os.Build
 import android.content.Context
 import android.os.SystemClock
 import com.hyper.podsrx.R
 import com.hyper.podsrx.i18n.stringResolver
 import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.Aacp
+import com.hyper.podsrx.protocol.AacpInitialization
+import com.hyper.podsrx.hook.ControlSocketWire
 import com.hyper.podsrx.protocol.AacpFramer
 import com.hyper.podsrx.protocol.ControlCommands
 import com.hyper.podsrx.protocol.ControlCommands.Command
@@ -32,7 +34,8 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  * setting writes queued on it. The rules for those writes live in [ControlCommands].
  */
 @SuppressLint("MissingPermission")
-class ControlSession(private val context:Context,private val scope:CoroutineScope,private val listener:Listener) {
+class ControlSession(private val context:Context,private val scope:CoroutineScope,private val listener:Listener,
+    private val hostTransport:suspend (String)->ControlSocketWire.Channel) {
     private val strings = context.stringResolver()
     interface Listener {
         fun onOpened(wasReadback:Boolean)
@@ -43,9 +46,9 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
         fun onAccepted(command:Command)
     }
 
-    @Volatile private var socket:BluetoothSocket?=null
+    @Volatile private var socket:ControlSocketWire.Channel?=null
     private val sessionSequence=AtomicLong()
-    private val sessionIds=ConcurrentHashMap<BluetoothSocket,Long>()
+    private val sessionIds=ConcurrentHashMap<ControlSocketWire.Channel,Long>()
     private val outbox=Channel<Command>(Channel.UNLIMITED)
     private val reconnect=Channel<Unit>(Channel.CONFLATED)
     private val commands=ControlCommands(Controls::allowed,object:ControlCommands.Effects {
@@ -135,7 +138,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
 
     fun write(packet:ByteArray):Boolean {
         val channel=socket ?: return false
-        return runCatching{synchronized(channel){channel.outputStream.write(packet);channel.outputStream.flush()};true}.getOrDefault(false)
+        return runCatching{synchronized(channel){channel.write(packet)};true}.getOrDefault(false)
     }
 
     fun onControl(event:Event.Control,session:Long) {
@@ -163,7 +166,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 DeviceRepository.saveDiagnostics()
                 val packet=if(id==ControlCommands.EQUALIZER)Aacp.equalizer(command.values)else Aacp.control(id,command.values)
                 val writtenSession=sessionIds[s] ?: 0L
-                val writtenAt=synchronized(s) {s.outputStream.write(packet);s.outputStream.flush();SystemClock.elapsedRealtime()}
+                val writtenAt=synchronized(s) {s.write(packet);SystemClock.elapsedRealtime()}
                 traceControl(id,"write",command.token,writtenSession,writtenAt) {
                     "packet=${packet.joinToString(" "){(it.toInt() and 255).toString(16).padStart(2,'0')}}"
                 }
@@ -223,7 +226,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
         var attempts=0
         var silentRetries=0
         while(scope.isActive) {
-            var current:BluetoothSocket?=null
+            var current:ControlSocketWire.Channel?=null
             var watchdog:Job?=null
             val silent=AtomicBoolean(false)
             try {
@@ -251,24 +254,33 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                         controls=if(refresh)it.controls else emptyMap(),equalizer=if(refresh)it.equalizer else null,
                         controlRefreshUntil=if(refresh)it.controlRefreshUntil else 0)
                 }
-                val opened=ClassicTransport.create(adapter,target)
+                val useHost=Build.VERSION.SDK_INT==36
+                val opened=if(useHost)hostTransport(target.address)else LocalControlChannel(ClassicTransport.create(adapter,target))
                 val session=sessionSequence.incrementAndGet()
                 sessionIds[opened]=session
                 current=opened; socket=opened
+                if(!scope.isActive)break
                 val timeout=scope.launch{delay(12000);if(!opened.isConnected)runCatching{opened.close()}}
                 try{opened.connect()}finally{timeout.cancel()}
                 val wasReadback=commands.opened()
                 DeviceRepository.log(strings(R.string.l2cap_connected))
                 DeviceRepository.update{it.copy(status=text(R.string.reading_earbud_state),connected=true)}
                 listener.onOpened(wasReadback)
-                val output=opened.outputStream
-                synchronized(opened){output.write(Aacp.handshake);output.flush()}
-                delay(200)
-                synchronized(opened){output.write(Aacp.features());output.flush()}
-                delay(200)
-                synchronized(opened){output.write(Aacp.notifications());output.flush()}
-                delay(200)
-                synchronized(opened){output.write(Aacp.keyRequest(1));output.write(Aacp.keyRequest(4));output.flush()}
+                DeviceRepository.log("AACP transport="+if(useHost)"bluetooth-host, handshake=1.2" else "app, handshake=1.3")
+                if(useHost) {
+                    for(step in AacpInitialization.host()) {
+                        delay(step.delayMs)
+                        synchronized(opened){opened.write(step.packet)}
+                    }
+                } else {
+                    synchronized(opened){opened.write(Aacp.handshake)}
+                    delay(200)
+                    synchronized(opened){opened.write(Aacp.features())}
+                    delay(200)
+                    synchronized(opened){opened.write(Aacp.notifications())}
+                    delay(200)
+                    synchronized(opened){opened.write(Aacp.keyRequest(1));opened.write(Aacp.keyRequest(4))}
+                }
                 // An accepted channel can stay silent after the handshake. A blocking read never
                 // returns then, so closing the socket is what lets the loop reconnect.
                 val received=AtomicBoolean(false)
@@ -287,7 +299,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 }
                 val framer=AacpFramer(); val buffer=ByteArray(65536)
                 while(scope.isActive) {
-                    val count=opened.inputStream.read(buffer)
+                    val count=opened.read(buffer)
                     if(count<=0)throw IOException(strings(R.string.control_channel_closed))
                     received.set(true)
                     if(count>=8 && buffer.copyOfRange(0,4).contentEquals(Aacp.header) && buffer[4]==0x4b.toByte() && buffer[5]==0.toByte()) {

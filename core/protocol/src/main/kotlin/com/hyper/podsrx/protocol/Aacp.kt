@@ -13,7 +13,10 @@ sealed interface Event {
     data class Wearing(val primary: WearState, val secondary: WearState) : Event {
         val inEarCount: Int get() = listOf(primary, secondary).count { it == WearState.IN_EAR }
     }
-    data class Information(val name: String, val model: String, val firmware: String) : Event
+    data class Information(
+        val name: String, val model: String, val firmware: String,
+        val internalFirmware: String = "", val firmwareIdentifier: String = "",
+    ) : Event
     data class Equalizer(val state: Int, val low: Int, val mid: Int, val high: Int) : Event
     data class CardStatus(val flags: List<Int>) : Event
     // Preserve firmware values. The controller decides which subtype/status is supported.
@@ -71,14 +74,7 @@ object Aacp {
                 val secondary = WearState.fromWire(packet.u(7)) ?: return null
                 Event.Wearing(primary, secondary)
             }
-            0x1d -> {
-                val fields = packet.drop(6).toByteArray().toString(Charsets.UTF_8).split('\u0000').filter { it.isNotBlank() }
-                val modelIndex = fields.indexOfFirst { it.matches(Regex("A[0-9]{4}")) }
-                if (modelIndex < 0) return null
-                val firmware=fields.drop(modelIndex+3).firstOrNull{it.matches(Regex("[0-9]+[A-Z][0-9]+[a-z]?"))}
-                    ?: fields.getOrElse(modelIndex+3){""}
-                Event.Information(fields.getOrElse(modelIndex - 1) { "AirPods" }, fields[modelIndex], firmware)
-            }
+            0x1d -> AacpInformation.decode(packet)
             0x31 -> {
                 if (packet.size < 7 || packet.u(6) > 8) return null
                 val keys = mutableMapOf<Int, ByteArray>()

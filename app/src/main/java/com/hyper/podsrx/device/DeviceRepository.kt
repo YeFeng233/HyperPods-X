@@ -35,6 +35,7 @@ import org.json.JSONObject
 
 data class PodsState(
     val name: String = "AirPods", val address: String = "", val model: String = "", val firmware: String = "",
+    val internalFirmware: String = "", val firmwareIdentifier: String = "",
     val status: UiText = text(R.string.ready_to_connect), val connected: Boolean = false, val running: Boolean = false,
     val framework: UiText = text(R.string.waiting_module_service), val frameworkApi: Int = 0,
     val batteries: Map<Int, Reading> = emptyMap(), val controls: Map<Int, List<Int>> = emptyMap(),
@@ -65,6 +66,8 @@ data class PodsState(
     ,val hostCapabilities:Map<String,Map<String,String>> = emptyMap()
 ) {
     val displayName:String get()=localName.ifBlank{name}
+    /** Calibration stays tied to the reported build even without a public firmware label. */
+    val firmwareIdentity:String get()=internalFirmware.ifBlank{firmware.ifBlank{firmwareIdentifier}}
     val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
     /** The hub's link and the scan it runs, for the diagnostics page. */
     fun hubSummary(strings: Strings):String = hub?.let{h->"${hubStatus.resolve(strings)} · "+when(h.scanMode){
@@ -145,7 +148,14 @@ object DeviceRepository {
     fun candidates(): List<BluetoothDevice> {
         if (!permissionsGranted()) return emptyList()
         return app.getSystemService(BluetoothManager::class.java).adapter?.bondedDevices.orEmpty().filter { d ->
-            d.uuids.orEmpty().any { it.uuid.toString().equals("74ec2172-0bad-4d01-8f77-997b2be0722a",true) }
+            // Cached SDP can be absent; the name fallback is only a discovery hint.
+            val aacp = d.uuids.orEmpty().any {
+                it.uuid.toString().equals("74ec2172-0bad-4d01-8f77-997b2be0722a", true)
+            }
+            val reportedName = d.name.orEmpty()
+            val alias = runCatching { d.alias.orEmpty() }.getOrDefault("")
+            aacp || reportedName.contains("airpods", ignoreCase = true) ||
+                alias.contains("airpods", ignoreCase = true)
         }
     }
     @Suppress("MissingPermission")
@@ -224,6 +234,7 @@ object DeviceRepository {
     fun diagnosticSnapshot(): JSONObject {
         val s=state.value
         return JSONObject().put("name",s.name).put("model",s.model).put("firmware",s.firmware)
+            .put("internalFirmware",s.internalFirmware).put("firmwareIdentifier",s.firmwareIdentifier)
                 .put("status",s.status.resolve(strings)).put("connected",s.connected).put("framework",s.framework.resolve(strings)).put("frameworkApi",s.frameworkApi)
                 .put("identityReady",s.identityReady).put("broadcasts",s.broadcasts).put("trustedBroadcasts",s.trustedBroadcasts)
                 .put("proximityCandidates",s.proximityCandidates).put("identityMatches",s.identityMatches).put("cardStatus",s.cardStatus.joinToString(","))

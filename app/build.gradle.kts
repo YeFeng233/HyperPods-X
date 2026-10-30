@@ -73,7 +73,7 @@ android {
     buildToolsVersion = "37.0.0"
     defaultConfig {
         applicationId = "com.hyper.podsrx"
-        minSdk = 37
+        minSdk = 36
         targetSdk = 37
         versionCode = 23
         versionName = "0.5.1-dev"

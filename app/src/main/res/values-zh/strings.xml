@@ -573,6 +573,9 @@
     <string name="choose_airpods">"选择 AirPods"</string>
     <string name="connection_permissions_footnote">"先在系统蓝牙中连接 AirPods，再允许附近设备、位置和后台运行权限。"</string>
     <string name="firmware_version">"固件版本"</string>
+    <string name="firmware_internal_version">"内部版本"</string>
+    <string name="firmware_identifier">"固件标识"</string>
+    <string name="firmware_not_provided">"耳机未提供"</string>
     <string name="artwork_sources">"图片来源"</string>
     <string name="adaptive_accessibility_state">"%1$s，向%2$s增强降噪"</string>
     <string name="more_transparency">"更通透"</string>

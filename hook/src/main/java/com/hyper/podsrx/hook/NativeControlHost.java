@@ -37,10 +37,10 @@ final class NativeControlHost {
         NativeControlHost host = new NativeControlHost(context, preferences);
         ReloadLifecycle.add(host::close);
         ClassLoader loader = context.getClassLoader();
-        Class<?> state = Class.forName("com.android.bluetooth.ble.app.offlinefind.OfflineFindProvider", false, loader);
+        RomHeadsetMethods.OfflineState state = RomHeadsetMethods.offlineState(name -> Class.forName(name, false, loader));
         Class<?> provider = Class.forName("com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider", false, loader);
-        Method identity = state.getDeclaredMethod("isAppleHeadset", String.class, Context.class);
-        Method stateRead = state.getDeclaredMethod("getAirPodsState", String.class, Context.class);
+        Method identity = state.identity();
+        Method stateRead = state.read();
         Method providerCall = provider.getDeclaredMethod("call", String.class, String.class, Bundle.class);
         module.hook(identity).intercept(chain ->
             host.matches((String) chain.getArg(0)) ? true : chain.proceed());
@@ -74,7 +74,7 @@ final class NativeControlHost {
             return answer != null ? answer : chain.proceed();
         });
         host.register();
-        DiagnosticLog.i("HyperPods-X", "Native fusion headset control bridge ready");
+        DiagnosticLog.i("HyperPods-X", "Native fusion headset control bridge ready: " + stateRead.getDeclaringClass().getName());
     }
 
     private void close() {

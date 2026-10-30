@@ -176,7 +176,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
     private suspend fun refresh(){
         val current=DeviceRepository.state.value
         if(current.address.isEmpty())return
-        if(!active&&!current.spatial.calibrationMode&&current.model.isNotBlank()&&current.firmware.isNotBlank())loadCalibration()
+        if(!active&&!current.spatial.calibrationMode&&current.model.isNotBlank()&&current.firmwareIdentity.isNotBlank())loadCalibration()
         val queriedSession=session;val wasForwarding=forwarding
         val b=request(SpatialWire.QUERY)
         runCatching {
@@ -226,7 +226,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
     @Synchronized private fun loadCalibration(){
         if(DeviceRepository.state.value.spatial.calibrationMode)return
         val device=DeviceRepository.state.value
-        matrix=if(preferences.getString("address","")==device.address&&preferences.getString("model","")==device.model&&preferences.getString("firmware","")==device.firmware)
+        matrix=if(device.firmwareIdentity.isNotBlank()&&preferences.getString("address","")==device.address&&preferences.getString("model","")==device.model&&preferences.getString("firmware","")==device.firmwareIdentity)
             preferences.getString("matrix",null)?.split(",")?.mapNotNull{it.toDoubleOrNull()}?.takeIf{it.size==9&&it.all{v->v.isFinite()}} else null
         state{it.copy(calibrated=matrix!=null,calibrationStep=if(matrix!=null)3 else calibration.progress)}
     }
@@ -421,7 +421,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
             if(replacement!=null){
                 matrix=replacement
                 val d=DeviceRepository.state.value
-                preferences.edit().putString("address",d.address).putString("model",d.model).putString("firmware",d.firmware)
+                preferences.edit().putString("address",d.address).putString("model",d.model).putString("firmware",d.firmwareIdentity)
                     .putString("matrix",matrix!!.joinToString(",")).apply()
             }
             state{it.copy(collecting=false,calibrationStep=calibration.progress,calibrated=matrix!=null)}

@@ -142,7 +142,7 @@ class PodsService: Service() {
         updateNotificationChannels()
         startForeground(10,notification(strings(R.string.connecting_airpods)))
         DeviceRepository.update{it.copy(running=true,message="",messageCode=0,messageControl=null,messageText=text(""))}
-        control=ControlSession(this,scope,controlListener)
+        control=ControlSession(this,scope,controlListener,hubClient::openControl)
         spatial=SpatialAudio(this,write={packet->control.write(packet)},restartControl={control.restartForReadback()})
         spatial.start()
         registerReceiver(systemReceiver,IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply{
@@ -171,6 +171,13 @@ class PodsService: Service() {
         manager.createNotificationChannel(NotificationChannel("lid", strings(R.string.notification_channel_lid), NotificationManager.IMPORTANCE_DEFAULT))
     }
     override fun onBind(intent:Intent?):IBinder?=null
+    override fun dump(fd:java.io.FileDescriptor, writer:java.io.PrintWriter, args:Array<out String>?) {
+        // ActivityManager gates service dumps with DUMP; never expose transport bytes or keys.
+        writer.println(com.hyper.podsrx.hook.LogRedactor.redact(DeviceRepository.diagnosticSnapshot()
+            .put("running", DeviceRepository.state.value.running)
+            .put("elapsedRealtime", SystemClock.elapsedRealtime())
+            .toString(2)))
+    }
     private fun notification(text:String):Notification {
         val intent=PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this,"connection").setSmallIcon(R.drawable.ic_headphones)
@@ -201,8 +208,10 @@ class PodsService: Service() {
                 DeviceRepository.update{it.copy(cardStatus=event.flags)}
             }
             is Event.Information -> {
-                DeviceRepository.update{it.copy(name=event.name,model=event.model,firmware=event.firmware)}
-                DeviceRepository.log(strings(R.string.model_firmware_log, event.model, event.firmware))
+                DeviceRepository.update{it.copy(name=event.name,model=event.model,firmware=event.firmware,
+                    internalFirmware=event.internalFirmware,firmwareIdentifier=event.firmwareIdentifier)}
+                DeviceRepository.log(strings(R.string.model_firmware_log, event.model,
+                    event.firmware.ifBlank{strings(R.string.firmware_not_provided)}))
             }
             is Event.Keys -> {
                 val address=DeviceRepository.state.value.address

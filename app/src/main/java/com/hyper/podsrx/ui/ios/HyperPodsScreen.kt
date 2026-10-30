@@ -279,7 +279,9 @@ internal fun IosSettingsScreen(
                                                                         Section("关于") {
                                                                             InfoRow("型号名称", entryDisplayState.headset.name)
                                                                             InfoRow("型号号码", entryDisplayState.model.ifBlank { "—" })
-                                                                            InfoRow("版本", entryDisplayState.firmware.ifBlank { "—" })
+                                                                            com.hyper.podsrx.ui.firmwareRows(entryDisplayState, strings).forEach { row ->
+                                                                                InfoRow(row.title, row.value)
+                                                                            }
                                                                         }
                                                                     }
                                                                     item("module") {
