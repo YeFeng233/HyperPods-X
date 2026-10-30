@@ -1,9 +1,10 @@
 package com.hyper.podsrx.ui
 
-import com.hyper.podsrx.device.Choice
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.ControlSpec
 import com.hyper.podsrx.device.Controls
 import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.i18n.Strings
 
 /** Routes and data shared by the two renderers; no layout or material belongs here. */
 internal enum class SettingsPage(val route: String, val title: String?, val parent: SettingsPage?) {
@@ -20,6 +21,7 @@ internal enum class SettingsPage(val route: String, val title: String?, val pare
     DIAGNOSTICS("diagnostics", "连接诊断", MODULE),
     ABOUT("about", "关于", MODULE),
     LICENSES("licenses", "开源许可", ABOUT),
+    LANGUAGE("language", "应用语言", MODULE),
     CALL_MUTE("call/mute", "静音与取消静音", CONTROLS),
     CALL_END("call/end", "结束通话", CONTROLS),
 }
@@ -40,6 +42,7 @@ internal data class SettingsPageLink(
 
 internal enum class SettingsToggle(val key: String, val title: String) {
     EAR_AUTOMATION("earAutomation", "自动入耳检测"),
+    AUTO_CONNECT("autoConnect", "自动连接到此设备"),
     OPEN_CASE_POPUP("popup", "开盖弹窗"),
     NATIVE_POPUP("nativePopup", "系统原生弹窗"),
     CONNECTION_POPUP("connectionPopup", "连接电量卡片"),
@@ -47,6 +50,7 @@ internal enum class SettingsToggle(val key: String, val title: String) {
 
     fun checked(state: PodsState): Boolean = when (this) {
         EAR_AUTOMATION -> state.earAutomation
+        AUTO_CONNECT -> state.autoConnect
         OPEN_CASE_POPUP -> state.popupEnabled
         NATIVE_POPUP -> state.nativePopup
         CONNECTION_POPUP -> state.connectionPopup
@@ -70,10 +74,10 @@ internal object SettingsCatalog {
 
     fun controlRoute(id: Int): String = "control/$id"
 
-    fun title(route: String, state: PodsState): String {
+    fun title(route: String, state: PodsState, strings: Strings): String {
         val name = route.substringBefore('#')
         return if (name.startsWith("control/")) {
-            Controls.all.firstOrNull { it.id == name.substringAfter('/').toIntOrNull() }?.title ?: "设置"
+            strings(Controls.all.firstOrNull { it.id == name.substringAfter('/').toIntOrNull() }?.titleRes ?: R.string.settings)
         } else page(name)?.title ?: state.displayName
     }
 
@@ -134,19 +138,21 @@ internal object SettingsCatalog {
     fun controlEnabled(state: PodsState, spec: ControlSpec): Boolean =
         state.connected && spec.id !in state.pending && spec.writable
 
-    fun toggleTitle(spec: ControlSpec): String = when (spec.id) {
+    fun toggleTitle(spec: ControlSpec, strings: Strings): String = when (spec.id) {
         0x0a -> "耳机侧入耳检测"
         0x1b -> "一只 AirPod 入耳时使用降噪"
-        else -> spec.title
+        else -> strings(spec.titleRes)
     }
 
-    val listeningChoices = listOf(Choice(1, "关闭"), Choice(3, "通透模式"), Choice(4, "自适应"), Choice(2, "降噪"))
+    val listeningChoices = Controls.listeningChoices.map {
+        if (it.value == 3) it.copy(labelRes = R.string.transparency_mode) else it
+    }
     val adaptiveAnchors = listOf(0, 50, 100)
     val popupToggles = listOf(SettingsToggle.OPEN_CASE_POPUP, SettingsToggle.NATIVE_POPUP,
         SettingsToggle.CONNECTION_POPUP, SettingsToggle.BATTERY_ALERTS)
 
     val moduleSections = listOf(
-        SettingsSectionSpec("appearance", "外观", listOf("style")),
+        SettingsSectionSpec("appearance", "外观", listOf("style", "language")),
         SettingsSectionSpec("popups", "弹窗与提醒", popupToggles.map(SettingsToggle::key)),
         SettingsSectionSpec("previews", null, listOf("batteryPreview", "islandPreview")),
         SettingsSectionSpec("systemIntegration", "系统集成", listOf("nativeScope", "restartHosts", "overlayPermission", "bluetoothSettings")),
@@ -154,12 +160,27 @@ internal object SettingsCatalog {
     )
     fun moduleSection(key: String): SettingsSectionSpec = moduleSections.first { it.key == key }
     private val moduleLabels = mapOf(
-        "style" to "UI 风格", "batteryPreview" to "电量卡片预览", "islandPreview" to "超级岛预览",
+        "style" to "UI 风格", "language" to "应用语言", "batteryPreview" to "电量卡片预览", "islandPreview" to "超级岛预览",
         "nativeScope" to "系统原生适配", "restartHosts" to "重启作用域", "overlayPermission" to "悬浮显示权限",
         "bluetoothSettings" to "系统蓝牙设置", "connection" to "连接设置", "diagnostics" to "连接诊断",
         "exportLogs" to "导出日志", "about" to "关于 HyperPods-X",
     )
     fun moduleLabel(key: String): String = moduleLabels.getValue(key)
+
+    fun actionFailureMessage(state: PodsState, strings: Strings): String? = when (state.messageCode) {
+        R.string.setting_unconfirmed -> if (state.messageControl in setOf(0x0d, 0x2e)) null else strings(R.string.earbud_setting_update_failed)
+        R.string.setting_send_failed -> strings(R.string.earbud_setting_update_failed)
+        R.string.connect_earbuds_first, R.string.control_not_connected -> strings(R.string.earbuds_disconnected_retry)
+        R.string.select_adaptive_before_adjusting -> strings(R.string.switch_adaptive_first)
+        R.string.wait_adaptive_readback -> strings(R.string.reading_settings_retry)
+        R.string.wait_strength_confirmation -> strings(R.string.updating_adaptive_wait)
+        R.string.wait_noise_command -> strings(R.string.sending_adaptive_wait)
+        R.string.setting_not_writable -> strings(R.string.setting_change_unavailable)
+        R.string.media_volume_failed, R.string.connect_and_wear_both -> strings(state.messageCode)
+        R.string.motion_and_calibration_required -> strings(R.string.calibrate_first_sentence)
+        R.string.system_tracking_start_failed -> strings(R.string.head_tracking_failed_retry)
+        else -> null
+    }
 
     fun actionFailureMessage(message: String): String? = when {
         message.startsWith("聆听模式未确认目标值") ||

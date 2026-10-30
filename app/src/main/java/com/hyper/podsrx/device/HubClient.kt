@@ -14,10 +14,15 @@ import android.os.Parcel
 import android.os.Process
 import android.os.SystemClock
 import com.hyper.podsrx.DeviceSettingsActivity
+import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.HubBundles
 import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.hook.NativeControlWire
+import com.hyper.podsrx.i18n.UiText
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.Battery
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,13 +36,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 /**
  * The app's side of the Bluetooth host's state hub. Pushes the AACP session and the proximity keys
  * as they change; the hub's callbacks are the only thing it listens to. Nothing here is periodic.
  */
 class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean)->Unit) {
+    private val strings = context.stringResolver()
     private val context=context.applicationContext
     private val main=Handler(Looper.getMainLooper())
     // One transaction at a time, in the order they were asked for.
@@ -127,32 +132,32 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         scope.cancel()
         if(binder!=null)runCatching{transact(binder,HubWire.PUSH_CONTROL,HubBundles.Control.DISCONNECTED.toBundle())}
         drop()
-        DeviceRepository.update{it.copy(hub=null,hubStatus="状态中心未连接")}
+        DeviceRepository.update{it.copy(hub=null,hubStatus=text(R.string.hub_disconnected))}
     }
 
     private suspend fun connect() {
         if(closed||hub!=null)return
         retry?.cancel()
         val binder=handshake()
-        if(binder==null){wakeHost();scheduleRetry("状态中心未就绪，请检查小米蓝牙作用域");return}
+        if(binder==null){wakeHost();scheduleRetry(text(R.string.hub_not_ready));return}
         val (status,reply)=runCatching{transact(binder,HubWire.HELLO,
             HubBundles.Hello(HubWire.VERSION,callback,DeviceRepository.state.value.address,popupCredential,controlTarget).toBundle())}
-            .getOrElse{scheduleRetry("状态中心握手失败：${it.javaClass.simpleName}");return}
+            .getOrElse{scheduleRetry(text(R.string.hub_handshake_failed, it.javaClass.simpleName));return}
         when(status) {
             HubWire.OK -> Unit
             HubWire.VERSION_MISMATCH -> {
-                DeviceRepository.update{it.copy(hubStatus="状态中心版本不一致，请重载宿主")}
-                DeviceRepository.log("状态中心版本不一致：宿主 ${reply.getInt("version")}，应用 ${HubWire.VERSION}")
+                DeviceRepository.update{it.copy(hubStatus=text(R.string.hub_version_mismatch))}
+                DeviceRepository.log(strings(R.string.hub_version_log, reply.getInt("version"), HubWire.VERSION))
                 return
             }
-            else -> {scheduleRetry("状态中心拒绝连接");return}
+            else -> {scheduleRetry(text(R.string.hub_connection_rejected));return}
         }
         val recipient=IBinder.DeathRecipient{scope.launch{if(hub===binder){drop();connect()}}}
-        if(runCatching{binder.linkToDeath(recipient,0)}.isFailure){scheduleRetry("状态中心已退出");return}
+        if(runCatching{binder.linkToDeath(recipient,0)}.isFailure){scheduleRetry(text(R.string.hub_exited));return}
         hub=binder;hubDeath=recipient;backoffMs=MIN_BACKOFF_MS
-        DeviceRepository.update{it.copy(hubStatus="已连接状态中心")}
+        DeviceRepository.update{it.copy(hubStatus=text(R.string.hub_connected))}
         DeviceRepository.hub(HubBundles.State.from(reply))
-        DeviceRepository.log("已连接蓝牙宿主状态中心")
+        DeviceRepository.log(strings(R.string.bluetooth_hub_connected))
         sendKeys()
         pushControl()
         refreshDiagnostics()
@@ -185,7 +190,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         runCatching{context.contentResolver.call(android.net.Uri.parse(HubWire.PROVIDER_URI),HubWire.STATE_METHOD,null,null)}
     }
 
-    private fun scheduleRetry(status:String) {
+    private fun scheduleRetry(status: UiText) {
         if(closed)return
         DeviceRepository.update{it.copy(hubStatus=status)}
         val wait=backoffMs
@@ -227,7 +232,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         if(status==HubWire.OK)return
         if(reply.getBoolean("retired")||status==HubWire.DENIED){
             if(hub===binder){drop();scope.launch{connect()}}
-        } else DeviceRepository.log("状态中心请求 $code 失败：${reply.getString("status")?:status}")
+        } else DeviceRepository.log(strings(R.string.hub_request_failed, code, reply.getString("status")?:status))
     }
 
     private fun transact(binder:IBinder,code:Int,payload:Bundle):Pair<Int,Bundle> {
@@ -235,7 +240,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         try {
             input.writeInterfaceToken(HubWire.DESCRIPTOR)
             input.writeBundle(payload)
-            if(!binder.transact(code,input,output,0))error("不支持的状态中心版本")
+            if(!binder.transact(code,input,output,0))error(strings(R.string.hub_version_unsupported))
             output.readException()
             val status=output.readInt()
             return status to (output.readBundle(javaClass.classLoader)?:Bundle())

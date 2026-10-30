@@ -19,17 +19,17 @@ final class PopupDriver {
     static final class Request {
         final String address, name, model;
         final int product;
-        final boolean preview, island, connected;
+        final boolean preview, island, connected, autoConnect;
         /** -1 when unknown. */
         final int left, right, box;
         /** Bit 1 left, 2 right, 4 case. */
         final int charging;
         final PendingIntent target;
 
-        Request(String address, String name, String model, int product, boolean preview, boolean island, boolean connected,
+        Request(String address, String name, String model, int product, boolean preview, boolean island, boolean connected, boolean autoConnect,
                 int left, int right, int box, int charging, PendingIntent target) {
             this.address = address; this.name = name; this.model = model; this.product = product;
-            this.preview = preview; this.island = island; this.connected = connected;
+            this.preview = preview; this.island = island; this.connected = connected; this.autoConnect = autoConnect;
             this.left = left; this.right = right; this.box = box; this.charging = charging; this.target = target;
         }
     }
@@ -39,7 +39,7 @@ final class PopupDriver {
     /** Returns whether a popup is showing for the request, including the ROM's own. */
     static boolean show(Context host, Request request) throws Exception {
         HeadsetModels.Model headset = HeadsetModels.of(request.model, request.product);
-        if (!request.preview) reconnectProfiles(host, request.address);
+        if (!request.preview && request.autoConnect) reconnectProfiles(host, request.address);
         boolean home = false;
         List<ActivityManager.RunningTaskInfo> tasks = host.getSystemService(ActivityManager.class).getRunningTasks(1);
         if (!tasks.isEmpty() && tasks.get(0).topActivity != null) home = "com.miui.home".equals(tasks.get(0).topActivity.getPackageName());
@@ -56,7 +56,7 @@ final class PopupDriver {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                 .putExtra(BluetoothDevice.EXTRA_DEVICE, host.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(request.address))
                 .putExtra("headset_addresses", request.address).putExtra("headset_extra_data", new int[] {-60, 1, 0, 16, 0, 1})
-                .putExtra("device_name_over_write", (request.preview ? "弹窗预览 · " : "") + request.name)
+                .putExtra("device_name_over_write", (request.preview ? HookStrings.get(host, R.string.hook_popup_preview_prefix) : "") + request.name)
                 .putExtra("hyperpods_preview", request.preview)
                 .putExtra("hyperpods_model", request.model)
                 .putExtra("hyperpods_product", request.product)

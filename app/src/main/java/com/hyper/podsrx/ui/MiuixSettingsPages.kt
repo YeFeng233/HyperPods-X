@@ -13,14 +13,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hyper.podsrx.BuildConfig
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.i18n.AppLanguage
+import com.hyper.podsrx.i18n.Strings
+import com.hyper.podsrx.i18n.currentAppLanguage
+import com.hyper.podsrx.i18n.rememberStrings
+import com.hyper.podsrx.i18n.setAppLanguage
+import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal fun LazyListScope.miuixSettingsPageContent(
     page: String, state: PodsState, onConnect: () -> Unit, onOverlay: () -> Unit,
-    onSystemBluetooth: () -> Unit, navigate: (String) -> Unit,
+    onSystemBluetooth: () -> Unit, navigate: (String) -> Unit, strings: Strings,
 ) {
     when {
         page.startsWith("control/") -> controlChoices(state, page.substringAfter('/').toIntOrNull())
@@ -28,12 +35,12 @@ internal fun LazyListScope.miuixSettingsPageContent(
         page == "audio" -> audioSettings(state, onSystemBluetooth, navigate)
         page == "controls" -> gestureSettings(state, navigate)
         page == "accessibility" -> accessibilitySettings(state, navigate)
-        page == "spatial" -> spatialSettings(state)
+        page == "spatial" -> spatialSettings(state, strings)
         page == "equalizer" -> equalizerSettings(state)
         page == "battery" -> batterySettings(state)
         page == "module" -> moduleSettings(state, onOverlay, onSystemBluetooth, navigate)
         page == "connection" -> connectionSettings(state, onConnect, onSystemBluetooth)
-        page == "diagnostics" -> diagnosticsSettings(state)
+        page == "diagnostics" -> diagnosticsSettings(state, strings)
         page == "about" -> aboutSettings(state, navigate)
         page == "licenses" -> licenseSettings()
     }
@@ -54,7 +61,7 @@ private fun LazyListScope.audioSettings(state: PodsState, onSystemBluetooth: () 
                 miuixFootnote("earDetectionHelp", "戴上 AirPods 时自动播放音频，摘下时自动暂停。")
             }
             "spatial" -> miuixGroupedItems(key, listOf(key), title = "空间音频") {
-                RowItem("空间音频", value = state.spatial.mode?.label() ?: "—") { navigate(key) }
+                RowItem("空间音频", value = state.spatial.mode?.label(rememberStrings()) ?: "—") { navigate(key) }
             }
             "systemAudio" -> {
                 miuixGroupedItems(key, listOf(key)) { RowItem("音频与设备权限", action = onSystemBluetooth) }
@@ -128,6 +135,7 @@ private fun LazyListScope.controlGroup(state: PodsState, group: SettingsControlG
 
 @Composable
 private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (String) -> Unit) {
+    val strings = rememberStrings()
     val current = state.controls[spec.id]?.firstOrNull() ?: return
     val enabled = SettingsCatalog.controlEnabled(state, spec)
     when {
@@ -139,7 +147,7 @@ private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (Strin
             }
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(spec.title, style = MiuixTheme.textStyles.headline1)
+                    Text(strings(spec.titleRes), style = MiuixTheme.textStyles.headline1)
                     Text(draft.toInt().toString(), fontSize = MiuixTheme.textStyles.body2.fontSize,
                         color = if (enabled) MiuixTheme.colorScheme.onSurfaceVariantActions
                             else MiuixTheme.colorScheme.disabledOnSecondaryVariant,
@@ -153,11 +161,11 @@ private fun ControlSetting(spec: ControlSpec, state: PodsState, navigate: (Strin
                     })
             }
         }
-        spec.toggle -> ToggleRow(SettingsCatalog.toggleTitle(spec), "", current == 1, enabled) {
+        spec.toggle -> ToggleRow(SettingsCatalog.toggleTitle(spec, strings), "", current == 1, enabled) {
             PodsService.setControl(spec.id, if (it) 1 else 2)
         }
-        else -> RowItem(spec.title, enabled = enabled,
-            value = spec.choices.firstOrNull { it.value == current }?.label ?: "—") {
+        else -> RowItem(strings(spec.titleRes), enabled = enabled,
+            value = spec.choices.firstOrNull { it.value == current }?.let { strings(it.labelRes) } ?: "—") {
             navigate(SettingsCatalog.controlRoute(spec.id))
         }
     }
@@ -170,7 +178,8 @@ private fun LazyListScope.controlChoices(
     val current = state.controls[spec.id]?.firstOrNull() ?: return
     val enabled = SettingsCatalog.controlEnabled(state, spec)
     miuixGroupedItems(key, spec.choices, title = title, itemKey = { it.value }) { choice ->
-        ChoiceRow(labels[choice.value] ?: choice.label, current == choice.value, enabled) {
+        val strings = rememberStrings()
+        ChoiceRow(labels[choice.value] ?: strings(choice.labelRes), current == choice.value, enabled) {
             if (choice.value != current) PodsService.setControl(spec.id, choice.value)
         }
     }
@@ -183,13 +192,13 @@ private fun ChoiceRow(title: String, checked: Boolean, enabled: Boolean, onClick
         endActions = { RadioButton(checked, null, enabled = enabled, modifier = Modifier.clearAndSetSemantics {}) })
 }
 
-private fun LazyListScope.spatialSettings(state: PodsState) {
+private fun LazyListScope.spatialSettings(state: PodsState, strings: Strings) {
     val spatial = state.spatial
-    val presentation = spatial.spatialPresentation(state.connected)
+    val presentation = spatial.spatialPresentation(state.connected, strings)
     val tracking = spatial.trackingRequested || spatial.nativeActive
     val ready = state.connected && spatial.route && spatial.bridge && !spatial.stopping && !spatial.modeChanging
     miuixGroupedItems("spatialModes", SpatialMode.entries, title = "空间音频") { option ->
-        ChoiceRow(option.label(), presentation.selected == option, presentation.canSelect(option)) {
+        ChoiceRow(option.label(strings), presentation.selected == option, presentation.canSelect(option)) {
             PodsService.spatialMode(option)
         }
     }
@@ -213,7 +222,7 @@ private fun LazyListScope.spatialSettings(state: PodsState) {
         }
     }
     if (!spatial.calibrated) miuixFootnote("calibrationHelp", "首次使用头部追踪前，请先完成三轴校准。")
-    if (spatial.notice.isNotBlank()) miuixFootnote("spatialNotice", spatial.notice)
+    if (spatial.notice.isNotBlank()) miuixFootnote("spatialNotice", spatial.notice.resolve(strings))
 }
 
 private fun LazyListScope.equalizerSettings(state: PodsState) {
@@ -253,8 +262,8 @@ private fun LazyListScope.callChoices(state: PodsState, action: String) {
 private fun LazyListScope.batterySettings(state: PodsState) {
     miuixGroupedItems("battery", listOf(4 to "左 AirPod", 2 to "右 AirPod", 8 to "充电盒"),
         title = state.headset.name, itemKey = { it.first }) { (id, title) ->
-        val battery = batteryPresentation(state.batteries[id])
-        BasicComponent(title = title, summary = battery.note.takeIf { it == "充电中" }, endActions = {
+        val battery = batteryPresentation(state.batteries[id], rememberStrings())
+        BasicComponent(title = title, summary = battery.note.takeIf { battery.charging }, endActions = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(battery.label, fontSize = MiuixTheme.textStyles.body2.fontSize,
                     color = MiuixTheme.colorScheme.onSurfaceVariantActions)
@@ -268,6 +277,7 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
     SettingsCatalog.moduleSections.forEach { section ->
         val visible = section.items.filter { it != "islandPreview" || state.nativePopup }
         miuixGroupedItems(section.key, visible, title = section.title) { key ->
+            val strings = rememberStrings()
             val toggle = SettingsCatalog.popupToggles.firstOrNull { it.key == key }
             if (toggle != null) ToggleRow(toggle.title, "", toggle.checked(state)) { checked ->
                 when (toggle) {
@@ -276,6 +286,7 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
                     SettingsToggle.CONNECTION_POPUP -> DeviceRepository.setConnectionPopup(checked)
                     SettingsToggle.BATTERY_ALERTS -> DeviceRepository.setBatteryAlerts(checked)
                     SettingsToggle.EAR_AUTOMATION -> DeviceRepository.setEarAutomation(checked)
+                    SettingsToggle.AUTO_CONNECT -> DeviceRepository.setAutoConnect(checked)
                 }
             } else when (key) {
                 "style" -> {
@@ -285,13 +296,20 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
                         items = UiStyle.entries.map { it.label }, selectedIndex = style.ordinal,
                         onSelectedIndexChange = { index -> if (index != style.ordinal) changeStyle(UiStyle.entries[index]) })
                 }
+                "language" -> {
+                    val context = LocalContext.current
+                    val language = currentAppLanguage()
+                    WindowDropdownPreference(title = strings(R.string.app_language),
+                        items = AppLanguage.entries.map { strings(it.labelRes) }, selectedIndex = language.ordinal,
+                        onSelectedIndexChange = { setAppLanguage(context, AppLanguage.entries[it]) })
+                }
                 "batteryPreview" -> RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewPopup() }
                 "islandPreview" -> RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewIsland() }
                 "nativeScope" -> RowItem(SettingsCatalog.moduleLabel(key), "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
                 "restartHosts" -> {
                     val restart by HostRestartCoordinator.state.collectAsStateWithLifecycle()
                     RowItem(if (restart.running) "正在重启作用域…" else SettingsCatalog.moduleLabel(key),
-                        restart.message, enabled = !restart.running, action = HostRestartCoordinator::restart)
+                        restart.message.resolve(strings), enabled = !restart.running, action = HostRestartCoordinator::restart)
                 }
                 "overlayPermission" -> RowItem(SettingsCatalog.moduleLabel(key), action = onOverlay)
                 "bluetoothSettings" -> RowItem(SettingsCatalog.moduleLabel(key), action = onSystemBluetooth)
@@ -307,10 +325,13 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
 }
 
 private fun LazyListScope.connectionSettings(state: PodsState, onConnect: () -> Unit, onSystemBluetooth: () -> Unit) {
-    miuixGroupedItems("connectionStatus", listOf("name", "status", "bluetooth", "connect")) { key ->
+    miuixGroupedItems("connectionStatus", listOf("name", "status", "autoConnect", "bluetooth", "connect")) { key ->
         when (key) {
             "name" -> InfoRow("AirPods", state.displayName)
             "status" -> InfoRow("状态", if (state.connected) "已连接" else "未连接")
+            "autoConnect" -> ToggleRow(SettingsToggle.AUTO_CONNECT.title,
+                "启用后，AirPods 将尝试自动连接到此设备。否则，它们将仅在上次连接时尝试自动连接。",
+                state.autoConnect, onChange = DeviceRepository::setAutoConnect)
             "bluetooth" -> RowItem("系统蓝牙", action = onSystemBluetooth)
             "connect" -> RowItem(if (state.running) "重新连接" else "连接耳机") {
                 if (state.running) PodsService.reconnect() else onConnect()
@@ -354,20 +375,20 @@ private fun LazyListScope.licenseSettings() {
     }
 }
 
-private fun LazyListScope.diagnosticsSettings(state: PodsState) {
+private fun LazyListScope.diagnosticsSettings(state: PodsState, strings: Strings) {
     val environment = buildList {
-        add("模块框架" to state.framework)
+        add("模块框架" to state.framework.resolve(strings))
         add("控制通道" to if (state.connected) "已连接" else "未连接")
-        add("原生弹窗" to if (state.nativePopup) state.nativePopupStatus else "已关闭")
-        add("状态中心" to state.hubSummary)
-        state.hostCapabilities.forEach { (process, results) -> add(process to capabilitySummary(results)) }
+        add("原生弹窗" to if (state.nativePopup) state.nativePopupStatus.resolve(strings) else "已关闭")
+        add("状态中心" to state.hubSummary(strings))
+        state.hostCapabilities.forEach { (process, results) -> add(process to capabilitySummary(results, strings)) }
         add("绑定身份" to if (state.identityReady) "已确认" else "等待密钥")
         add("广播 / 已验证" to "${state.broadcasts} / ${state.trustedBroadcasts}")
         add("邻近广播 / 身份匹配" to "${state.proximityCandidates} / ${state.identityMatches}")
         add("盒盖" to when (state.lidOpen) { true -> "已打开"; false -> "已关闭"; null -> "等待广播" })
         add("设备报告的设置项" to state.controls.size.toString())
-        add("佩戴状态" to wearingDescription(state))
-        add("自动入耳检测" to if (state.earAutomation) state.earDetectionStatus else "已关闭")
+        add("佩戴状态" to wearingDescription(state, strings))
+        add("自动入耳检测" to if (state.earAutomation) state.earDetectionStatus.resolve(strings) else "已关闭")
     }
     miuixGroupedItems("environment", environment, title = "当前环境", itemKey = { it.first }) { (title, value) -> InfoRow(title, value) }
     miuixGroupedItems("connectionLog", state.log.takeLast(15).withIndex().toList(), title = "连接记录", itemKey = { it.index }) { entry ->

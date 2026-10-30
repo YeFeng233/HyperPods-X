@@ -155,7 +155,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     /** Relayed from the ROM's Apple scan path on a binder thread. */
     static void relay(ScanResult result) {
         HubHost hub = instance;
-        if (hub != null) hub.main.post(() -> hub.onResult(result, "系统通道"));
+        if (hub != null) hub.main.post(() -> hub.onResult(result, HookStrings.get(hub.context, R.string.hook_system_channel)));
     }
 
     /** Whether advertisements can be attributed: bound, with the identity key. */
@@ -295,7 +295,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         if (wanted && preferences.getBoolean("native_popup", true) && !locked) {
             try { shown = PopupDriver.show(context, popupRequest(false, false)); }
             catch (Throwable error) { DiagnosticLog.w(TAG, "Native headset popup unavailable", error); }
-        } else PopupDriver.reconnectProfiles(context, address);
+        } else if (preferences.getBoolean("auto_connect", true)) PopupDriver.reconnectProfiles(context, address);
         // Without a native popup the app shows its own card, if it is running.
         callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
         publish();
@@ -361,7 +361,8 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         Map<Integer, Reading> r = s.readings;
         int charging = (charging(r, 4) ? 1 : 0) | (charging(r, 2) ? 2 : 0) | (charging(r, 8) ? 4 : 0);
         return new PopupDriver.Request(s.address, headsetName(s), s.control.model, s.product,
-            preview, island, s.controlAlive(), level(r, 4), level(r, 2), level(r, 8), charging, target);
+            preview, island, s.controlAlive(), preferences.getBoolean("auto_connect", true),
+            level(r, 4), level(r, 2), level(r, 8), charging, target);
     }
 
     /** The name the control channel reports, else the system alias. */

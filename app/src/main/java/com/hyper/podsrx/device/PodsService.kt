@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import com.hyper.podsrx.MainActivity
 import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.HubBundles
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -18,25 +20,26 @@ import kotlinx.coroutines.flow.map
 @SuppressLint("MissingPermission")
 class PodsService: Service() {
     companion object {
+        private val strings get() = DeviceRepository.app.stringResolver()
         @Volatile private var instance: PodsService?=null
         const val EQ_COMMAND=ControlCommands.EQUALIZER
         // BluetoothA2dp.ACTION_ACTIVE_DEVICE_CHANGED is hidden from the public SDK.
         private const val A2DP_ACTIVE_DEVICE_CHANGED="android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED"
         fun setControl(id:Int,value:Int) {
             val current=DeviceRepository.state.value.controls[id].orEmpty()
-            instance?.control?.enqueue(id,Controls.valuesForWrite(id,value,current)) ?: DeviceRepository.message("请先连接耳机")
+            instance?.control?.enqueue(id,Controls.valuesForWrite(id,value,current)) ?: DeviceRepository.message(R.string.connect_earbuds_first)
         }
         fun pendingControlValue(id:Int):Int? = instance?.control?.pendingValue(id)
-        fun setEqualizer(values:List<Int>) {instance?.control?.enqueue(EQ_COMMAND,values) ?: DeviceRepository.message("请先连接耳机")}
-        fun previewPopup() {instance?.popup?.show("弹窗预览",preview=true)?:DeviceRepository.message("请先启动耳机服务")}
-        fun previewIsland() {instance?.popup?.show("超级岛预览",preview=true)?:DeviceRepository.message("请先启动耳机服务")}
+        fun setEqualizer(values:List<Int>) {instance?.control?.enqueue(EQ_COMMAND,values) ?: DeviceRepository.message(R.string.connect_earbuds_first)}
+        fun previewPopup() {instance?.popup?.show(PopupReason.PREVIEW,preview=true)?:DeviceRepository.message(R.string.start_earbud_service_first)}
+        fun previewIsland() {instance?.popup?.show(PopupReason.ISLAND_PREVIEW,preview=true)?:DeviceRepository.message(R.string.start_earbud_service_first)}
         fun spatialRefresh(){instance?.spatial?.refreshNow()}
         fun refreshHubDiagnostics(){instance?.hubClient?.refreshDiagnostics()}
         fun spatialBeginCalibration(){instance?.spatial?.beginCalibration()}
         fun spatialCancelCalibration(){instance?.spatial?.cancelCalibration()}
         fun spatialCalibrate(){instance?.spatial?.calibrate()}
         fun spatialRecenter(){instance?.spatial?.recenter()}
-        fun spatialMode(mode:SpatialMode){instance?.spatial?.selectMode(mode)?:DeviceRepository.message("请先连接耳机")}
+        fun spatialMode(mode:SpatialMode){instance?.spatial?.selectMode(mode)?:DeviceRepository.message(R.string.connect_earbuds_first)}
         fun earAutomationChanged(){instance?.earDetection?.preferenceChanged()}
         fun reconnect() {instance?.control?.reconnectNow()?:DeviceRepository.start()}
         fun setCallControl(flipped:Boolean) {
@@ -71,17 +74,17 @@ class PodsService: Service() {
             HubBundles.LID_EVENT_OPENED -> {
                 // The hub's state notice may still be on its way; the card checks this.
                 DeviceRepository.update{it.copy(lidOpen=true)}
-                DeviceRepository.log("已验证盒盖：打开")
-                if(nativeShown)DeviceRepository.log("已提交 HyperOS 原生耳机提示：充电盒已打开")
+                DeviceRepository.log(strings(R.string.lid_verified_open))
+                if(nativeShown)DeviceRepository.log(strings(R.string.native_popup_lid_submitted))
                 else if(DeviceRepository.state.value.popupEnabled)popup.showFallback()
             }
             HubBundles.LID_EVENT_CONFIRMED -> {
-                DeviceRepository.log("开盖状态已稳定")
+                DeviceRepository.log(strings(R.string.lid_open_stable))
                 control.reconnectIfClosed()
             }
             HubBundles.LID_EVENT_CLOSED -> {
                 DeviceRepository.update{it.copy(lidOpen=false)}
-                DeviceRepository.log("已验证盒盖：关闭")
+                DeviceRepository.log(strings(R.string.lid_verified_closed))
                 popup.close(animated=true)
             }
         }
@@ -95,7 +98,7 @@ class PodsService: Service() {
     private fun showConnectionCard() {
         if(connectionCardShown||!batteriesReady||!audioReady)return
         connectionCardShown=true
-        if(DeviceRepository.state.value.connectionPopup&&DeviceRepository.state.value.lidOpen!=true)popup.show("耳机已连接")
+        if(DeviceRepository.state.value.connectionPopup&&DeviceRepository.state.value.lidOpen!=true)popup.show(PopupReason.CONNECTED)
     }
     private val seenOpcodes=mutableSetOf<Int>()
     private var receiverRegistered=false
@@ -136,11 +139,9 @@ class PodsService: Service() {
         popup=PopupController(this){preview,island,onResult->hubClient.requestPopup(preview,island,onResult)}
         earDetection=EarDetectionController(this)
         conversation=ConversationController(this)
-        val manager=getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel("connection","耳机连接",NotificationManager.IMPORTANCE_LOW))
-        manager.createNotificationChannel(NotificationChannel("lid","开盖提示",NotificationManager.IMPORTANCE_DEFAULT))
-        startForeground(10,notification("正在连接 AirPods"))
-        DeviceRepository.update{it.copy(running=true,message="")}
+        updateNotificationChannels()
+        startForeground(10,notification(strings(R.string.connecting_airpods)))
+        DeviceRepository.update{it.copy(running=true,message="",messageCode=0,messageControl=null,messageText=text(""))}
         control=ControlSession(this,scope,controlListener)
         spatial=SpatialAudio(this,write={packet->control.write(packet)},restartControl={control.restartForReadback()})
         spatial.start()
@@ -159,6 +160,16 @@ class PodsService: Service() {
         }
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int)=START_STICKY
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateNotificationChannels()
+        getSystemService(NotificationManager::class.java).notify(10, notification(DeviceRepository.batterySummary()))
+    }
+    private fun updateNotificationChannels() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("connection", strings(R.string.notification_channel_connection), NotificationManager.IMPORTANCE_LOW))
+        manager.createNotificationChannel(NotificationChannel("lid", strings(R.string.notification_channel_lid), NotificationManager.IMPORTANCE_DEFAULT))
+    }
     override fun onBind(intent:Intent?):IBinder?=null
     private fun notification(text:String):Notification {
         val intent=PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
@@ -169,7 +180,7 @@ class PodsService: Service() {
     private fun onEvent(event:Event,session:Long) {
         if(event is Event.Motion){spatial.onMotion(event);return}
         if(event is Event.MotionAcknowledgement){spatial.acknowledge(event);return}
-        DeviceRepository.update{it.copy(lastPacket=System.currentTimeMillis(),status="耳机控制已连接")}
+        DeviceRepository.update{it.copy(lastPacket=System.currentTimeMillis(),status=text(R.string.earbud_control_connected))}
         when(event) {
             is Event.Batteries -> {
                 DeviceRepository.batteries(event.values,true,control=true)
@@ -186,12 +197,12 @@ class PodsService: Service() {
                 control.onEqualizer(values)
             }
             is Event.CardStatus -> {
-                if(DeviceRepository.state.value.cardStatus!=event.flags)DeviceRepository.log("耳机卡片状态 ${event.flags.joinToString(",")}")
+                if(DeviceRepository.state.value.cardStatus!=event.flags)DeviceRepository.log(strings(R.string.earbud_card_status, event.flags.joinToString(",")))
                 DeviceRepository.update{it.copy(cardStatus=event.flags)}
             }
             is Event.Information -> {
                 DeviceRepository.update{it.copy(name=event.name,model=event.model,firmware=event.firmware)}
-                DeviceRepository.log("型号 ${event.model} · 固件 ${event.firmware}")
+                DeviceRepository.log(strings(R.string.model_firmware_log, event.model, event.firmware))
             }
             is Event.Keys -> {
                 val address=DeviceRepository.state.value.address
@@ -199,7 +210,7 @@ class PodsService: Service() {
                 val ready=DeviceRepository.keys.get(address,1)!=null
                 DeviceRepository.update{it.copy(identityReady=ready)}
                 hubClient.pushKeys()
-                DeviceRepository.log("绑定身份密钥状态：${if(ready) "就绪" else "未取得有效值"}")
+                DeviceRepository.log(strings(R.string.identity_key_status, if(ready) strings(R.string.ready) else strings(R.string.valid_value_missing)))
             }
             is Event.Wearing -> {
                 if(event.inEarCount==0)spatial.disconnected(lostControl=false)
@@ -209,10 +220,10 @@ class PodsService: Service() {
             is Event.Conversation -> { conversation.event(event); return }
             is Event.AudioSource -> {
                 DeviceRepository.update{it.copy(conversation=it.conversation.copy(audioSource=event.state))}
-                DeviceRepository.log("耳机音频来源状态：${event.state}")
+                DeviceRepository.log(strings(R.string.earbud_audio_source, event.state))
             }
             is Event.Unknown -> {
-                if(seenOpcodes.add(event.opcode))DeviceRepository.log("接收协议 0x${event.opcode.toString(16)} · ${event.length} 字节")
+                if(seenOpcodes.add(event.opcode))DeviceRepository.log(strings(R.string.protocol_received, event.opcode.toString(16), event.length))
                 return
             }
             is Event.Motion -> return
@@ -230,7 +241,7 @@ class PodsService: Service() {
         earDetection.close()
         scope.cancel();control.close()
         popup.close();if(receiverRegistered)unregisterReceiver(systemReceiver)
-        DeviceRepository.update{it.copy(running=false,connected=false,status="耳机服务已停止",batteries=emptyMap(),controls=emptyMap(),equalizer=null,pending=emptySet(),adaptiveTarget=null,lidOpen=null,wearing=null,earDetectionStatus="耳机服务已停止")}
+        DeviceRepository.update{it.copy(running=false,connected=false,status=text(R.string.earbud_service_stopped),batteries=emptyMap(),controls=emptyMap(),equalizer=null,pending=emptySet(),adaptiveTarget=null,lidOpen=null,wearing=null,earDetectionStatus=text(R.string.earbud_service_stopped))}
         FrameworkBridge.publish();DeviceRepository.flushDiagnostics();super.onDestroy()
     }
 }

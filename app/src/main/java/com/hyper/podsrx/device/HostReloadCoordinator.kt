@@ -2,7 +2,11 @@ package com.hyper.podsrx.device
 
 import android.content.Context
 import android.os.Bundle
+import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.DiagnosticLog
+import com.hyper.podsrx.i18n.UiText
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import io.github.libxposed.service.HookedTarget
 import io.github.libxposed.service.HotReloadResult
 import io.github.libxposed.service.XposedService
@@ -19,10 +23,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** Observe framework auto-reload first; submit at most one fallback per installation and process. */
 object HostReloadCoordinator {
+    private val strings get() = DeviceRepository.app.stringResolver()
     private const val TAG = "HyperPods-Reload"
     private val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
-    @Volatile var status: String = "等待模块服务"
+    @Volatile var status: UiText = text(R.string.waiting_module_service)
         private set
 
     fun onServiceBound(service: XposedService) = schedule(service, emptySet())
@@ -30,7 +35,7 @@ object HostReloadCoordinator {
     fun onScopeApproved(service: XposedService, approved: List<String>) =
         schedule(service, approved.intersect(HostReloadPolicy.hosts.toSet()))
 
-    fun onServiceDied() { status = "模块服务已断开，等待重新连接" }
+    fun onServiceDied() { status = text(R.string.module_service_wait_reconnect) }
 
     private fun schedule(service: XposedService, justApproved: Set<String>) {
         worker.launch {
@@ -46,7 +51,7 @@ object HostReloadCoordinator {
                 } catch (error: Exception) {
                     DiagnosticLog.w(TAG, "Host reload inspection unavailable", error)
                     if (FrameworkBridge.service === service) {
-                        status = "无法确认宿主更新状态，请重新打开相关宿主"
+                        status = text(R.string.host_update_unknown)
                     }
                 }
             }
@@ -55,8 +60,8 @@ object HostReloadCoordinator {
 
     private suspend fun inspect(service: XposedService, justApproved: Set<String>) {
         if (service.apiVersion < XposedService.API_102) {
-            status = "框架不支持热重载，请重启相关宿主"
-            DiagnosticLog.i(TAG, status)
+            status = text(R.string.hot_reload_unsupported)
+            DiagnosticLog.i(TAG, status.resolve(strings))
             return
         }
         val app = DeviceRepository.app
@@ -70,8 +75,8 @@ object HostReloadCoordinator {
         if (FrameworkBridge.service !== service) return
         reportTargets(targets)
         if (targets.any { it.state == HookedTarget.State.RELOADING }) {
-            status = "框架仍在更新宿主适配，请稍后重新打开卡片"
-            DiagnosticLog.i(TAG, status)
+            status = text(R.string.host_update_in_progress)
+            DiagnosticLog.i(TAG, status.resolve(strings))
             return
         }
 
@@ -92,28 +97,28 @@ object HostReloadCoordinator {
             if (!preferences.edit().putString("installation", installation)
                     .putStringSet("attempted_processes", policy.attemptedProcesses()).commit()) {
                 DiagnosticLog.w(TAG, "Reload skipped: could not persist attempt budget")
-                status = "无法保存更新记录，请重新打开相关宿主"
+                status = text(R.string.host_update_record_failed)
                 return
             }
-            status = "正在更新宿主适配"
-            DiagnosticLog.i(TAG, "Requesting hot reload: process=$process state=${target.state}")
+            status = text(R.string.updating_host_integration)
+            DiagnosticLog.i(TAG, "Requesting hot reload: process=${process} state=${target.state}")
             val completion = CompletableDeferred<HotReloadResult>()
             try {
                 service.hotReloadModule(target, Bundle().apply { putString("reason", "package_update") }) { _, result ->
-                    DiagnosticLog.i(TAG, "Hot reload result: process=$process status=${result.status()}"
-                        + (result.message()?.let { " detail=$it" } ?: ""))
+                    DiagnosticLog.i(TAG, "Hot reload result: process=${process} status=${result.status()}"
+                        + (result.message()?.let { " detail=${it}" } ?: ""))
                     completion.complete(result)
                 }
                 val result = withTimeoutOrNull(12_000) { completion.await() }
                 if (result == null) {
-                    DiagnosticLog.w(TAG, "Hot reload timed out: process=$process; no automatic resubmission")
+                    DiagnosticLog.w(TAG, "Hot reload timed out: process=${process}; no automatic resubmission")
                     break // The request may still be running; do not cascade into its dependents.
                 }
                 if (result.status() != HotReloadResult.Status.SUCCEEDED &&
                     result.status() != HotReloadResult.Status.PROCESS_DIED) break
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                DiagnosticLog.w(TAG, "Hot reload request rejected: process=$process", error)
+                DiagnosticLog.w(TAG, "Hot reload request rejected: process=${process}", error)
                 break
             }
         }
@@ -124,14 +129,14 @@ object HostReloadCoordinator {
         reportTargets(targets)
         val missing = justApproved.filter { host -> targets.none { HostReloadPolicy.hostFor(it.processName) == host } }
         status = when {
-            targets.any { it.state == HookedTarget.State.RELOADING } -> "框架仍在更新宿主适配，请稍后重新打开卡片"
+            targets.any { it.state == HookedTarget.State.RELOADING } -> text(R.string.host_update_in_progress)
             targets.any { it.state == HookedTarget.State.FAILED || it.state == HookedTarget.State.STALE } ->
-                "部分宿主未完成热重载；旧版或使用中的适配可能拒绝更新，请重启相关宿主"
-            missing.isNotEmpty() -> "作用域已授权；首次启用请重启对应宿主，以加载模块"
-            targets.isEmpty() -> "尚未发现已加载模块的宿主；首次启用请重启相关宿主"
-            else -> "已运行宿主的模块代码已是最新"
+                text(R.string.hot_reload_incomplete)
+            missing.isNotEmpty() -> text(R.string.scope_first_restart)
+            targets.isEmpty() -> text(R.string.no_loaded_hosts)
+            else -> text(R.string.host_module_current)
         }
-        DiagnosticLog.i(TAG, status)
+        DiagnosticLog.i(TAG, status.resolve(strings))
         if (missing.isNotEmpty() || targets.any { it.state == HookedTarget.State.FAILED || it.state == HookedTarget.State.STALE }) {
             DeviceRepository.message(status)
         }

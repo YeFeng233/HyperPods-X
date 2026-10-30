@@ -10,7 +10,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
 import android.os.SystemClock
+import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.ConversationWire
+import com.hyper.podsrx.i18n.stringResolver
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -29,6 +31,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** Independent conversation leases; never starts or stops the spatial tracker. */
 class ConversationBridge(context: Context) {
+    private val strings = context.stringResolver()
     companion object {
         private val sessions = AtomicLong(SystemClock.elapsedRealtimeNanos())
         private const val HOST = "com.xiaomi.bluetooth"
@@ -67,7 +70,7 @@ class ConversationBridge(context: Context) {
     fun start(address: String, onResult: (Bundle) -> Unit) {
         synchronized(lock) {
             if (closed) {
-                main.post { onResult(result(0, false, "对话桥接已关闭")) }
+                main.post { onResult(result(0, false, strings(R.string.conversation_bridge_closed))) }
                 return
             }
             val previous = current
@@ -81,7 +84,7 @@ class ConversationBridge(context: Context) {
                 if (!isCurrent(session)) return@schedule
                 if (!stopped.getBoolean("stopConfirmed")) {
                     finish(session, Bundle(stopped).apply {
-                        putString("status", "上一会话恢复待确认：${stopped.getString("status", "停止请求未确认")}")
+                        putString("status", strings(R.string.previous_session_restore_unconfirmed, stopped.getString("status", strings(R.string.stop_request_unconfirmed))))
                     })
                     return@schedule
                 }
@@ -103,7 +106,7 @@ class ConversationBridge(context: Context) {
     fun stop(onResult: ((Bundle) -> Unit)? = null) {
         synchronized(lock) {
             if (closed) {
-                if (onResult != null) main.post { onResult(result(0, false, "对话桥接已关闭")) }
+                if (onResult != null) main.post { onResult(result(0, false, strings(R.string.conversation_bridge_closed))) }
                 return
             }
             val previous = current ?: latestSession
@@ -208,7 +211,7 @@ class ConversationBridge(context: Context) {
         }
     }
 
-    private fun nothingToStop(id: Long) = result(id, true, "没有待清理的对话会话").apply {
+    private fun nothingToStop(id: Long) = result(id, true, strings(R.string.no_conversation_to_clean)).apply {
         putBoolean("activeKnown", true)
         putBoolean("cleanupPending", false)
         putBoolean("stopConfirmed", true)
@@ -237,15 +240,15 @@ class ConversationBridge(context: Context) {
             synchronized(lock) { session.stopReply?.let { Bundle(it) } }?.let { return@withLock it }
         }
         if (code != ConversationWire.STOP && !isCurrent(session))
-            return@withLock result(session.id, false, "对话会话已结束")
+            return@withLock result(session.id, false, strings(R.string.conversation_session_ended))
         var target: Endpoint? = null
         try {
             repeat(2) { attempt ->
-                val connected = discover() ?: return@withLock failedRequest(session, code, "对话宿主未就绪，请检查小米蓝牙作用域")
+                val connected = discover() ?: return@withLock failedRequest(session, code, strings(R.string.conversation_host_not_ready))
                 target = connected
                 synchronized(lock) {
                     if (code != ConversationWire.STOP && !isCurrent(session))
-                        return@withLock result(session.id, false, "对话会话已结束")
+                        return@withLock result(session.id, false, strings(R.string.conversation_session_ended))
                     // Atomic with stop()/close(): they either capture this lease or prevent
                     // its START entirely. There is no unregistered in-flight START window.
                     if (code == ConversationWire.START) {
@@ -264,13 +267,13 @@ class ConversationBridge(context: Context) {
                     // Keep the mutex until this late START is cleaned up. A newer START cannot
                     // overtake its STOP; the host also verifies the exact owner/session pair.
                     runCatching { stopOnEndpoint(session, connected) }
-                    return@withLock result(session.id, false, "对话会话已结束")
+                    return@withLock result(session.id, false, strings(R.string.conversation_session_ended))
                 }
                 if (code == ConversationWire.STOP) return@withLock recordStop(session, answer)
                 // A rejected START can legitimately report session 0 or an older host
                 // session. Preserve its diagnostic instead of masking it as a stale success.
                 if (answer.getBoolean("ok") && answer.getBoolean("active") && answer.getLong("session", -1) != session.id)
-                    return@withLock result(session.id, false, "对话宿主返回了过期会话")
+                    return@withLock result(session.id, false, strings(R.string.conversation_stale_session))
                 return@withLock Bundle(answer).apply {
                     if (answer.getBoolean("ok") && answer.getBoolean("active")) {
                         putBoolean("activeKnown", true)
@@ -279,12 +282,12 @@ class ConversationBridge(context: Context) {
                     }
                 }
             }
-            error("对话桥接重连失败")
+            error(strings(R.string.conversation_reconnect_failed))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             target?.let { discard(it) }
-            failedRequest(session, code, "对话桥接失败：${error.message ?: error.javaClass.simpleName}")
+            failedRequest(session, code, strings(R.string.conversation_bridge_failed, error.message ?: error.javaClass.simpleName))
         }
     }
 
@@ -302,14 +305,14 @@ class ConversationBridge(context: Context) {
                 discard(target)
                 if (attempt == 0) {
                     target = discover() ?: return failedRequest(session, ConversationWire.STOP,
-                        "更新后对话宿主尚未就绪")
+                        strings(R.string.conversation_host_after_update))
                     return@repeat
                 }
             }
             // Retirement itself never clears an unconfirmed lease.
             return recordStop(session, answer)
         }
-        error("对话停止请求重连失败")
+        error(strings(R.string.conversation_stop_reconnect_failed))
     }
 
     private fun failedRequest(session: Session, code: Int, status: String): Bundle {
@@ -329,9 +332,9 @@ class ConversationBridge(context: Context) {
                 putLong("session", session.id)
                 putLong("captured", SystemClock.elapsedRealtime())
             })
-            check(binder.transact(code, input, output, 0)) { "不支持的对话桥接版本" }
+            check(binder.transact(code, input, output, 0)) { strings(R.string.conversation_bridge_unsupported) }
             output.readException()
-            return output.readBundle(javaClass.classLoader) ?: error("对话桥接返回为空")
+            return output.readBundle(javaClass.classLoader) ?: error(strings(R.string.conversation_bridge_empty))
         } finally {
             input.recycle()
             output.recycle()
@@ -377,7 +380,7 @@ class ConversationBridge(context: Context) {
             if (endpoint?.binder !== binder) return
             endpoint = null
             val session = current ?: return
-            finish(session, result(session.id, false, "小米蓝牙对话宿主已断开，媒体恢复待确认"))
+            finish(session, result(session.id, false, strings(R.string.conversation_host_disconnected)))
         }
     }
 

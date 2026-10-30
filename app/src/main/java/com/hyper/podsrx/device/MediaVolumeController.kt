@@ -10,9 +10,10 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import com.hyper.podsrx.R
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.math.roundToInt
 
 data class MediaVolumeState(val level: Int = 0, val maximum: Int = 1) {
     val fraction: Float get() = level.toFloat() / maximum.coerceAtLeast(1)
@@ -57,7 +58,7 @@ class MediaVolumeController(context: Context) {
         val level = (value.coerceIn(0f, 1f) * maximum).roundToInt()
         if (level != audio.getStreamVolume(AudioManager.STREAM_MUSIC)) {
             runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0) }
-                .onFailure { DeviceRepository.message("无法调节媒体音量") }
+                .onFailure { DeviceRepository.message(R.string.media_volume_failed) }
         }
         refresh()
     }

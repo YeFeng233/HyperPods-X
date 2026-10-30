@@ -177,10 +177,10 @@ final class NativeAirPodsDialogAdapter {
                         TextView label=(TextView)find(root,host,ids[i]);
                         int amount=i==2?boxLevel(request,preferences):value(request,preferences,keys[i],-1);
                         boolean history=i==2&&!validLevel(value(request,preferences,"box",-1))&&validLevel(amount);
-                        if(label!=null)label.setText(validLevel(amount)?amount+"%"+(history?"（上次）":""):"—");
+                        if(label!=null)label.setText(validLevel(amount)?amount+"%"+(history?HookStrings.get(host, R.string.hook_previous_reading):""):"—");
                     }
                     TextView caption=(TextView)find(root,host,"textCharacters");
-                    if(caption!=null)caption.setText(request.getBooleanExtra("hyperpods_preview",false)?"弹窗预览":connected(request,preferences)?"已连接":"充电盒已打开");
+                    if(caption!=null)caption.setText(request.getBooleanExtra("hyperpods_preview",false)?HookStrings.get(host, R.string.hook_popup_preview):connected(request,preferences)?HookStrings.get(host, R.string.hook_connected):HookStrings.get(host, R.string.hook_case_opened));
                     for(String id:new String[]{"imageViewBoxLayout","textViewBoxBattery","textViewBoxBatteryPercent"}){
                         View box=find(root,host,id);if(box!=null)box.setVisibility(View.VISIBLE);
                     }
@@ -188,12 +188,12 @@ final class NativeAirPodsDialogAdapter {
             } catch(Exception | LinkageError error) { report("setConnectSuccessLayoutDetail",error); }
             return result;
         });
-        // Keep the ROM connection callback intact for real lid events: its
-        // CachedBluetoothDevice.connect(true) restores the A2DP/HFP profiles.
-        // A preview must remain presentation-only and never connect the device.
+        // Keep the ROM connection callback only when automatic connection is enabled.
+        // A preview and an explicitly disabled auto-connect setting remain presentation-only.
         module.hook(pair).intercept(chain->{
             Intent request=request(chain.getThisObject(),preferences);
-            return request!=null&&request.getBooleanExtra("hyperpods_preview",false)?null:chain.proceed();
+            return request!=null&&(request.getBooleanExtra("hyperpods_preview",false)
+                    || !preferences.getBoolean("auto_connect",true))?null:chain.proceed();
         });
         // The ROM's timers and disconnect handling call finish() on the host Activity, which cuts the
         // dialog window's exit animation. Dismiss the dialog first so it slides out like a manual close.

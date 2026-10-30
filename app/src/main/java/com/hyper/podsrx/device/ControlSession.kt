@@ -6,11 +6,18 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.os.SystemClock
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.Aacp
 import com.hyper.podsrx.protocol.AacpFramer
 import com.hyper.podsrx.protocol.ControlCommands
 import com.hyper.podsrx.protocol.ControlCommands.Command
 import com.hyper.podsrx.protocol.Event
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -19,10 +26,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.lsposed.hiddenapibypass.HiddenApiBypass
-import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The AACP control channel: one L2CAP socket at a time, its handshake and reconnects, and the
@@ -30,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 @SuppressLint("MissingPermission")
 class ControlSession(private val context:Context,private val scope:CoroutineScope,private val listener:Listener) {
+    private val strings = context.stringResolver()
     interface Listener {
         fun onOpened(wasReadback:Boolean)
         fun onEvent(event:Event,session:Long)
@@ -107,11 +111,11 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
         val view=ControlCommands.View(s.connected,s.controlRefreshUntil!=0L,s.controls,s.pending,s.equalizer)
         when(val admission=commands.enqueue(id,values,view)) {
             is ControlCommands.Admission.Rejected -> DeviceRepository.message(when(admission.reason) {
-                ControlCommands.Rejection.NOT_CONNECTED -> "耳机控制尚未连接"
-                ControlCommands.Rejection.READING_BACK -> "正在回读耳机设置，请稍候"
-                ControlCommands.Rejection.ADAPTIVE_NOT_READY -> "请等待自适应模式与降噪幅度读取完成"
-                ControlCommands.Rejection.MODE_WHILE_ADAPTIVE -> "请等待降噪指令发送完成后再切换模式"
-                ControlCommands.Rejection.NOT_ALLOWED -> "当前设置或取值尚未开放写入"
+                ControlCommands.Rejection.NOT_CONNECTED -> R.string.control_not_connected
+                ControlCommands.Rejection.READING_BACK -> R.string.reading_settings_wait
+                ControlCommands.Rejection.ADAPTIVE_NOT_READY -> R.string.wait_adaptive_readback
+                ControlCommands.Rejection.MODE_WHILE_ADAPTIVE -> R.string.wait_noise_command
+                ControlCommands.Rejection.NOT_ALLOWED -> R.string.setting_not_writable
             })
             is ControlCommands.Admission.Accepted -> if(outbox.trySend(admission.command).isFailure)commands.complete(admission.command)
             ControlCommands.Admission.Unchanged -> Unit
@@ -150,12 +154,12 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
             val id=command.id
             when(commands.beforeSend(command,DeviceRepository.state.value.controls)) {
                 ControlCommands.Send.STALE -> continue
-                ControlCommands.Send.NOT_ADAPTIVE -> {DeviceRepository.message("请在自适应模式下调整降噪幅度");continue}
+                ControlCommands.Send.NOT_ADAPTIVE -> {DeviceRepository.message(R.string.select_adaptive_before_adjusting);continue}
                 ControlCommands.Send.SEND -> Unit
             }
             try {
-                val s=socket ?: throw IOException("控制通道未连接")
-                DeviceRepository.update{it.copy(message="")}
+                val s=socket ?: throw IOException(strings(R.string.control_channel_disconnected))
+                DeviceRepository.update{it.copy(message="",messageCode=0,messageControl=null,messageText=text(""))}
                 DeviceRepository.saveDiagnostics()
                 val packet=if(id==ControlCommands.EQUALIZER)Aacp.equalizer(command.values)else Aacp.control(id,command.values)
                 val writtenSession=sessionIds[s] ?: 0L
@@ -170,7 +174,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                         scope.launch {
                             try {
                                 prepareReadback()
-                                DeviceRepository.log("主动重连控制通道以回读设置")
+                                DeviceRepository.log(strings(R.string.reconnecting_for_readback))
                                 runCatching{s.close()};reconnect.trySend(Unit)
                                 delay(1000)
                             } finally {commands.releaseReadback()}
@@ -183,12 +187,14 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                         traceControl(id,"timeout",command.token) {
                             "target=${command.values} actual=${DeviceRepository.state.value.controls[id]}"
                         }
-                        DeviceRepository.message("${Controls.all.find{it.id==id}?.title ?: if(id==ControlCommands.EQUALIZER)"均衡器" else "设置"}未确认目标值，已保留设备回读结果")
+                        val title = Controls.all.find { it.id == id }?.titleRes
+                            ?: if (id == ControlCommands.EQUALIZER) R.string.equalizer else R.string.settings
+                        DeviceRepository.message(R.string.setting_unconfirmed, text(title), control = id)
                     }
                 }
             } catch(e:Exception) {
                 commands.complete(command)
-                DeviceRepository.message("设置发送失败：${e.message}")
+                DeviceRepository.message(R.string.setting_send_failed, e.message ?: e.javaClass.simpleName, control = id)
             }
         }
     }
@@ -197,7 +203,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     private fun traceControl(id:Int,stage:String,token:Long?=null,
         session:Long=sessionSequence.get(),elapsedMs:Long=SystemClock.elapsedRealtime(),details:()->String) {
         if(id!=0x0d&&id!=0x1f&&id!=0x23&&id!=0x25&&id!=0x2e)return
-        DeviceRepository.log("设置诊断 id=0x${id.toString(16)} stage=$stage elapsedMs=$elapsedMs session=$session token=${token ?: "none"} ${details()}")
+        DeviceRepository.log(strings(R.string.setting_diagnostic, id.toString(16), stage, elapsedMs, session, token ?: "none", details()))
     }
 
     private fun prepareReadback() {
@@ -221,11 +227,11 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
             var watchdog:Job?=null
             val silent=AtomicBoolean(false)
             try {
-                val adapter=context.getSystemService(BluetoothManager::class.java).adapter ?: throw IOException("蓝牙不可用")
-                if(!adapter.isEnabled)throw IOException("蓝牙已关闭")
+                val adapter=context.getSystemService(BluetoothManager::class.java).adapter ?: throw IOException(strings(R.string.bluetooth_unavailable))
+                if(!adapter.isEnabled)throw IOException(strings(R.string.bluetooth_disabled))
                 val target=adapter.getRemoteDevice(DeviceRepository.state.value.address)
                 if(!linkUp(target)){
-                    DeviceRepository.update{it.copy(status="等待耳机连接")}
+                    DeviceRepository.update{it.copy(status=text(R.string.waiting_earbuds))}
                     reconnect.receive()
                     continue
                 }
@@ -233,7 +239,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 // whose audio never comes, such as one serving another phone, opens it anyway.
                 val audioWait=linkedAt+AUDIO_WAIT_MS-SystemClock.elapsedRealtime()
                 if(audio==false&&audioWait>0){
-                    DeviceRepository.update{it.copy(status="等待耳机音频连接")}
+                    DeviceRepository.update{it.copy(status=text(R.string.waiting_audio_connection))}
                     withTimeoutOrNull(audioWait){reconnect.receive()}
                     continue
                 }
@@ -241,7 +247,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 runCatching{if(adapter.isDiscovering)adapter.cancelDiscovery()}
                 DeviceRepository.update{
                     val refresh=it.controlRefreshUntil>SystemClock.elapsedRealtime()
-                    it.copy(status="建立耳机控制连接…",connected=false,
+                    it.copy(status=text(R.string.opening_control_channel),connected=false,
                         controls=if(refresh)it.controls else emptyMap(),equalizer=if(refresh)it.equalizer else null,
                         controlRefreshUntil=if(refresh)it.controlRefreshUntil else 0)
                 }
@@ -252,8 +258,8 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                 val timeout=scope.launch{delay(12000);if(!opened.isConnected)runCatching{opened.close()}}
                 try{opened.connect()}finally{timeout.cancel()}
                 val wasReadback=commands.opened()
-                DeviceRepository.log("经典 L2CAP 通道已连接")
-                DeviceRepository.update{it.copy(status="正在读取耳机状态…",connected=true)}
+                DeviceRepository.log(strings(R.string.l2cap_connected))
+                DeviceRepository.update{it.copy(status=text(R.string.reading_earbud_state),connected=true)}
                 listener.onOpened(wasReadback)
                 val output=opened.outputStream
                 synchronized(opened){output.write(Aacp.handshake);output.flush()}
@@ -275,18 +281,18 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                     val heard=received.get()
                     if(!heard||(!settled.get()&&silentRetries<SILENT_RETRIES)){
                         silent.set(true)
-                        DeviceRepository.log("握手后 ${SILENT_HANDSHAKE_MS/1000} 秒${if(heard)"未收到耳机设置" else "无响应"}，重建控制通道")
+                        DeviceRepository.log(strings(R.string.handshake_retry, SILENT_HANDSHAKE_MS/1000, if(heard)strings(R.string.settings_not_received) else strings(R.string.no_response)))
                         runCatching{opened.close()}
                     }
                 }
                 val framer=AacpFramer(); val buffer=ByteArray(65536)
                 while(scope.isActive) {
                     val count=opened.inputStream.read(buffer)
-                    if(count<=0)throw IOException("耳机控制通道已关闭")
+                    if(count<=0)throw IOException(strings(R.string.control_channel_closed))
                     received.set(true)
                     if(count>=8 && buffer.copyOfRange(0,4).contentEquals(Aacp.header) && buffer[4]==0x4b.toByte() && buffer[5]==0.toByte()) {
                         DeviceRepository.update{it.copy(conversation=it.conversation.copy(wirePackets=it.conversation.wirePackets+1))}
-                        DeviceRepository.log("对话原始报文：读取 $count 字节，载荷长度 ${(buffer[6].toInt() and 255) or ((buffer[7].toInt() and 255) shl 8)}")
+                        DeviceRepository.log(strings(R.string.conversation_raw_packet, count, (buffer[6].toInt() and 255) or ((buffer[7].toInt() and 255) shl 8)))
                     }
                     for(packet in framer.feed(buffer.copyOf(count))){
                         if(packet.size>=6&&packet[4].toInt()==0x17){listener.onSpatialPacket(packet);continue}
@@ -298,11 +304,11 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
             } catch(e:Exception) {
                 if(!scope.isActive)break
                 listener.onLost()
-                DeviceRepository.log("控制连接：${e.message ?: e.javaClass.simpleName}")
+                DeviceRepository.log(strings(R.string.control_connection_log, e.message ?: e.javaClass.simpleName))
                 commands.disconnected { preserve ->
                     DeviceRepository.update{
                         val refresh=preserve&&it.controlRefreshUntil>SystemClock.elapsedRealtime()
-                        it.copy(connected=false,status=if(preserve)"正在回读耳机设置…"else"等待重连 · ${e.message ?: "连接失败"}",
+                        it.copy(connected=false,status=if(preserve)text(R.string.reading_settings)else text(R.string.waiting_reconnect, e.message ?: text(R.string.connection_failed)),
                             controls=if(refresh)it.controls else emptyMap(),equalizer=if(refresh)it.equalizer else null,
                             controlRefreshUntil=if(refresh)it.controlRefreshUntil else 0,
                             pending=if(preserve)it.pending-ControlCommands.ADAPTIVE else emptySet(),adaptiveTarget=null)
@@ -317,7 +323,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
             }
             attempts++
             val requested=if(attempts<2)withTimeoutOrNull(2000){reconnect.receive()} else {
-                DeviceRepository.update{it.copy(status="等待开盖或蓝牙连接")}
+                DeviceRepository.update{it.copy(status=text(R.string.waiting_lid_or_bluetooth))}
                 DeviceRepository.saveDiagnostics()
                 reconnect.receive()
             }

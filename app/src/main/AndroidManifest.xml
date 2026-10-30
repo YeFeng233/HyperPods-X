@@ -22,7 +22,7 @@
         <package android:name="com.xiaomi.bluetooth" />
         <package android:name="com.milink.service" />
     </queries>
-    <application android:name=".HyperPodsApp" android:label="HyperPods-X"
+    <application android:name=".HyperPodsApp" android:label="@string/app_name"
         android:description="@string/module_description" android:theme="@style/AppTheme"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">

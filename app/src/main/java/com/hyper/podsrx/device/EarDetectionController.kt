@@ -15,12 +15,16 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.EarPlaybackAction
 import com.hyper.podsrx.protocol.EarPlaybackPolicy
 import com.hyper.podsrx.protocol.Event
 
 /** Serialize sensor reports, playback callbacks and preference changes on the main thread. */
 class EarDetectionController(context: Context) {
+    private val strings = context.stringResolver()
     private val handler = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
     private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
@@ -43,15 +47,15 @@ class EarDetectionController(context: Context) {
 
     init {
         runCatching { audio.registerAudioPlaybackCallback(playback, handler); playbackRegistered = true }
-            .onFailure { DeviceRepository.log("佩戴检测：播放状态监听不可用") }
+            .onFailure { DeviceRepository.log(strings(R.string.ear_detection_playback_unavailable)) }
         runCatching { audio.registerAudioDeviceCallback(devices, handler); devicesRegistered = true }
-            .onFailure { DeviceRepository.log("佩戴检测：音频输出监听不可用") }
+            .onFailure { DeviceRepository.log(strings(R.string.ear_detection_output_unavailable)) }
     }
 
     fun wearing(event: Event.Wearing, deviceAddress: String) = onMain {
         if (deviceAddress != DeviceRepository.state.value.address || !DeviceRepository.state.value.connected) return@onMain
         if (address != deviceAddress) { policy.reset(); address = deviceAddress }
-        if (latest != event) DeviceRepository.log("佩戴状态：${event.primary.name} / ${event.secondary.name}（主 / 副耳）")
+        if (latest != event) DeviceRepository.log(strings(R.string.wearing_status_log, event.primary.name, event.secondary.name))
         latest = event
         DeviceRepository.update { it.copy(wearing = event) }
         val eligible = eligible()
@@ -72,7 +76,7 @@ class EarDetectionController(context: Context) {
         latest = null
         address = ""
         handler.removeCallbacks(check)
-        DeviceRepository.update { it.copy(wearing = null, earDetectionStatus = "等待耳机控制连接") }
+        DeviceRepository.update { it.copy(wearing = null, earDetectionStatus = text(R.string.waiting_control_connection)) }
     }
 
     private fun eligible(): Boolean {
@@ -81,12 +85,12 @@ class EarDetectionController(context: Context) {
         val normalMode = audio.mode == AudioManager.MODE_NORMAL
         val routed = state.earAutomation && connected && latest != null && normalMode && routeMatches(state.address)
         val status = when {
-            !state.earAutomation -> "自动入耳检测已关闭"
-            !connected -> "等待耳机控制连接"
-            latest == null -> "等待耳机上报佩戴状态"
-            !normalMode -> "通话期间不控制媒体播放"
-            !routed -> "请将媒体输出切换到这副 AirPods"
-            else -> "检测已就绪 · 摘下一只暂停，戴回继续"
+            !state.earAutomation -> text(R.string.ear_detection_disabled)
+            !connected -> text(R.string.waiting_control_connection)
+            latest == null -> text(R.string.waiting_wearing_report)
+            !normalMode -> text(R.string.no_media_control_during_calls)
+            !routed -> text(R.string.switch_media_to_airpods)
+            else -> text(R.string.ear_detection_ready)
         }
         DeviceRepository.update { if (it.earDetectionStatus == status) it else it.copy(earDetectionStatus = status) }
         return routed
@@ -101,7 +105,7 @@ class EarDetectionController(context: Context) {
     }.onFailure {
         if (!routeErrorReported) {
             routeErrorReported = true
-            DeviceRepository.log("佩戴检测：无法查询媒体输出 ${it.javaClass.simpleName}")
+            DeviceRepository.log(strings(R.string.ear_detection_route_failed, it.javaClass.simpleName))
         }
     }.getOrDefault(false)
 
@@ -122,10 +126,10 @@ class EarDetectionController(context: Context) {
             val time = SystemClock.uptimeMillis()
             audio.dispatchMediaKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_DOWN, key, 0))
             audio.dispatchMediaKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_UP, key, 0))
-            DeviceRepository.log(if (action == EarPlaybackAction.PAUSE) "佩戴检测：已发送暂停" else "佩戴检测：已发送恢复播放")
+            DeviceRepository.log(if (action == EarPlaybackAction.PAUSE) strings(R.string.ear_detection_pause_sent) else strings(R.string.ear_detection_play_sent))
         }.onFailure {
             policy.reset()
-            DeviceRepository.log("佩戴检测：媒体指令失败 ${it.javaClass.simpleName}")
+            DeviceRepository.log(strings(R.string.ear_detection_command_failed, it.javaClass.simpleName))
         }
         DeviceRepository.saveDiagnostics()
     }

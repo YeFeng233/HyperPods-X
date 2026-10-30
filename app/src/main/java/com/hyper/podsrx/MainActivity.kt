@@ -16,7 +16,7 @@ open class MainActivity:ComponentActivity() {
     protected open val externalSettings=false
     private val permissionRequest=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if(DeviceRepository.permissionsGranted())DeviceRepository.start()
-        else DeviceRepository.message("连接耳机需要附近设备权限")
+        else DeviceRepository.message(R.string.nearby_permission_required)
     }
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,7 +24,7 @@ open class MainActivity:ComponentActivity() {
         val requested=intent.getStringExtra("device_address")
         if(externalSettings&&requested!=null&&requested!=DeviceRepository.state.value.address){finish();return}
         setContent {HyperPodsScreen(externalSettings,initialPage=intent.getStringExtra("page"),onConnect={connect()},onOverlay={
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")))
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:${packageName}")))
         },onSystemBluetooth={openSystemBluetooth()},onFinish={finish()})}
     }
     override fun onStart() { super.onStart();DeviceRepository.pageVisible(true) }
@@ -48,7 +48,7 @@ open class MainActivity:ComponentActivity() {
             if(runCatching{startActivity(details)}.isSuccess)return
         }
         runCatching{startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))}
-            .onFailure{DeviceRepository.message("无法打开系统蓝牙，请从系统设置进入")}
+            .onFailure{DeviceRepository.message(R.string.bluetooth_settings_failed)}
     }
 }
 class DeviceSettingsActivity:MainActivity(){override val externalSettings=true}

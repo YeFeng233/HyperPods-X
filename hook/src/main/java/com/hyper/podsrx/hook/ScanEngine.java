@@ -189,7 +189,7 @@ final class ScanEngine {
         if (!due(liveStartedAt)) return;
         byte[] pattern = new byte[27], mask = new byte[27];
         pattern[0] = 7; pattern[1] = 25; mask[0] = -1; mask[1] = -1;
-        ScanCallback callback = new Callback("实时扫描") {
+        ScanCallback callback = new Callback(HookStrings.get(context, R.string.hook_scan_live)) {
             @Override boolean current() { return live == this; }
             @Override void failed() { live = null; }
         };
@@ -216,7 +216,7 @@ final class ScanEngine {
         if (!due(boxStartedAt)) return;
         byte[] pattern = new byte[CaseStatusCodec.LENGTH + 2], mask = new byte[CaseStatusCodec.LENGTH + 2];
         pattern[0] = 7; pattern[1] = (byte) CaseStatusCodec.LENGTH; mask[0] = -1; mask[1] = -1;
-        ScanCallback callback = new Callback("盒子状态") {
+        ScanCallback callback = new Callback(HookStrings.get(context, R.string.hook_scan_case)) {
             @Override boolean current() { return box == this; }
             @Override void failed() { box = null; }
         };

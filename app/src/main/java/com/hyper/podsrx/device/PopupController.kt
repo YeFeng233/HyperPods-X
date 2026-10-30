@@ -19,52 +19,62 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import com.hyper.podsrx.DeviceSettingsActivity
 import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import kotlinx.coroutines.*
+
+internal enum class PopupReason(val labelRes: Int) {
+    LID_OPEN(R.string.case_opened),
+    CONNECTED(R.string.earbuds_connected),
+    PREVIEW(R.string.popup_preview),
+    ISLAND_PREVIEW(R.string.island_preview),
+}
 
 /**
  * The overlay is native Android so it does not invent an Activity lifecycle in a Service. The
  * native popup and island belong to the Bluetooth host's hub; [native] asks it for one.
  */
 class PopupController(private val context:Context,private val native:(preview:Boolean,island:Boolean,onResult:(Boolean)->Unit)->Unit) {
+    private val strings = context.stringResolver()
     private val handler=Handler(Looper.getMainLooper())
     private val windows=context.getSystemService(WindowManager::class.java)
     private var view:View?=null
     private var updates:Job?=null
     private var lastAutomatic=Long.MIN_VALUE/2
     private var generation=0L
-    fun show(reason:String="充电盒已打开",preview:Boolean=false) { handler.post {
+    internal fun show(reason:PopupReason=PopupReason.LID_OPEN,preview:Boolean=false) { handler.post {
         // A closed advertisement may arrive before this queued UI operation executes.
-        if(!preview&&reason=="充电盒已打开"&&DeviceRepository.state.value.lidOpen!=true)return@post
+        if(!preview&&reason==PopupReason.LID_OPEN&&DeviceRepository.state.value.lidOpen!=true)return@post
         val now=android.os.SystemClock.elapsedRealtime()
         // Each confirmed lid open is a real reopen; only the connection card is held back after a popup.
-        if(!preview&&reason!="充电盒已打开"&&now-lastAutomatic<10000)return@post
+        if(!preview&&reason!=PopupReason.LID_OPEN&&now-lastAutomatic<10000)return@post
         if(!preview)lastAutomatic=now
         if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
         close()
         val request=generation
-        if(DeviceRepository.state.value.nativePopup)native(preview,reason=="超级岛预览") nativeResult@{shown->
+        if(DeviceRepository.state.value.nativePopup)native(preview,reason==PopupReason.ISLAND_PREVIEW) nativeResult@{shown->
             if(request!=generation)return@nativeResult
-            DeviceRepository.update{it.copy(nativePopupStatus=if(shown)"已提交系统原生耳机提示"else"原生通道未就绪，使用兼容卡片")}
-            if(!preview&&reason=="充电盒已打开"&&DeviceRepository.state.value.lidOpen!=true)return@nativeResult
-            if(shown)DeviceRepository.log("已提交 HyperOS 原生耳机提示：$reason")else showOverlay(reason)
+            DeviceRepository.update{it.copy(nativePopupStatus=if(shown)text(R.string.native_popup_submitted)else text(R.string.native_popup_fallback))}
+            if(!preview&&reason==PopupReason.LID_OPEN&&DeviceRepository.state.value.lidOpen!=true)return@nativeResult
+            if(shown)DeviceRepository.log(strings(R.string.native_popup_submitted_reason, strings(reason.labelRes)))else showOverlay(reason)
             DeviceRepository.saveDiagnostics()
         } else showOverlay(reason)
     } }
     /** The hub showed no native popup for this lid opening; the card or a notification stands in. */
-    fun showFallback(reason:String="充电盒已打开") { handler.post {
+    internal fun showFallback(reason:PopupReason=PopupReason.LID_OPEN) { handler.post {
         if(DeviceRepository.state.value.lidOpen!=true)return@post
         lastAutomatic=android.os.SystemClock.elapsedRealtime()
         if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
         close()
         showOverlay(reason)
     } }
-    private fun showOverlay(reason:String) {
+    private fun showOverlay(reason:PopupReason) {
         if(!Settings.canDrawOverlays(context)||context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return}
         val root=LinearLayout(context).apply {
             orientation=LinearLayout.VERTICAL;setPadding(dp(24),dp(20),dp(24),dp(22))
@@ -73,20 +83,20 @@ class PopupController(private val context:Context,private val native:(preview:Bo
         }
         val title=label(DeviceRepository.state.value.name,22,Color.rgb(25,28,35)).apply{setTypeface(typeface,Typeface.BOLD)}
         root.addView(title)
-        root.addView(label("HyperPods-X · $reason",13,Color.GRAY))
+        root.addView(label("HyperPods-X · ${strings(reason.labelRes)}",13,Color.GRAY))
         root.addView(ImageView(context).apply{setImageResource(DeviceRepository.state.value.headset.pairArtwork);scaleType=ImageView.ScaleType.FIT_CENTER},LinearLayout.LayoutParams(-1,dp(140)))
         val batteries=label("",17,Color.rgb(40,43,50)).apply{setPadding(0,dp(22),0,dp(22))}
         root.addView(batteries)
         val row=LinearLayout(context)
-        row.addView(label("耳机设置  ›",16,Color.rgb(52,130,255)).apply{setOnClickListener{openSettings()}},LinearLayout.LayoutParams(0,dp(44),1f))
-        row.addView(label("关闭",15,Color.GRAY).apply{gravity=Gravity.CENTER_VERTICAL;setOnClickListener{close(true)}},LinearLayout.LayoutParams(dp(56),dp(44)))
+        row.addView(label(strings(R.string.popup_earbud_settings),16,Color.rgb(52,130,255)).apply{setOnClickListener{openSettings()}},LinearLayout.LayoutParams(0,dp(44),1f))
+        row.addView(label(strings(R.string.mode_off),15,Color.GRAY).apply{gravity=Gravity.CENTER_VERTICAL;setOnClickListener{close(true)}},LinearLayout.LayoutParams(dp(56),dp(44)))
         root.addView(row)
         root.setOnTouchListener{_,event->if(event.action==MotionEvent.ACTION_OUTSIDE){close(true);true}else false}
         val params=WindowManager.LayoutParams(context.resources.displayMetrics.widthPixels-dp(32),WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT).apply{gravity=Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL;y=dp(32)}
-        runCatching{windows.addView(root,params);view=root;DeviceRepository.log("显示电量卡片：$reason")}.onFailure{DeviceRepository.log("弹窗显示失败：${it.javaClass.simpleName}");notifyStatus(reason)}
+        runCatching{windows.addView(root,params);view=root;DeviceRepository.log(strings(R.string.battery_card_shown, strings(reason.labelRes)))}.onFailure{DeviceRepository.log(strings(R.string.popup_failed, it.javaClass.simpleName));notifyStatus(reason)}
         updates=CoroutineScope(Dispatchers.Main).launch {DeviceRepository.state.collect{batteries.text=DeviceRepository.batterySummary()}}
         handler.postDelayed({if(view===root)close(true)},8000)
     }
@@ -94,10 +104,10 @@ class PopupController(private val context:Context,private val native:(preview:Bo
         context.startActivity(Intent(context,DeviceSettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             .putExtra("device_address",DeviceRepository.state.value.address));close()
     }
-    private fun notifyStatus(reason:String){
+    private fun notifyStatus(reason:PopupReason){
         val pending=PendingIntent.getActivity(context,11,Intent(context,DeviceSettingsActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(NotificationManager::class.java).notify(11,NotificationCompat.Builder(context,"lid")
-            .setSmallIcon(R.drawable.ic_headphones).setContentTitle("${DeviceRepository.state.value.name} · $reason")
+            .setSmallIcon(R.drawable.ic_headphones).setContentTitle("${DeviceRepository.state.value.name} · ${strings(reason.labelRes)}")
             .setContentText(DeviceRepository.batterySummary()).setContentIntent(pending).setAutoCancel(true).build())
     }
     /** [animated] slides the overlay down before removing it; replacing or destroying it removes it at once. */

@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -35,6 +36,7 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.i18n.rememberStrings
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Clear
@@ -52,6 +54,7 @@ internal fun MiuixSettingsScreen(
     onSystemBluetooth: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    val strings = rememberStrings()
     val state by DeviceRepository.state.collectAsStateWithLifecycle()
     var confirmedControls by remember(state.address, state.running) { mutableStateOf<Map<Int, List<Int>>>(emptyMap()) }
     var confirmedEqualizer by remember(state.address, state.running) { mutableStateOf<List<Int>?>(null) }
@@ -93,14 +96,12 @@ internal fun MiuixSettingsScreen(
     }
     var nameError by rememberSaveable(state.address) { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    val observedLog = remember { arrayOf(state.log) }
-    LaunchedEffect(state.log) {
-        val previous = observedLog[0]
-        observedLog[0] = state.log
-        val overlap = (minOf(previous.size, state.log.size) downTo 0).first {
-            previous.takeLast(it) == state.log.take(it)
+    var observedMessage by remember { mutableLongStateOf(state.messageRevision) }
+    LaunchedEffect(state.messageRevision, strings) {
+        if (state.messageRevision != observedMessage) {
+            observedMessage = state.messageRevision
+            SettingsCatalog.actionFailureMessage(state, strings)?.let { actionError = it }
         }
-        state.log.drop(overlap).mapNotNull(SettingsCatalog::actionFailureMessage).lastOrNull()?.let { actionError = it }
     }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -153,7 +154,7 @@ internal fun MiuixSettingsScreen(
                             onDispose { if (page == SettingsPage.SPATIAL.route) PodsService.spatialCancelCalibration() }
                         }
                         MiuixPageScaffold(
-                            title = SettingsCatalog.title(page, entryState),
+                            title = SettingsCatalog.title(page, entryState, strings),
                             onBack = back,
                             onMore = if (page == SettingsPage.DEVICE.route) ({ navigate(SettingsPage.MODULE.route) }) else null,
                             startsWithHeading = when (page) {
@@ -168,7 +169,7 @@ internal fun MiuixSettingsScreen(
                                 SettingsPage.NAME.route -> miuixItem("name.editor") {
                                     MiuixNameEditor(nameValue, { nameValue = it; nameError = null }, nameError, finishName)
                                 }
-                                else -> miuixSettingsPageContent(page, entryState, onConnect, onOverlay, onSystemBluetooth, navigate)
+                                else -> miuixSettingsPageContent(page, entryState, onConnect, onOverlay, onSystemBluetooth, navigate, strings)
                             }
                             if (page in setOf("module", "connection", "diagnostics")) {
                                 miuixFootnote("page.message", entryState.message)
@@ -242,12 +243,13 @@ private fun LazyListScope.miuixDevicePage(
 
 @Composable
 private fun MiuixBatteryCard(state: PodsState) {
+    val strings = rememberStrings()
     val cellHeight = with(LocalDensity.current) { 20.sp.toDp() }.coerceAtLeast(21.dp)
     SettingsCard {
         Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf(4 to "左", 2 to "右", 8 to "充电盒").forEachIndexed { index, (id, label) ->
                 if (index > 0) Box(Modifier.width(.5.dp).height(cellHeight * 3).background(MiuixTheme.colorScheme.dividerLine))
-                val battery = batteryPresentation(state.batteries[id])
+                val battery = batteryPresentation(state.batteries[id], strings)
                 Column(Modifier.weight(1f).clearAndSetSemantics {
                     contentDescription = label + "，" + battery.label + if (battery.note.isBlank()) "" else "，" + battery.note
                 }, horizontalAlignment = Alignment.CenterHorizontally) {

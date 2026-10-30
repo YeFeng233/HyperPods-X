@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import com.hyper.podsrx.device.Controls
 import com.hyper.podsrx.device.PodsService
 import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.i18n.rememberStrings
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.ui.GlasmioAdaptiveSlider
 import io.github.neoruaa.glasmio.ui.GlasmioSegmentedControl
@@ -72,11 +73,12 @@ internal fun ListeningControls(
     onModeChange: (Int) -> Unit = { PodsService.setControl(0x0d, it) },
     onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) },
 ) {
+    val strings = rememberStrings()
     val controller = LocalListeningIntentController.current
         ?: rememberListeningIntentController(state, onModeChange, onStrengthChange)
-    val ui = listeningPresentation(state, intent = controller.intent)
+    val ui = listeningPresentation(state, intent = controller.intent, strings = strings)
     GlasmioSegmentedControl(
-        items = IosListeningChoices.map { it.value to it.label },
+        items = IosListeningChoices.map { it.value to strings(it.labelRes) },
         selected = ui.mode,
         onSelected = { requested ->
             if (ui.canSelectMode(requested)) {
@@ -96,7 +98,7 @@ internal fun ListeningControls(
         hiddenItems = ui.hiddenModes,
         showLabels = true,
         captionOverride = ui.modeNotice.ifBlank { if (ui.showAdaptive) ui.strengthNotice else "" }.takeIf { it.isNotBlank() },
-        adaptiveLabels = IosAdaptiveAnchors.map(::adaptiveStrengthLabel),
+        adaptiveLabels = IosAdaptiveAnchors.map { adaptiveStrengthLabel(it, strings) },
         itemContent = { mode, _ -> ListeningGlyph(mode, GlasmioTheme.colors.content) },
     )
 }
@@ -106,10 +108,11 @@ internal fun AdaptiveStrengthControl(
     state: PodsState,
     onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) },
 ) {
+    val strings = rememberStrings()
     val controller = LocalListeningIntentController.current ?: rememberListeningIntentController(
         state, { PodsService.setControl(0x0d, it) }, onStrengthChange,
     )
-    val ui = listeningPresentation(state, intent = controller.intent)
+    val ui = listeningPresentation(state, intent = controller.intent, strings = strings)
     GlasmioAdaptiveSlider(
         value = adaptiveStrengthFraction(ui.strength),
         onValueChange = { fraction ->
@@ -120,7 +123,7 @@ internal fun AdaptiveStrengthControl(
         enabled = ui.strengthEnabled,
         deferSelection = false,
         showLabels = true,
-        labels = IosAdaptiveAnchors.map(::adaptiveStrengthLabel),
+        labels = IosAdaptiveAnchors.map { adaptiveStrengthLabel(it, strings) },
         captionOverride = ui.strengthNotice.takeIf { it.isNotBlank() },
     )
 }

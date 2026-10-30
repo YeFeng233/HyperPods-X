@@ -1,5 +1,7 @@
 package com.hyper.podsrx.device
 
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.text
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 
@@ -10,7 +12,7 @@ object FrameworkBridge {
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(bound: XposedService) {
                 service = bound
-                DeviceRepository.update { it.copy(framework = "${bound.frameworkName} · API ${bound.apiVersion}", frameworkApi = bound.apiVersion) }
+                DeviceRepository.update { it.copy(framework = text("${bound.frameworkName} · API ${bound.apiVersion}"), frameworkApi = bound.apiVersion) }
                 publish()
                 HostReloadCoordinator.onServiceBound(bound)
             }
@@ -18,7 +20,7 @@ object FrameworkBridge {
                 if (service === bound) {
                     service = null
                     HostReloadCoordinator.onServiceDied()
-                    DeviceRepository.update { it.copy(framework = "模块服务已断开", frameworkApi = 0) }
+                    DeviceRepository.update { it.copy(framework = text(R.string.module_service_disconnected), frameworkApi = 0) }
                 }
             }
         })
@@ -36,16 +38,17 @@ object FrameworkBridge {
                 ?.putBoolean("popup_enabled", s.popupEnabled)
                 ?.putBoolean("native_popup", s.nativePopup)
                 ?.putBoolean("battery_alerts", s.batteryAlerts)
+                ?.putBoolean("auto_connect", s.autoConnect)
                 // Known from an advertisement before the first session reports the model.
                 ?.putInt("panel_product", s.product)
                 ?.putBoolean("enabled", true)?.apply()
         }
     }
     fun requestNativeScope() {
-        val bound = service ?: return DeviceRepository.message("请先在 LSPosed 中启用 HyperPods-X")
+        val bound = service ?: return DeviceRepository.message(R.string.enable_module_first)
         bound.requestScope(listOf("com.android.settings","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
             override fun onScopeRequestApproved(approved:MutableList<String>){
-                DeviceRepository.message("作用域已授权，正在检查宿主加载状态")
+                DeviceRepository.message(R.string.scope_authorized_checking)
                 HostReloadCoordinator.onScopeApproved(bound, approved)
             }
             override fun onScopeRequestFailed(message:String){DeviceRepository.message(message)}

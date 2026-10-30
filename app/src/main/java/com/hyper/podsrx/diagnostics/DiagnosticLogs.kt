@@ -12,11 +12,15 @@ import android.os.ResultReceiver
 import android.os.SystemClock
 import android.widget.Toast
 import com.hyper.podsrx.BuildConfig
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.DeviceRepository
 import com.hyper.podsrx.device.HostReloadCoordinator
 import com.hyper.podsrx.device.HostReloadPolicy
 import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.LogRedactor
+import com.hyper.podsrx.i18n.UiText
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import java.io.File
 import java.io.IOException
 import java.time.Instant
@@ -24,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
@@ -40,10 +44,11 @@ import org.json.JSONObject
 
 data class LogExportState(
     val exporting: Boolean = false,
-    val status: String = "保存运行记录与诊断信息，设备地址和密钥自动脱敏",
+    val status: UiText = text(R.string.log_export_description),
 )
 
 object DiagnosticLogs {
+    private val strings get() = DeviceRepository.app.stringResolver()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val records = Channel<String>(256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private lateinit var store: RotatingLogStore
@@ -80,22 +85,22 @@ object DiagnosticLogs {
     fun requestExport(context: Context, destination: Uri) {
         if (!exportRunning.compareAndSet(false, true)) return
         val app = context.applicationContext
-        mutableExportState.value = LogExportState(true, "正在收集日志…")
+        mutableExportState.value = LogExportState(true, text(R.string.collecting_logs))
         scope.launch {
-            var result = "导出已取消，请重试"
+            var result = text(R.string.log_export_cancelled)
             try {
                 export(app, destination)
-                result = "日志已导出"
+                result = text(R.string.log_exported)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 DiagnosticLog.w("HyperPods-X", "Diagnostic export failed", error)
-                result = "导出失败，请检查保存位置后重试"
+                result = text(R.string.log_export_failed)
             } finally {
                 exportRunning.set(false)
                 mutableExportState.value = LogExportState(false, result)
             }
-            withContext(Dispatchers.Main) { Toast.makeText(app, result, Toast.LENGTH_LONG).show() }
+            withContext(Dispatchers.Main) { Toast.makeText(app, result.resolve(strings), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -116,8 +121,8 @@ object DiagnosticLogs {
             .put("android_version", Build.VERSION.RELEASE)
             .put("android_api", Build.VERSION.SDK_INT)
             .put("history_write_error", storageError ?: JSONObject.NULL)
-            .put("host_reload", HostReloadCoordinator.status)
-            .put("host_restart", com.hyper.podsrx.device.HostRestartCoordinator.state.value.message)
+            .put("host_reload", HostReloadCoordinator.status.resolve(strings))
+            .put("host_restart", com.hyper.podsrx.device.HostRestartCoordinator.state.value.message.resolve(strings))
             .put("device", snapshot)
         val history = runCatching { store.snapshot() }
             .getOrElse { "History unavailable: ${it.javaClass.simpleName}\n" }
@@ -136,8 +141,8 @@ object DiagnosticLogs {
                 entry("hosts/${process.replace(':', '-')}.log", log)
             }
             entry("collection-status.txt", hosts.joinToString("\n") { host ->
-                val processes = hostLogs.keys.filter { it == host || it.startsWith("$host:") }.sorted()
-                "$host: ${if (processes.isEmpty()) "未收到日志；宿主可能未运行、未启用作用域或尚未重启。" else processes.joinToString(", ")}"
+                val processes = hostLogs.keys.filter { it == host || it.startsWith("${host}:") }.sorted()
+                "${host}: ${if (processes.isEmpty()) strings(R.string.host_logs_missing) else processes.joinToString(", ")}"
             } + "\n")
             entry("README.txt", "HyperPods-X diagnostic logs\n\n"
                 + "app-history.log: recent app logs, retained across restarts (up to 1 MiB).\n"
@@ -168,7 +173,7 @@ object DiagnosticLogs {
                 runCatching {
                     context.sendBroadcast(Intent(DiagnosticLog.ACTION).setPackage(host)
                         .putExtra("created", SystemClock.elapsedRealtime()).putExtra("result", receiver))
-                }.onFailure { DiagnosticLog.w("HyperPods-X", "Host log request unavailable: $host", it) }
+                }.onFailure { DiagnosticLog.w("HyperPods-X", "Host log request unavailable: ${host}", it) }
             }
             delay(1500)
         } finally {

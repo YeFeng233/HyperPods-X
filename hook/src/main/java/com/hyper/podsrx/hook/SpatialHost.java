@@ -33,7 +33,7 @@ final class SpatialHost extends Binder {
     private long lastPose,sequence=-1;
     private boolean previousTracker;
     private int previousMode;
-    private String lastStatus="姿态桥接已就绪";
+    private String lastStatus;
 
     static void install(Context context,android.content.SharedPreferences preferences)throws Exception {
         SpatialHost host=new SpatialHost(context,preferences);
@@ -59,7 +59,7 @@ final class SpatialHost extends Binder {
         DiagnosticLog.i("HyperPods-X","Spatial Binder bridge ready");
     }
     private SpatialHost(Context c,android.content.SharedPreferences p)throws Exception {
-        context=c;preferences=p;audio=c.getSystemService(AudioManager.class);
+        context=c;lastStatus=HookStrings.get(c,R.string.hook_motion_bridge_ready);preferences=p;audio=c.getSystemService(AudioManager.class);
         spatializer=audio.getSpatializer();attributesClass=Class.forName("android.media.AudioDeviceAttributes");
         appUid=c.getPackageManager().getPackageUid(SpatialWire.APP,0);
         attachInterface(null,SpatialWire.DESCRIPTOR);
@@ -122,15 +122,15 @@ final class SpatialHost extends Binder {
             Bundle retired=new Bundle();
             retired.putBoolean("ok",false);
             retired.putBoolean("bridgeRetired",true);
-            retired.putString("status","姿态桥接已更新，请重新连接");
+            retired.putString("status",HookStrings.get(context, R.string.hook_motion_bridge_updated));
             return retired;
         }
-        if(closed||!ReloadLifecycle.isActive())throw new IllegalStateException("姿态桥接已更新，请重新连接");
+        if(closed||!ReloadLifecycle.isActive())throw new IllegalStateException(HookStrings.get(context, R.string.hook_motion_bridge_updated));
         if((code==SpatialWire.START||code==SpatialWire.FIXED)&&!ReloadLifecycle.canStartOperation())
-            throw new IllegalStateException("模块正在准备更新，请稍后重试");
+            throw new IllegalStateException(HookStrings.get(context, R.string.hook_module_updating));
         String address=request.getString("address","");
         if(!BluetoothAdapter.checkBluetoothAddress(address)||!address.equalsIgnoreCase(preferences.getString("address","")))
-            throw new SecurityException("仅支持已绑定耳机");
+            throw new SecurityException(HookStrings.get(context, R.string.hook_bound_earbuds_only));
         Object attr=attrs(address);
         if(code==SpatialWire.QUERY){
             Bundle b=new Bundle();b.putBoolean("ok",true);
@@ -142,20 +142,20 @@ final class SpatialHost extends Binder {
             b.putBoolean("nativeActive",!activeAddress.isEmpty());b.putString("status",lastStatus);return b;
         }
         if(code==SpatialWire.FIXED){
-            if(!routeMatches(address))throw new IllegalStateException("请连接此副耳机并切换音频输出");
+            if(!routeMatches(address))throw new IllegalStateException(HookStrings.get(context, R.string.hook_connect_and_select_output));
             stop();
             boolean enabled=request.getBoolean("enabled");
             call(enabled?"addCompatibleAudioDevice":"removeCompatibleAudioDevice",new Class<?>[]{attributesClass},attr);
             if(enabled)call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},-1);
-            lastStatus=enabled?"固定空间音频已开启":"此耳机的空间音频已关闭";
+            lastStatus=enabled?HookStrings.get(context, R.string.hook_fixed_spatial_enabled):HookStrings.get(context, R.string.hook_spatial_disabled);
         }else if(code==SpatialWire.START){
-            if(!routeMatches(address))throw new IllegalStateException("此耳机不是当前蓝牙音频输出");
-            if(audio.getMode()!=AudioManager.MODE_NORMAL)throw new IllegalStateException("通话期间暂停头部追踪");
-            if(!compatible(attr))throw new IllegalStateException("请先打开固定空间音频");
+            if(!routeMatches(address))throw new IllegalStateException(HookStrings.get(context, R.string.hook_earbuds_not_current_output));
+            if(audio.getMode()!=AudioManager.MODE_NORMAL)throw new IllegalStateException(HookStrings.get(context, R.string.hook_tracking_paused_call));
+            if(!compatible(attr))throw new IllegalStateException(HookStrings.get(context, R.string.hook_enable_fixed_spatial_first));
             stop();
             if(!context.getSystemService(SensorManager.class).getDynamicSensorList(37).isEmpty())
-                throw new IllegalStateException("系统已有头部传感器，请先停用其他追踪设备");
-            IBinder token=request.getBinder("client");if(token==null)throw new SecurityException("缺少会话所有者");
+                throw new IllegalStateException(HookStrings.get(context, R.string.hook_other_head_sensor_active));
+            IBinder token=request.getBinder("client");if(token==null)throw new SecurityException(HookStrings.get(context, R.string.hook_session_owner_missing));
             previousTracker=(Boolean)call("isHeadTrackerEnabled",new Class<?>[]{attributesClass},attr);
             previousMode=(Integer)call("getDesiredHeadTrackingMode",new Class<?>[0]);
             Class<?> nativeClass=Class.forName("com.android.bluetooth.ble.app.headset.Spatialcontroller",true,context.getClassLoader());
@@ -165,23 +165,23 @@ final class SpatialHost extends Binder {
                 // On this exact ROM the JNI boolean is an error flag: false after a full
                 // UHID_CREATE write, true on open/write failure (verified in libspatial).
                 boolean failed=(Boolean)nativeClass.getMethod("createspatialhid",String.class).invoke(nativeController,hidAddress(address));
-                if(failed)throw new IllegalStateException("系统虚拟头部传感器创建失败");
+                if(failed)throw new IllegalStateException(HookStrings.get(context, R.string.hook_virtual_sensor_creation_failed));
                 client=token;death=this::stopAsync;
                 token.linkToDeath(death,0);
                 call("setHeadTrackerEnabled",new Class<?>[]{boolean.class,attributesClass},true,attr);
                 call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},1);
             }catch(Throwable error){stop();throw error;}
-            lastStatus="系统虚拟传感器已创建，等待设备关联";
+            lastStatus=HookStrings.get(context, R.string.hook_virtual_sensor_created);
             handler.postDelayed(watchdog,500);
             DiagnosticLog.i("HyperPods-X","Created native spatial head tracker");
         }else if(code==SpatialWire.POSE){
-            if(activeAddress.isEmpty()||!address.equalsIgnoreCase(activeAddress))throw new IllegalStateException("追踪会话已结束");
+            if(activeAddress.isEmpty()||!address.equalsIgnoreCase(activeAddress))throw new IllegalStateException(HookStrings.get(context, R.string.hook_tracking_session_ended));
             long age=SystemClock.elapsedRealtime()-request.getLong("captured",0);
             long next=request.getLong("sequence",-1);
             float[] v=request.getFloatArray("vector");
-            if(age<0||age>250||next<=sequence||v==null||v.length!=3)throw new IllegalArgumentException("过期或无效姿态");
-            double n=0;for(float x:v){if(!Float.isFinite(x))throw new IllegalArgumentException("无效姿态");n+=x*x;}
-            if(n>10.0)throw new IllegalArgumentException("姿态角度越界");
+            if(age<0||age>250||next<=sequence||v==null||v.length!=3)throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_stale_invalid));
+            double n=0;for(float x:v){if(!Float.isFinite(x))throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_invalid));n+=x*x;}
+            if(n>10.0)throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_out_of_range));
             // ROM native code scales integer degrees to signed HID rotation-vector values.
             // It reorders [yaw,pitch,roll] to [X,Y,Z]; provide the rotation vector in that order.
             float degrees=(float)(180.0/Math.PI);
@@ -189,14 +189,14 @@ final class SpatialHost extends Binder {
             nativeController.getClass().getMethod("sendspatialdata",String.class,float[].class).invoke(nativeController,hidAddress(address),nativeInput);
             sequence=next;lastPose=SystemClock.elapsedRealtime();
         }else if(code==SpatialWire.STOP){stop();}
-        else throw new IllegalArgumentException("未知桥接指令");
+        else throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_unknown_bridge_command));
         Bundle b=new Bundle();b.putBoolean("ok",true);b.putString("status",lastStatus);return b;
     }
     private final Runnable watchdog=new Runnable(){
         @Override public void run(){synchronized(SpatialHost.this){
             if(activeAddress.isEmpty())return;
             if(SystemClock.elapsedRealtime()-lastPose>800||!routeMatches(activeAddress)||audio.getMode()!=AudioManager.MODE_NORMAL){
-                stop();lastStatus="姿态超时或音频路由改变，已清理传感器";return;
+                stop();lastStatus=HookStrings.get(context, R.string.hook_sensor_cleared_route_changed);return;
             }
             try {
                 Object device=attrs(activeAddress);
@@ -221,7 +221,7 @@ final class SpatialHost extends Binder {
             call("setHeadTrackerEnabled",new Class<?>[]{boolean.class,attributesClass},previousTracker,attrs(address));
             call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},previousMode);
         }catch(Throwable e){DiagnosticLog.w("HyperPods-X","Head tracker preference restore failed",e);}
-        lastStatus="系统头部传感器已清理";
+        lastStatus=HookStrings.get(context, R.string.hook_head_sensor_cleared);
         DiagnosticLog.i("HyperPods-X","Destroyed native spatial head tracker");
     }
     @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException {

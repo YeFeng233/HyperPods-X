@@ -1,8 +1,6 @@
 // Adapted from NEORUAA/HyperPods-X PR #1 (ae9fa5e), GPL-3.0-or-later.
 package com.hyper.podsrx.ui.ios
 
-import com.hyper.podsrx.ui.BatteryPresentation
-import com.hyper.podsrx.ui.batteryPresentation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -15,17 +13,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -33,16 +31,21 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.i18n.Strings
+import com.hyper.podsrx.i18n.rememberStrings
+import com.hyper.podsrx.ui.BatteryPresentation
+import com.hyper.podsrx.ui.batteryPresentation
 import com.hyper.podsrx.ui.SettingsCatalog
 import com.hyper.podsrx.ui.SettingsPageLink
 import io.github.neoruaa.glasmio.core.GlasmioTheme
@@ -71,6 +74,7 @@ internal fun IosSettingsScreen(
     onSystemBluetooth: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    val strings = rememberStrings()
     val state by DeviceRepository.state.collectAsState()
     var confirmedControls by remember(state.address, state.running) { mutableStateOf<Map<Int, List<Int>>>(emptyMap()) }
     var confirmedEqualizer by remember(state.address, state.running) { mutableStateOf<List<Int>?>(null) }
@@ -116,18 +120,15 @@ internal fun IosSettingsScreen(
     var nameValue by rememberSaveable(state.address, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(state.displayName, selection = TextRange(state.displayName.length)))
     }
-    var nameError by rememberSaveable(state.address) { mutableStateOf<String?>(null) }
+    var nameError by rememberSaveable(state.address) { mutableStateOf<Int?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        var previousLog = DeviceRepository.state.value.log
+    LaunchedEffect(strings) {
+        var previous = DeviceRepository.state.value
         DeviceRepository.state.collect { current ->
-            if (current.log != previousLog) {
-                val overlap = (minOf(previousLog.size, current.log.size) downTo 0).first {
-                    previousLog.takeLast(it) == current.log.take(it)
-                }
-                current.log.drop(overlap).mapNotNull(::actionFailureMessage).lastOrNull()?.let { actionError = it }
+            if (current.messageRevision != previous.messageRevision) {
+                actionFailureMessage(current, strings)?.let { actionError = it }
             }
-            previousLog = current.log
+            previous = current
         }
     }
     val focusManager = LocalFocusManager.current
@@ -144,11 +145,11 @@ internal fun IosSettingsScreen(
     val saveName: (Boolean) -> Boolean = { showError ->
         val cleaned = nameValue.text.trim()
         val error = when {
-            cleaned.isEmpty() -> "请输入名称"
-            cleaned.length > 100 -> "名称最多可包含 100 个字符"
+            cleaned.isEmpty() -> R.string.enter_name
+            cleaned.length > 100 -> R.string.name_length_limit
             cleaned == state.displayName -> null
             DeviceRepository.rename(cleaned) -> null
-            else -> "无法保存耳机名称，请重试。"
+            else -> R.string.rename_failed_retry
         }
         if (showError) nameError = error
         error == null
@@ -188,7 +189,7 @@ internal fun IosSettingsScreen(
                                         val key = entryKey as String
                                         val page = key.settingsRouteName()
                                         GlasmioHeaderSpec(
-                                            title = settingsTitle(page, state),
+                                            title = settingsTitle(page, state, strings),
                                             leading = listOf(
                                                 GlasmioHeaderGroup("navigation", listOf(
                                                     GlasmioHeaderAction("navigation.back", "chevron.backward", "返回", back) {
@@ -293,9 +294,9 @@ internal fun IosSettingsScreen(
                                                                         DeviceNameEditor(nameValue, {
                                                                             nameValue = it
                                                                             nameError = null
-                                                                        }, nameError, finishName)
+                                                                        }, nameError?.let { strings(it) }, finishName)
                                                                     }
-                                                                } else IosSettingsPageContent(page, entryDisplayState, onConnect, onOverlay, onSystemBluetooth, navigate)
+                                                                } else IosSettingsPageContent(page, entryDisplayState, onConnect, onOverlay, onSystemBluetooth, navigate, strings)
                                                                 if (page in setOf("module", "connection", "diagnostics") && entryDisplayState.message.isNotBlank()) {
                                                                     item("message") { SettingsFootnote(entryDisplayState.message) }
                                                                 }
@@ -324,12 +325,12 @@ internal fun IosSettingsScreen(
     }
 }
 
-private fun settingsEntryKey(route: String) = "$route#${java.util.UUID.randomUUID()}"
+private fun settingsEntryKey(route: String) = "${route}#${java.util.UUID.randomUUID()}"
 private fun String.settingsRouteName() = substringBefore('#')
 
-private fun actionFailureMessage(message: String): String? = SettingsCatalog.actionFailureMessage(message)
+internal fun actionFailureMessage(state: PodsState, strings: Strings): String? = SettingsCatalog.actionFailureMessage(state, strings)
 
-private fun settingsTitle(page: String, state: PodsState): String = SettingsCatalog.title(page, state)
+private fun settingsTitle(page: String, state: PodsState, strings: Strings): String = SettingsCatalog.title(page, state, strings)
 
 @Composable
 private fun FeatureLink(link: SettingsPageLink, separator: Boolean = true, onClick: () -> Unit) {
@@ -342,9 +343,10 @@ private fun FeatureLink(link: SettingsPageLink, separator: Boolean = true, onCli
 
 @Composable
 private fun DeviceProducts(state: PodsState) {
-    val left = batteryPresentation(state.batteries[4])
-    val right = batteryPresentation(state.batteries[2])
-    val case = batteryPresentation(state.batteries[8])
+    val strings = rememberStrings()
+    val left = batteryPresentation(state.batteries[4], strings = strings)
+    val right = batteryPresentation(state.batteries[2], strings = strings)
+    val case = batteryPresentation(state.batteries[8], strings = strings)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(state.headset.pairArtwork), "AirPods", contentScale = ContentScale.Fit,
@@ -352,25 +354,26 @@ private fun DeviceProducts(state: PodsState) {
             Spacer(Modifier.height(8.dp))
             if (left == right) BatteryCircle(left, "AirPods")
             else Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BatteryCircle(left, "左", compact = true)
-                BatteryCircle(right, "右", compact = true)
+                BatteryCircle(left, strings(R.string.left), compact = true)
+                BatteryCircle(right, strings(R.string.right), compact = true)
             }
         }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(state.headset.caseArtwork), "充电盒", contentScale = ContentScale.Fit,
+            Image(painterResource(state.headset.caseArtwork), strings(R.string.charging_case), contentScale = ContentScale.Fit,
                 modifier = Modifier.size(width = 132.dp, height = 110.dp))
             Spacer(Modifier.height(8.dp))
-            BatteryCircle(case, "充电盒")
+            BatteryCircle(case, strings(R.string.charging_case))
         }
     }
 }
 
 @Composable
 private fun BatteryCircle(battery: BatteryPresentation, label: String, compact: Boolean = false) {
+    val strings = rememberStrings()
     val colors = GlasmioTheme.colors
     val track = colors.tertiaryContent.copy(alpha = .16f)
     Column(Modifier.clearAndSetSemantics {
-        contentDescription = "$label，${battery.label}${if (battery.note.isNotBlank()) "，${battery.note}" else ""}"
+        contentDescription = strings(R.string.battery_accessibility, label, battery.label, battery.note)
     }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(if (compact) 30.dp else 34.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
@@ -380,7 +383,7 @@ private fun BatteryCircle(battery: BatteryPresentation, label: String, compact: 
             }
             if (battery.charging) SfIcon("bolt.fill", null, size = 17.dp, tint = ChargingGreen)
         }
-        Text(if (compact) "$label ${battery.label}" else battery.label,
+        Text(if (compact) "${label} ${battery.label}" else battery.label,
             style = if (compact) GlasmioTheme.textStyles.footnote else GlasmioTheme.textStyles.body,
             color = colors.secondaryContent, maxLines = 1)
     }
@@ -388,8 +391,9 @@ private fun BatteryCircle(battery: BatteryPresentation, label: String, compact: 
 
 @Composable
 private fun DeviceName(state: PodsState, onClick: () -> Unit) {
+    val strings = rememberStrings()
     SettingsCard {
-        GlasmioListRow(title = "名称", detail = state.displayName, onClick = onClick,
+        GlasmioListRow(title = strings(R.string.name), detail = state.displayName, onClick = onClick,
             enabled = state.address.isNotBlank() && DeviceRepository.permissionsGranted())
     }
 }
@@ -401,23 +405,24 @@ private fun DeviceNameEditor(
     error: String?,
     onDone: () -> Unit,
 ) {
+    val strings = rememberStrings()
     val colors = GlasmioTheme.colors
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     Column(Modifier.fillMaxWidth()) {
         SettingsCard {
             GlasmioTextField(value, onValueChange,
-                modifier = Modifier.focusRequester(focus).semantics { contentDescription = "名称" },
+                modifier = Modifier.focusRequester(focus).semantics { contentDescription = strings(R.string.name) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onDone() }),
                 trailing = {
                     if (value.text.isNotEmpty()) Box(
-                        Modifier.size(44.dp).clickable(role = Role.Button, onClickLabel = "清除文本") {
+                        Modifier.size(44.dp).clickable(role = Role.Button, onClickLabel = strings(R.string.clear_text)) {
                             onValueChange(TextFieldValue())
                             focus.requestFocus()
                         }, contentAlignment = Alignment.Center,
                     ) {
-                        SfIcon("xmark.circle.fill", "清除文本", size = 18.dp, tint = colors.tertiaryContent)
+                        SfIcon("xmark.circle.fill", strings(R.string.clear_text), size = 18.dp, tint = colors.tertiaryContent)
                     }
                 })
         }

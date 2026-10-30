@@ -279,7 +279,7 @@ public final class HyperPodsModule extends XposedModule {
             if (context == null) return;
             preference = preferenceClass.getConstructor(Context.class).newInstance(context);
             preferenceClass.getMethod("setKey", String.class).invoke(preference, KEY);
-            preferenceClass.getMethod("setTitle", CharSequence.class).invoke(preference, "HyperPods-X 高级设置");
+            preferenceClass.getMethod("setTitle", CharSequence.class).invoke(preference, HookStrings.get(context, R.string.hook_advanced_settings));
             preferenceClass.getMethod("setOrder", int.class).invoke(preference, 2);
             preferenceClass.getMethod("setPersistent", boolean.class).invoke(preference, false);
             Intent intent = new Intent().setClassName("com.hyper.podsrx", "com.hyper.podsrx.DeviceSettingsActivity");
@@ -295,7 +295,8 @@ public final class HyperPodsModule extends XposedModule {
         Object preference = lastPreference.get();
         if (preference == null || preferences == null) return;
         try {
-            String summary = preferences.getString("summary", "查看耳机电量与高级设置");
+            Context context = (Context) call(preference, "getContext");
+            String summary = preferences.getString("summary", HookStrings.get(context, R.string.hook_settings_summary));
             preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference, summary);
         } catch (Throwable ignored) { /* a destroyed settings page is harmless */ }
     }

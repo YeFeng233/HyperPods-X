@@ -137,26 +137,29 @@ final class HubReader implements SharedPreferences {
     }
 
     /** The settings entry's summary, as the app writes it. */
-    static String summary(Map<Integer, Reading> readings) {
+    static String summary(Context context, Map<Integer, Reading> readings) {
         StringBuilder out = new StringBuilder();
-        int[][] parts = {{4, '左'}, {2, '右'}, {8, '盒'}};
+        int[][] parts = {{4, R.string.hook_left}, {2, R.string.hook_right}, {8, R.string.hook_case}};
         for (int[] part : parts) {
             if (out.length() > 0) out.append(" · ");
             Reading reading = readings.get(part[0]);
-            out.append((char) part[1]).append(' ');
+            out.append(HookStrings.get(context, part[1])).append(' ');
             if (reading == null || reading.getLevel() == null) out.append('—');
-            else out.append(reading.getPrecise() ? "" : "约").append(reading.getLevel()).append('%');
+            else out.append(reading.getPrecise() ? "" : HookStrings.get(context, R.string.hook_approximately)).append(reading.getLevel()).append('%');
         }
         return out.toString();
     }
 
-    private static Object value(HubBundles.State s, String key) {
+    private Object value(HubBundles.State s, String key) {
         HubBundles.Control c = s.control;
         int wear = c.wearCount;
         switch (key) {
             case "address": return s.address;
             case "enabled": return !s.address.isEmpty();
-            case "summary": return s.address.isEmpty() ? null : summary(s.readings);
+            case "summary": {
+                Context host = attach();
+                return s.address.isEmpty() || host == null ? null : summary(host, s.readings);
+            }
             // Hub state is live by construction; the freshness checks written for preferences pass.
             case "updated": return s.address.isEmpty() ? 0L : System.currentTimeMillis();
             case "panel_heartbeat": return s.controlAlive() ? SystemClock.elapsedRealtime() : -1L;

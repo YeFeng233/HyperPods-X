@@ -1,28 +1,30 @@
 package com.hyper.podsrx.device
 
+import androidx.annotation.StringRes
+import com.hyper.podsrx.R
 import com.hyper.podsrx.protocol.ControlCommands
 
-data class Choice(val value: Int, val label: String)
-data class ControlSpec(val id: Int,val title: String,val group: String,val choices: List<Choice> = emptyList(),val toggle: Boolean=false,val range: IntRange?=null,val writable:Boolean=true)
+data class Choice(val value: Int, @param:StringRes val labelRes: Int)
+data class ControlSpec(val id: Int, @param:StringRes val titleRes: Int, @param:StringRes val groupRes: Int,val choices: List<Choice> = emptyList(),val toggle: Boolean=false,val range: IntRange?=null,val writable:Boolean=true)
 
 object Controls {
-    private fun choices(vararg labels:Pair<Int,String>)=labels.map{Choice(it.first,it.second)}
-    val listeningChoices = choices(1 to "关闭", 3 to "通透", 4 to "自适应", 2 to "降噪")
+    private fun choices(vararg labels:Pair<Int,Int>)=labels.map{Choice(it.first,it.second)}
+    val listeningChoices = choices(1 to R.string.mode_off, 3 to R.string.mode_transparency, 4 to R.string.mode_adaptive, 2 to R.string.mode_noise_cancellation)
     val all=listOf(
-        ControlSpec(0x0d,"聆听模式","声音与聆听",choices(1 to "关闭",2 to "降噪",3 to "通透",4 to "自适应")),
-        ControlSpec(0x1b,"单耳降噪","声音与聆听",toggle=true),
-        ControlSpec(0x28,"对话感知","声音与聆听",toggle=true),
-        ControlSpec(0x26,"个性化音量","声音与聆听",toggle=true),
-        ControlSpec(0x2e,"自适应降噪幅度","声音与聆听",range=0..100),
-        ControlSpec(0x34,"允许关闭聆听模式","声音与聆听",toggle=true),
-        ControlSpec(0x0a,"自动入耳检测","佩戴与音频",toggle=true),
-        ControlSpec(0x01,"麦克风","佩戴与音频",choices(0 to "自动",1 to "右耳",2 to "左耳")),
-        ControlSpec(0x17,"连按速度","按压与手势",choices(0 to "默认",1 to "慢",2 to "最慢")),
-        ControlSpec(0x18,"长按持续时间","按压与手势",choices(0 to "默认",1 to "较短",2 to "最短")),
-        ControlSpec(0x25,"滑动调节音量","按压与手势",toggle=true),
-        ControlSpec(0x23,"滑动音量所需时长","按压与手势",choices(0 to "默认",1 to "较长",2 to "最长")),
-        ControlSpec(0x1f,"耳机提示音音量","声音与聆听",range=15..100),
-        ControlSpec(0x35,"入睡后暂停","佩戴与音频",toggle=true)
+        ControlSpec(0x0d,R.string.listening_mode,R.string.sound_and_listening,choices(1 to R.string.mode_off,2 to R.string.mode_noise_cancellation,3 to R.string.mode_transparency,4 to R.string.mode_adaptive)),
+        ControlSpec(0x1b,R.string.single_ear_noise_cancellation,R.string.sound_and_listening,toggle=true),
+        ControlSpec(0x28,R.string.conversation_awareness,R.string.sound_and_listening,toggle=true),
+        ControlSpec(0x26,R.string.personalized_volume,R.string.sound_and_listening,toggle=true),
+        ControlSpec(0x2e,R.string.adaptive_noise_strength,R.string.sound_and_listening,range=0..100),
+        ControlSpec(0x34,R.string.allow_off_listening_mode,R.string.sound_and_listening,toggle=true),
+        ControlSpec(0x0a,R.string.automatic_ear_detection,R.string.wearing_and_audio,toggle=true),
+        ControlSpec(0x01,R.string.microphone,R.string.wearing_and_audio,choices(0 to R.string.automatic,1 to R.string.right_earbud,2 to R.string.left_earbud)),
+        ControlSpec(0x17,R.string.press_speed,R.string.press_and_gestures,choices(0 to R.string.default_option,1 to R.string.slow,2 to R.string.slowest)),
+        ControlSpec(0x18,R.string.press_and_hold_duration,R.string.press_and_gestures,choices(0 to R.string.default_option,1 to R.string.shorter,2 to R.string.shortest)),
+        ControlSpec(0x25,R.string.swipe_volume,R.string.press_and_gestures,toggle=true),
+        ControlSpec(0x23,R.string.volume_swipe_duration,R.string.press_and_gestures,choices(0 to R.string.default_option,1 to R.string.longer,2 to R.string.longest)),
+        ControlSpec(0x1f,R.string.tone_volume,R.string.sound_and_listening,range=15..100),
+        ControlSpec(0x35,R.string.pause_when_asleep,R.string.wearing_and_audio,toggle=true)
     )
     fun adaptiveStrength(controls: Map<Int, List<Int>>): Int? = ControlCommands.adaptiveStrength(controls)
 

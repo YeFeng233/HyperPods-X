@@ -9,6 +9,11 @@ import android.media.AudioPlaybackConfiguration
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.Strings
+import com.hyper.podsrx.i18n.UiText
+import com.hyper.podsrx.i18n.stringResolver
+import com.hyper.podsrx.i18n.text
 import com.hyper.podsrx.protocol.ConversationAction
 import com.hyper.podsrx.protocol.ConversationPolicy
 import com.hyper.podsrx.protocol.Event
@@ -16,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 
 data class ConversationState(
-    val description: String = "试验功能 · 等待耳机连接",
+    val description: UiText = text(R.string.conversation_experimental_wait),
     val mode: String = "tracks",
     val active: Boolean = false,
     val ducking: Boolean = false,
@@ -44,7 +49,7 @@ data class ConversationState(
     val stopAckLatencyMs: Long = -1,
     val stopTimingSource: String = ""
 ) {
-    fun diagnostic() = JSONObject().put("description", description).put("mode", mode)
+    fun diagnostic(strings: Strings) = JSONObject().put("description", description.resolve(strings)).put("mode", mode)
         .put("active", active).put("ducking", ducking).put("events", events)
         .put("wirePackets", wirePackets).put("audioSource", audioSource)
         .put("starts", starts).put("ends", ends).put("subtype", subtype).put("rawStatus", rawStatus)
@@ -60,6 +65,7 @@ data class ConversationState(
 
 /** Earbud reports only: no microphone, audio focus, stream-volume writes, or playback keys. */
 class ConversationController(context: Context) {
+    private val strings = context.stringResolver()
     private enum class MediaPhase { IDLE, STARTING, ACTIVE, STOPPING, UNCONFIRMED }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -82,7 +88,7 @@ class ConversationController(context: Context) {
     private var mediaStatus = ""
     private var hostActive = false
     private var players = 0
-    private var releaseDescription = ""
+    private var releaseDescription = text("")
     private var playbackStopObserved = false
     private var playbackRegistered = false
     private var devicesRegistered = false
@@ -106,7 +112,7 @@ class ConversationController(context: Context) {
         live = true
         onMain {
             if (session != epoch.get()) return@onMain
-            release("等待耳机状态")
+            release(text(R.string.waiting_earbud_status))
             wear = null
             blockedUntilEnd = false
             update { it.copy(session = session, mode = "tracks") }
@@ -121,7 +127,7 @@ class ConversationController(context: Context) {
             if (session != epoch.get()) return@onMain
             wear = null
             blockedUntilEnd = false
-            release("等待耳机控制连接")
+            release(text(R.string.waiting_control_connection))
         }
     }
 
@@ -129,7 +135,7 @@ class ConversationController(context: Context) {
         localOffRequested = value != 1
         preferences.edit().putBoolean("conversationOffRequested", localOffRequested).apply()
         blockedUntilEnd = false
-        release(if (localOffRequested) "手机联动已停止 · 等待耳机确认" else "等待耳机确认")
+        release(if (localOffRequested) text(R.string.phone_link_stopped_pending) else text(R.string.waiting_earbud_confirmation))
     }
 
     fun configured() = forSession { refresh() }
@@ -139,7 +145,7 @@ class ConversationController(context: Context) {
         wear = event
         if (removed && policy.active) {
             blockedUntilEnd = true
-            release("摘耳时停止对话处理")
+            release(text(R.string.conversation_stopped_ear_removed))
         }
         refresh()
     }
@@ -152,11 +158,11 @@ class ConversationController(context: Context) {
         update { it.copy(events = it.events + 1, subtype = event.subtype, rawStatus = event.status, eventTime = now,
             eventReceivedAt = receivedAt, eventQueueLatencyMs = now - receivedAt) }
         if (previous.subtype != event.subtype || previous.rawStatus != event.status) {
-            DeviceRepository.log("对话事件：子类型 ${event.subtype}，状态 ${event.status}，会话 ${epoch.get()}")
+            DeviceRepository.log(strings(R.string.conversation_event_log, event.subtype, event.status, epoch.get()))
         }
         // Unknown subtypes neither start a lease nor renew the fixed policy deadline.
         if (event.subtype != 1) {
-            if (mediaPhase == MediaPhase.IDLE) publish("收到尚未适配的对话事件")
+            if (mediaPhase == MediaPhase.IDLE) publish(text(R.string.conversation_event_unsupported))
             save(now, force = true)
             return@forSession
         }
@@ -171,7 +177,7 @@ class ConversationController(context: Context) {
             }
             ConversationAction.RELEASE -> {
                 if (ended) update { it.copy(ends = it.ends + 1) } else blockedUntilEnd = true
-                release(if (ended) "对话已结束" else "本轮对话处理已停止", receivedAt)
+                release(if (ended) text(R.string.conversation_ended) else text(R.string.conversation_round_stopped), receivedAt)
             }
             ConversationAction.NONE -> if (!policy.active) publish(idleDescription())
         }
@@ -213,18 +219,18 @@ class ConversationController(context: Context) {
                     if (mediaSession == 0L && validSession) mediaSession = replySession
                     mediaStatus = result.getString("status").orEmpty().take(240)
                     if (!validSession || !result.getBoolean("ok")) {
-                        if (!validSession) mediaStatus = "会话回执不匹配 $replySession/$mediaSession：$mediaStatus"
+                        if (!validSession) mediaStatus = strings(R.string.conversation_ack_mismatch, replySession, mediaSession, mediaStatus)
                         // A failed RPC is not evidence that an earlier shaper has recovered.
                         blockedUntilEnd = true
-                        DeviceRepository.log("对话音轨：控制未确认，$mediaStatus")
-                        release("媒体控制中断 · 等待下一次对话")
+                        DeviceRepository.log(strings(R.string.conversation_start_unconfirmed, mediaStatus))
+                        release(text(R.string.media_interrupted_wait_conversation))
                         return@onMain
                     }
                     hostActive = result.getBoolean("active")
                     players = if (hostActive) result.getInt("players", 0).coerceAtLeast(0) else 0
                     if (!hostActive) {
                         blockedUntilEnd = true
-                        release("本轮媒体控制已结束")
+                        release(text(R.string.conversation_media_session_ended))
                         return@onMain
                     }
                     if (mediaPhase == MediaPhase.STARTING) {
@@ -232,16 +238,16 @@ class ConversationController(context: Context) {
                         val submittedAt = result.getLong("hostCompletedAt", -1L)
                         val submittedMs = if (submittedAt in receivedAt..ackAt) submittedAt - receivedAt else -1L
                         update { it.copy(startSubmitLatencyMs = submittedMs, startAckLatencyMs = ackAt - receivedAt) }
-                        DeviceRepository.log("对话计时：开始，事件接收到提交 ${submittedMs}ms，回执 ${ackAt - receivedAt}ms")
+                        DeviceRepository.log(strings(R.string.conversation_start_timing, submittedMs, ackAt - receivedAt))
                     }
                     mediaPhase = MediaPhase.ACTIVE
                     val reason = unavailableReason()
                     if (controlSession != epoch.get() || !live || !policy.active || reason != null) {
                         blockedUntilEnd = true
-                        release(reason ?: "耳机控制会话已变化")
+                        release(reason ?: text(R.string.control_session_changed))
                     } else if (policy.check(true, SystemClock.elapsedRealtime()) == ConversationAction.RELEASE) {
                         blockedUntilEnd = true
-                        release("已达到本轮保护时限")
+                        release(text(R.string.conversation_safety_timeout))
                     } else {
                         // Host/player confirmation is operational evidence, not a listening verdict.
                         publish(activeDescription())
@@ -253,26 +259,26 @@ class ConversationController(context: Context) {
             if (generation == mediaGeneration) {
                 mediaStatus = it.message.orEmpty().take(240)
                 blockedUntilEnd = true
-                release("媒体控制申请未确认")
+                release(text(R.string.media_start_unconfirmed))
             }
         }
     }
 
-    private fun unavailableReason(): String? {
+    private fun unavailableReason(): UiText? {
         val state = DeviceRepository.state.value
         return when {
-            mediaPhase == MediaPhase.STOPPING -> "正在结束对话 · 等待媒体恢复确认"
-            mediaPhase == MediaPhase.UNCONFIRMED -> "媒体恢复尚未确认 · 已暂停本功能"
-            !live || !state.connected -> "等待耳机控制连接"
-            localOffRequested -> "手机联动已停止"
-            0x28 in state.pending -> "等待耳机确认"
-            state.controls[0x28]?.firstOrNull() == null -> "等待耳机报告对话配置"
-            state.controls[0x28]?.firstOrNull() != 1 -> "对话感知已关闭"
-            (wear?.inEarCount ?: 0) == 0 -> "请佩戴耳机"
-            audio.mode != AudioManager.MODE_NORMAL -> "通话期间暂停对话联动"
-            !routeMatches(state.address) -> "请将媒体输出切换到这副 AirPods"
+            mediaPhase == MediaPhase.STOPPING -> text(R.string.conversation_ending_wait_restore)
+            mediaPhase == MediaPhase.UNCONFIRMED -> text(R.string.media_restore_unconfirmed)
+            !live || !state.connected -> text(R.string.waiting_control_connection)
+            localOffRequested -> text(R.string.phone_link_stopped)
+            0x28 in state.pending -> text(R.string.waiting_earbud_confirmation)
+            state.controls[0x28]?.firstOrNull() == null -> text(R.string.waiting_conversation_setting)
+            state.controls[0x28]?.firstOrNull() != 1 -> text(R.string.conversation_disabled)
+            (wear?.inEarCount ?: 0) == 0 -> text(R.string.wear_earbuds_first)
+            audio.mode != AudioManager.MODE_NORMAL -> text(R.string.conversation_paused_call)
+            !routeMatches(state.address) -> text(R.string.switch_media_to_airpods)
             // Track shaping never pauses/resumes a player, so stopped playback can safely release.
-            !audio.isMusicActive -> "等待媒体播放"
+            !audio.isMusicActive -> text(R.string.waiting_media_playback)
             else -> null
         }
     }
@@ -285,13 +291,13 @@ class ConversationController(context: Context) {
     }.getOrDefault(false)
 
     private fun idleDescription() = unavailableReason()
-        ?: if (blockedUntilEnd) "本轮处理已停止 · 等待下一次对话"
-        else "试验功能 · 等待真实讲话事件"
+        ?: if (blockedUntilEnd) text(R.string.conversation_processing_stopped)
+        else text(R.string.conversation_wait_real_event)
 
     private fun activeDescription() = when {
-        mediaPhase == MediaPhase.STARTING -> "正在交谈 · 等待媒体音轨确认"
-        hostActive && players > 0 -> "正在交谈"
-        else -> "正在交谈 · 等待可控制的媒体音轨"
+        mediaPhase == MediaPhase.STARTING -> text(R.string.speaking_wait_media)
+        hostActive && players > 0 -> text(R.string.speaking)
+        else -> text(R.string.speaking_wait_controllable_media)
     }
 
     private fun refresh() {
@@ -299,17 +305,17 @@ class ConversationController(context: Context) {
         if (policy.active && !playbackStopObserved && !audio.isMusicActive) {
             playbackStopObserved = true
             update { it.copy(playbackStopsWhileHeld = it.playbackStopsWhileHeld + 1) }
-            DeviceRepository.log("对话音轨：媒体播放停止，解除本轮控制")
+            DeviceRepository.log(strings(R.string.conversation_playback_stopped))
         }
         val reason = unavailableReason()
         if (policy.check(reason == null, SystemClock.elapsedRealtime()) == ConversationAction.RELEASE) {
             blockedUntilEnd = true
-            release(reason ?: "已达到本轮保护时限")
+            release(reason ?: text(R.string.conversation_safety_timeout))
         } else if (!policy.active) publish(idleDescription())
         schedule()
     }
 
-    private fun release(reason: String, eventReceivedAt: Long? = null) {
+    private fun release(reason: UiText, eventReceivedAt: Long? = null) {
         policy.cancel()
         handler.removeCallbacks(check)
         releaseDescription = reason
@@ -345,11 +351,11 @@ class ConversationController(context: Context) {
                                 val submittedMs = if (submittedAt in requestedAt..ackAt) submittedAt - requestedAt else -1L
                                 update { it.copy(mediaReleases = it.mediaReleases + 1,
                                     stopSubmitLatencyMs = submittedMs, stopAckLatencyMs = ackAt - requestedAt) }
-                                DeviceRepository.log("对话计时：结束（${if (eventReceivedAt != null) "事件" else "清理"}），请求到提交 ${submittedMs}ms，回执 ${ackAt - requestedAt}ms")
-                                DeviceRepository.log("对话音轨：宿主确认本轮控制已停止")
+                                DeviceRepository.log(strings(R.string.conversation_stop_timing, if (eventReceivedAt != null) strings(R.string.event) else strings(R.string.playback), submittedMs, ackAt - requestedAt))
+                                DeviceRepository.log(strings(R.string.conversation_clear_unconfirmed))
                                 publish(releaseDescription)
                             } else {
-                                if (!sameSession) mediaStatus = "停止回执会话不匹配 $replySession/$mediaSession：$mediaStatus"
+                                if (!sameSession) mediaStatus = strings(R.string.conversation_stop_ack_mismatch, replySession, mediaSession, mediaStatus)
                                 markUnconfirmed()
                             }
                             save(SystemClock.elapsedRealtime(), force = true)
@@ -370,11 +376,11 @@ class ConversationController(context: Context) {
         mediaPhase = MediaPhase.UNCONFIRMED
         blockedUntilEnd = true
         // No automatic START or speculative recovery after a lost/failed STOP acknowledgement.
-        DeviceRepository.log("对话音轨：恢复待确认，$mediaStatus")
+        DeviceRepository.log(strings(R.string.conversation_restore_unconfirmed, mediaStatus))
         publish(idleDescription())
     }
 
-    private fun publish(description: String) = update {
+    private fun publish(description: UiText) = update {
         it.copy(description = description, active = policy.active, ducking = hostActive && players > 0,
             mode = "tracks", players = players, mediaPhase = mediaPhase.name.lowercase(),
             mediaStatus = mediaStatus, mediaSession = mediaSession)
@@ -408,12 +414,12 @@ class ConversationController(context: Context) {
         live = false
         epoch.incrementAndGet()
         onMain {
-            release("耳机服务已停止")
+            release(text(R.string.earbud_service_stopped))
             closed = true
             ++mediaGeneration
             handler.removeCallbacks(check)
             // The bridge owns pending Binder work and must STOP even after our callbacks are invalidated.
-            runCatching { bridge.close() }.onFailure { DeviceRepository.log("对话桥接关闭失败：${it.message}") }
+            runCatching { bridge.close() }.onFailure { DeviceRepository.log(strings(R.string.conversation_close_failed, it.message)) }
             if (playbackRegistered) runCatching { audio.unregisterAudioPlaybackCallback(playback) }
             if (devicesRegistered) runCatching { audio.unregisterAudioDeviceCallback(devices) }
         }

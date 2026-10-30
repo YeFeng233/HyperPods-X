@@ -1,21 +1,24 @@
 package com.hyper.podsrx.ui
 
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.Controls
 import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.i18n.TestStrings
 import com.hyper.podsrx.protocol.Aacp
 import org.junit.Assert.*
 import org.junit.Test
 
 class ListeningControlsTest {
+    private val strings = TestStrings.chinese
     private val adaptive = PodsState(connected = true, controls = mapOf(0x0d to listOf(4), 0x2e to listOf(50, 0, 0, 0)))
 
     @Test fun selectorStartsWithOffThenTransparencyAdaptiveCancellation() {
         assertEquals(listOf(1, 3, 4, 2), Controls.listeningChoices.map { it.value })
-        assertEquals(listOf("关闭", "通透", "自适应", "降噪"), Controls.listeningChoices.map { it.label })
+        assertEquals(listOf("关闭", "通透", "自适应", "降噪"), Controls.listeningChoices.map { strings(it.labelRes) })
     }
 
     @Test fun offReportsAreNotRemappedToAnotherMode() {
-        val ui = listeningPresentation(adaptive.copy(controls = mapOf(0x0d to listOf(1))))
+        val ui = listeningPresentation(adaptive.copy(controls = mapOf(0x0d to listOf(1))), strings = strings)
         assertEquals(1, ui.mode)
         assertEquals(1, Controls.listeningChoices.first().value)
         assertTrue(ui.modeEnabled)
@@ -26,7 +29,7 @@ class ListeningControlsTest {
 
     @Test fun adaptiveSliderOnlyAppearsForReportedAdaptiveMode() {
         for (mode in 1..4) {
-            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x0d to listOf(mode))))
+            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x0d to listOf(mode))), strings = strings)
             assertEquals(mode == 4, ui.showAdaptive)
             assertEquals(mode == 4, ui.strengthEnabled)
         }
@@ -34,7 +37,7 @@ class ListeningControlsTest {
 
     @Test fun missingInvalidAndEmptyModeReportsNeverEnableControls() {
         for (report in listOf(emptyList(), listOf(0), listOf(5), listOf(255))) {
-            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x0d to report)))
+            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x0d to report)), strings = strings)
             assertNull(ui.mode)
             assertFalse(ui.modeEnabled)
             assertFalse(ui.showAdaptive)
@@ -44,14 +47,14 @@ class ListeningControlsTest {
 
     @Test fun missingOrInvalidStrengthIsNotDisplayedAsDefaultFifty() {
         for (report in listOf(emptyList(), listOf(-1), listOf(101), listOf(255))) {
-            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x2e to report)))
+            val ui = listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x2e to report)), strings = strings)
             assertNull(ui.strength)
             assertTrue(ui.showAdaptive)
             assertTrue(ui.modeEnabled)
             assertFalse(ui.strengthEnabled)
             assertTrue(ui.notice.contains("未上报"))
         }
-        assertNull(listeningPresentation(adaptive.copy(controls = adaptive.controls - 0x2e)).strength)
+        assertNull(listeningPresentation(adaptive.copy(controls = adaptive.controls - 0x2e), strings = strings).strength)
     }
 
     @Test fun sliderUsesDirectAncScaleNotInvertedAllowedNoiseScale() {
@@ -71,25 +74,25 @@ class ListeningControlsTest {
     fun invalidPointerFractionIsRejected() { adaptiveStrengthAt(Float.NaN) }
 
     @Test fun pendingStrengthKeepsTheSliderEnabledForNewerTargets() {
-        val disconnected = listeningPresentation(adaptive.copy(connected = false))
+        val disconnected = listeningPresentation(adaptive.copy(connected = false), strings = strings)
         assertFalse(disconnected.modeEnabled)
         assertFalse(disconnected.strengthEnabled)
         for (id in listOf(0x0d, 0x2e)) {
-            val ui = listeningPresentation(adaptive.copy(pending = setOf(id)))
+            val ui = listeningPresentation(adaptive.copy(pending = setOf(id)), strings = strings)
             assertTrue(ui.pending)
             assertFalse(ui.modeEnabled)
             assertEquals(id == 0x2e, ui.strengthEnabled)
             assertEquals(50, ui.strength)
         }
-        assertTrue(listeningPresentation(adaptive.copy(pending = setOf(0x28))).strengthEnabled)
+        assertTrue(listeningPresentation(adaptive.copy(pending = setOf(0x28)), strings = strings).strengthEnabled)
     }
 
     @Test fun reconnectAndUnconfirmedWriteKeepReportedState() {
-        val reconnecting = listeningPresentation(adaptive.copy(connected = false, controls = emptyMap(), pending = setOf(0x2e)))
+        val reconnecting = listeningPresentation(adaptive.copy(connected = false, controls = emptyMap(), pending = setOf(0x2e)), strings = strings)
         assertNull(reconnecting.mode)
         assertNull(reconnecting.strength)
         assertFalse(reconnecting.strengthEnabled)
-        val timedOut = listeningPresentation(adaptive)
+        val timedOut = listeningPresentation(adaptive, strings = strings)
         assertEquals(50, timedOut.strength)
         assertTrue(timedOut.strengthEnabled)
     }
@@ -97,7 +100,7 @@ class ListeningControlsTest {
     @Test fun strengthBoundsAreWritableAndOtherControlBytesArePreserved() {
         for (value in 0..100) {
             assertTrue(Controls.allowed(0x2e, listOf(value)))
-            assertEquals(value, listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x2e to listOf(value)))).strength)
+            assertEquals(value, listeningPresentation(adaptive.copy(controls = adaptive.controls + (0x2e to listOf(value))), strings = strings).strength)
         }
         assertFalse(Controls.allowed(0x2e, listOf(-1)))
         assertFalse(Controls.allowed(0x2e, listOf(101)))
@@ -116,10 +119,10 @@ class ListeningControlsTest {
     @Test fun continuousPositionsPreserveIntermediateValuesAndStayWithinProtocolBounds() {
         assertEquals((0..100).toSet(), (0..1000).map { adaptiveStrengthAt(it / 1000f) }.toSet())
         for (position in 0..1000) assertTrue(Controls.allowed(0x2e, listOf(adaptiveStrengthAt(position / 1000f))))
-        assertEquals("偏通透", adaptiveStrengthLabel(0))
-        assertEquals("均衡", adaptiveStrengthLabel(50))
-        assertEquals("偏降噪", adaptiveStrengthLabel(100))
-        assertEquals("37 / 100", adaptiveStrengthLabel(37))
+        assertEquals("偏通透", adaptiveStrengthLabel(0, strings = strings))
+        assertEquals("均衡", adaptiveStrengthLabel(50, strings = strings))
+        assertEquals("偏降噪", adaptiveStrengthLabel(100, strings = strings))
+        assertEquals("37 / 100", adaptiveStrengthLabel(37, strings = strings))
     }
 
     @Test fun intermediateAdaptivePayloadDoesNotRetainPreviousTrailingBytes() {
@@ -140,7 +143,7 @@ class ListeningControlsTest {
     @Test fun sentStrengthNeverReplacesTheReportedDeviceControl() {
         for(pending in listOf(emptySet(),setOf(0x2e))){
             val state=adaptive.copy(adaptiveTarget=37,pending=pending)
-            val ui=listeningPresentation(state)
+            val ui=listeningPresentation(state, strings = strings)
             assertEquals(50,ui.strength)
             assertEquals(37,state.adaptiveTarget)
             assertTrue(ui.strengthEnabled)

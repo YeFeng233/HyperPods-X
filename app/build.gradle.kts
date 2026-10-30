@@ -75,8 +75,8 @@ android {
         applicationId = "com.hyper.podsrx"
         minSdk = 37
         targetSdk = 37
-        versionCode = 22
-        versionName = "0.5.0-dev"
+        versionCode = 23
+        versionName = "0.5.1-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -98,7 +98,10 @@ android {
         }
     }
     packaging { resources.merges += setOf("META-INF/LICENSE*", "META-INF/NOTICE*") }
-    androidResources { noCompress += listOf("ttf", "otf") }
+    androidResources {
+        noCompress += listOf("ttf", "otf")
+        generateLocaleConfig = true
+    }
     dependenciesInfo { includeInApk = false; includeInBundle = false }
 }
 dependencies {

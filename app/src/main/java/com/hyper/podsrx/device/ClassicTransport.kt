@@ -8,12 +8,15 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.os.ParcelUuid
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.stringResolver
 import com.hyper.podsrx.protocol.Aacp
-import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.io.IOException
 import java.util.UUID
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 
 object ClassicTransport {
+    private val strings get() = DeviceRepository.app.stringResolver()
     @Suppress("MissingPermission")
     fun create(adapter: BluetoothAdapter, device: BluetoothDevice): BluetoothSocket {
         // The public LE-CoC API uses a different transport. AACP requires BR/EDR L2CAP.
@@ -34,6 +37,6 @@ object ClassicTransport {
                 return constructor.newInstance(*values) as BluetoothSocket
             } catch (error: Throwable) { last=error }
         }
-        throw IOException("当前系统的经典 L2CAP 接口不匹配",last)
+        throw IOException(strings(R.string.l2cap_interface_mismatch),last)
     }
 }

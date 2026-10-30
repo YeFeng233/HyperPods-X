@@ -5,10 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
-import org.json.JSONArray
-import org.json.JSONObject
 import com.hyper.podsrx.device.DeviceRepository
 import com.hyper.podsrx.device.PodsService
+import com.hyper.podsrx.i18n.stringResolver
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Shell-only test driver. The release manifest and APK contain no receiver. */
 class DeviceTestReceiver:BroadcastReceiver() {
@@ -20,7 +21,7 @@ class DeviceTestReceiver:BroadcastReceiver() {
                 val attributes=AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
                 val result=JSONObject().put("connected",state.connected).put("enabled",state.earAutomation)
-                    .put("wearing",state.wearing?.toString()).put("status",state.earDetectionStatus)
+                    .put("wearing",state.wearing?.toString()).put("status",state.earDetectionStatus.resolve(context.stringResolver()))
                     .put("musicActive",audio.isMusicActive).put("mode",audio.mode)
                 runCatching{audio.getAudioDevicesForAttributes(attributes)}.onSuccess { routes ->
                     result.put("routes",JSONArray(routes.map{JSONObject().put("type",it.type)

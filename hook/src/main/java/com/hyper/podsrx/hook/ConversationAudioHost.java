@@ -61,7 +61,7 @@ final class ConversationAudioHost extends Binder {
     private IBinder.DeathRecipient death;
     private long session, generation, deadline, lastHeartbeat, lastCaptured, lastStartCaptured;
     private String address = "";
-    private String status = "媒体包络桥接已就绪";
+    private String status;
     private Runnable watchdog;
 
     static synchronized void install(Context context, SharedPreferences preferences) throws Exception {
@@ -96,6 +96,7 @@ final class ConversationAudioHost extends Binder {
     private ConversationAudioHost(Context context, SharedPreferences preferences) throws Exception {
         this.preferences = preferences;
         this.context = context;
+        status = HookStrings.get(context, R.string.hook_media_bridge_ready);
         audio = context.getSystemService(AudioManager.class);
         appUid = context.getPackageManager().getPackageUid(SpatialWire.APP, 0);
         Api resolved = null;
@@ -103,11 +104,11 @@ final class ConversationAudioHost extends Binder {
         try {
             if (audio == null || context.checkSelfPermission("android.permission.MODIFY_AUDIO_ROUTING")
                     != PackageManager.PERMISSION_GRANTED) {
-                throw new IllegalStateException("蓝牙宿主缺少音频路由权限");
+                throw new IllegalStateException(HookStrings.get(context, R.string.hook_audio_route_permission_missing));
             }
             resolved = new Api();
         } catch (Exception | LinkageError error) {
-            failure = "播放器包络接口不可用：" + reason(error).getClass().getSimpleName();
+            failure = HookStrings.get(context, R.string.hook_player_envelope_unavailable) + reason(error).getClass().getSimpleName();
             DiagnosticLog.w(TAG, failure, error);
         }
         api = resolved;
@@ -192,38 +193,38 @@ final class ConversationAudioHost extends Binder {
     private void checkAddress(String requested) {
         if (!BluetoothAdapter.checkBluetoothAddress(requested)
                 || !requested.equalsIgnoreCase(preferences.getString("address", ""))) {
-            throw new SecurityException("仅支持已绑定耳机");
+            throw new SecurityException(HookStrings.get(context, R.string.hook_bound_earbuds_only));
         }
     }
 
     private Bundle execute(int code, Bundle request) throws Exception {
-        if (closed || !ReloadLifecycle.isActive()) return result(false, "媒体桥接已更新，请重新连接");
+        if (closed || !ReloadLifecycle.isActive()) return result(false, HookStrings.get(context, R.string.hook_media_bridge_updated));
         if (code == ConversationWire.START && !ReloadLifecycle.canStartOperation())
-            return result(false, "模块正在准备更新，请稍后重试");
+            return result(false, HookStrings.get(context, R.string.hook_module_updating));
         IBinder token = request.getBinder("client");
         long requestedSession = request.getLong("session", 0);
         // Release must remain available after a route, binding, or permission change.
         if (code == ConversationWire.STOP) {
-            if (!active()) return result(true, "会话已结束");
-            if (!matches(token, requestedSession)) return result(false, "已忽略旧会话停止请求");
-            stop("已提交媒体恢复请求");
+            if (!active()) return result(true, HookStrings.get(context, R.string.hook_session_ended));
+            if (!matches(token, requestedSession)) return result(false, HookStrings.get(context, R.string.hook_old_stop_ignored));
+            stop(HookStrings.get(context, R.string.hook_media_restore_submitted));
             return result(true, status);
         }
         if (unavailable != null) return result(false, unavailable);
         if (code == ConversationWire.QUERY) return result(true, status);
         if (code != ConversationWire.START && code != ConversationWire.KEEPALIVE) {
-            return result(false, "未知桥接指令");
+            return result(false, HookStrings.get(context, R.string.hook_unknown_bridge_command));
         }
         long now = SystemClock.elapsedRealtime();
         long captured = request.getLong("captured", -1);
         if (captured < 0 || now < captured || now - captured > 1_000) {
-            return result(false, "已拒绝过期会话请求");
+            return result(false, HookStrings.get(context, R.string.hook_expired_session_rejected));
         }
         if (token == null || requestedSession <= 0 || !token.isBinderAlive()) {
-            return result(false, "缺少有效会话所有者");
+            return result(false, HookStrings.get(context, R.string.hook_valid_owner_missing));
         }
         if (code == ConversationWire.KEEPALIVE) {
-            if (!matches(token, requestedSession)) return result(false, "降音会话已结束");
+            if (!matches(token, requestedSession)) return result(false, HookStrings.get(context, R.string.hook_attenuation_session_ended));
             if (captured > lastCaptured) {
                 lastCaptured = captured;
                 lastHeartbeat = now;
@@ -238,11 +239,11 @@ final class ConversationAudioHost extends Binder {
             scan(generation);
             return result(active(), status);
         }
-        if (captured <= lastStartCaptured) return result(false, "已拒绝旧会话启动请求");
-        if (audio.getMode() != AudioManager.MODE_NORMAL) return result(false, "通话期间暂停对话降音");
+        if (captured <= lastStartCaptured) return result(false, HookStrings.get(context, R.string.hook_old_start_rejected));
+        if (audio.getMode() != AudioManager.MODE_NORMAL) return result(false, HookStrings.get(context, R.string.hook_attenuation_paused_call));
         List<Candidate> candidates = candidates(requestedAddress);
-        if (candidates.isEmpty()) return result(false, "没有正在向此耳机播放的可控制媒体轨道");
-        stop("已结束上一会话");
+        if (candidates.isEmpty()) return result(false, HookStrings.get(context, R.string.hook_no_controllable_tracks));
+        stop(HookStrings.get(context, R.string.hook_previous_session_ended));
         generation++;
         long currentGeneration = generation;
         session = requestedSession;
@@ -253,18 +254,18 @@ final class ConversationAudioHost extends Binder {
         deadline = now + MAX_SESSION_MS;
         death = () -> handler.post(() -> {
             if (generation == currentGeneration && matches(token, requestedSession)) {
-                stop("客户端已退出，已提交媒体恢复请求");
+                stop(HookStrings.get(context, R.string.hook_client_exited_restore_submitted));
             }
         });
         try {
             token.linkToDeath(death, 0);
             reconcile(candidates);
-            if (submittedCount() == 0) throw new IllegalStateException("没有可提交包络的媒体轨道");
+            if (submittedCount() == 0) throw new IllegalStateException(HookStrings.get(context, R.string.hook_no_envelope_tracks));
         } catch (Exception | LinkageError error) {
-            stop("媒体包络提交失败，已请求恢复");
+            stop(HookStrings.get(context, R.string.hook_envelope_failed_restore_requested));
             throw error;
         }
-        status = "媒体降音包络已提交，效果待验证";
+        status = HookStrings.get(context, R.string.hook_envelope_submitted);
         watchdog = new Runnable() {
             @Override public void run() {
                 if (!active() || generation != currentGeneration) return;
@@ -283,18 +284,18 @@ final class ConversationAudioHost extends Binder {
             checkAddress(address);
             if (now - lastHeartbeat > HEARTBEAT_MS || now >= deadline
                     || audio.getMode() != AudioManager.MODE_NORMAL || !owner.isBinderAlive()) {
-                stop("会话超时或播放条件改变，已提交媒体恢复请求");
+                stop(HookStrings.get(context, R.string.hook_session_timeout_restore));
                 return;
             }
             List<Candidate> current = candidates(address);
             if (current.isEmpty()) {
-                stop("目标耳机媒体路由已失效，已提交恢复请求");
+                stop(HookStrings.get(context, R.string.hook_route_lost_restore));
                 return;
             }
             reconcile(current);
         } catch (Exception | LinkageError error) {
             DiagnosticLog.w(TAG, "Conversation player scan failed", reason(error));
-            stop("播放器接口异常，已提交恢复请求");
+            stop(HookStrings.get(context, R.string.hook_player_error_restore));
         }
     }
 
@@ -392,14 +393,14 @@ final class ConversationAudioHost extends Binder {
                 DiagnosticLog.w(TAG, "Own-envelope cleanup unavailable; finite envelope ends at unity", reason(error));
             }
             track.recoveryFailed = true;
-            status = "恢复提交未确认，包络仍受60秒自恢复期限约束";
+            status = HookStrings.get(context, R.string.hook_restore_unconfirmed_deadline);
             // Retain the proxy and retry only termination. Never resend an attenuation curve.
             handler.postDelayed(() -> {
                 if (tracks.get(track.id) != track) return;
                 if (SystemClock.elapsedRealtime() >= track.expiresAt) {
                     // Expiry is the independent fail-safe, not a positive recovery acknowledgement.
                     // Keep the failed submission visible; a later same-ID replacement cannot stack it.
-                    if (!active()) status = "已到包络自恢复期限，实际恢复仍待确认";
+                    if (!active()) status = HookStrings.get(context, R.string.hook_restore_deadline_reached);
                 } else {
                     terminate(track);
                 }
@@ -421,7 +422,7 @@ final class ConversationAudioHost extends Binder {
         result.putBoolean("active", active());
         result.putInt("players", submittedCount());
         result.putString("status", failures == 0 ? message
-                : "恢复提交未确认：" + failures + " 条轨道；包络仍受60秒自恢复期限约束");
+                : HookStrings.get(context, R.string.hook_restore_unconfirmed_prefix) + failures + HookStrings.get(context, R.string.hook_restore_unconfirmed_tracks));
         result.putInt("recoveryFailures", failures);
         result.putLong("session", session);
         result.putLong("attackMs", ATTACK_MS);
@@ -450,7 +451,7 @@ final class ConversationAudioHost extends Binder {
             // Only completed cleanup proves this old endpoint cannot own a lease.
             // A partial/failed cleanup must never authorize rediscovery as recovery.
             retired.putBoolean("bridgeRetired", cleanupComplete);
-            retired.putString("status", "媒体桥接已更新，请重新连接");
+            retired.putString("status", HookStrings.get(context, R.string.hook_media_bridge_updated));
             if (reply != null) { reply.writeNoException(); reply.writeBundle(retired); }
             return true;
         }
@@ -463,7 +464,7 @@ final class ConversationAudioHost extends Binder {
             try { response.set(execute(code, request)); }
             catch (Exception | LinkageError error) {
                 DiagnosticLog.w(TAG, "Conversation bridge request failed", reason(error));
-                response.set(result(false, "媒体桥接请求失败：" + reason(error).getClass().getSimpleName()));
+                response.set(result(false, HookStrings.get(context, R.string.hook_media_bridge_request_failed) + reason(error).getClass().getSimpleName()));
             } finally {
                 Bundle result = response.get();
                 if (result != null) {
@@ -483,14 +484,14 @@ final class ConversationAudioHost extends Binder {
             IBinder token = request.getBinder("client");
             long requestedSession = request.getLong("session", 0);
             if (code != ConversationWire.QUERY) handler.post(() -> {
-                if (matches(token, requestedSession)) stop("桥接请求超时，已提交恢复请求");
+                if (matches(token, requestedSession)) stop(HookStrings.get(context, R.string.hook_bridge_timeout_restore));
             });
             Bundle failed = new Bundle();
             failed.putBoolean("ok", false);
             failed.putBoolean("active", false);
             failed.putInt("players", 0);
             failed.putLong("session", requestedSession);
-            failed.putString("status", "媒体桥接响应超时");
+            failed.putString("status", HookStrings.get(context, R.string.hook_media_bridge_response_timeout));
             failed.putLong("hostReceivedAt", hostReceivedAt);
             failed.putLong("hostCompletedAt", -1); // Handler completion is unknown on timeout.
             failed.putLong("attackMs", ATTACK_MS);

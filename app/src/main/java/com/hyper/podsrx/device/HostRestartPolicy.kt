@@ -1,13 +1,15 @@
 package com.hyper.podsrx.device
 
+import com.hyper.podsrx.R
+
 internal object HostRestartPolicy {
-    data class Host(val pkg: String, val label: String, val service: String? = null)
+    data class Host(val pkg: String, val labelRes: Int, val service: String? = null)
     data class Process(val pid: Int, val uid: Int, val name: String)
     val hosts = listOf(
-        Host("com.xiaomi.bluetooth", "小米蓝牙", "com.android.bluetooth.ble.app.MiuiNearbyService"),
-        Host("com.milink.service", "设备互联", "com.milink.server.MiLinkProcessAliveService"),
-        Host("com.android.settings", "系统设置"),
-        Host("com.miui.securitycenter", "手机管家"),
+        Host("com.xiaomi.bluetooth", R.string.host_xiaomi_bluetooth, "com.android.bluetooth.ble.app.MiuiNearbyService"),
+        Host("com.milink.service", R.string.host_interconnectivity, "com.milink.server.MiLinkProcessAliveService"),
+        Host("com.android.settings", R.string.host_settings),
+        Host("com.miui.securitycenter", R.string.host_security),
     )
     private val auxiliary = setOf("com.milink.runtime", "com.milink.crossdeviceservice", "com.xiaomi.vtcamera")
 
@@ -15,7 +17,7 @@ internal object HostRestartPolicy {
         name.matches(Regex("[A-Za-z0-9_.:]+")) &&
         // Only the widget provider process of the security center is hooked.
         if (pkg == "com.miui.securitycenter") name == HostReloadPolicy.WIDGET_PROCESS
-        else name == pkg || name.startsWith("$pkg:") || pkg == "com.milink.service" && name in auxiliary
+        else name == pkg || name.startsWith("${pkg}:") || pkg == "com.milink.service" && name in auxiliary
 
     fun parse(line: String): Process? {
         val parts = line.trim().split(Regex("\\s+"))

@@ -362,8 +362,8 @@ final class NativeControlPanelAdapter {
                 card.removeView(adaptive);
                 return;
             }
-            label.setText("自适应");
-            label.setContentDescription("自适应");
+            label.setText(HookStrings.get(context, R.string.hook_adaptive));
+            label.setContentDescription(HookStrings.get(context, R.string.hook_adaptive));
             panel = new Panel(detail, adaptive, target, card);
             panels.put(card, panel);
             Panel endpoint = panel;

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.PodsService
 import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.i18n.rememberStrings
 import com.hyper.podsrx.ui.ios.ListeningIntentState
 import com.hyper.podsrx.ui.ios.expireListeningTarget
 import com.hyper.podsrx.ui.ios.nextListeningTarget
@@ -91,9 +92,10 @@ internal fun ListeningControls(
     onModeChange: (Int) -> Unit = { PodsService.setControl(0x0d, it) },
     onStrengthChange: (Int) -> Unit = { PodsService.setControl(0x2e, it) },
 ) {
+    val strings = rememberStrings()
     val controller = LocalMiuixListeningController.current
         ?: rememberMiuixListeningController(state, onModeChange, onStrengthChange)
-    val ui = intentPresentation(state, controller.intent)
+    val ui = intentPresentation(state, strings, controller.intent)
     val caption = ui.modeNotice.ifBlank { if (ui.showAdaptive) ui.strengthNotice else "" }
     SettingsCard {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 16.dp)) {
@@ -106,11 +108,11 @@ internal fun ListeningControls(
                         .graphicsLayer { alpha = if (enabled || selected) 1f else .4f },
                         horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.height(64.dp), contentAlignment = Alignment.Center) {
-                            NativeListeningIcon(choice.value, choice.label, selected, enabled) {
+                            NativeListeningIcon(choice.value, strings(choice.labelRes), selected, enabled) {
                                 if (!selected) controller.mode(choice.value)
                             }
                         }
-                        if (caption.isBlank()) Text(choice.label, fontSize = 15.sp, lineHeight = 20.sp,
+                        if (caption.isBlank()) Text(strings(choice.labelRes), fontSize = 15.sp, lineHeight = 20.sp,
                             color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 4.dp).heightIn(min = 22.dp).clearAndSetSemantics {})
@@ -158,9 +160,10 @@ private fun NativeListeningIcon(mode: Int, label: String, selected: Boolean, ena
 
 @Composable
 internal fun AdaptiveStrengthControl(state: PodsState, showNotice: Boolean = true, modifier: Modifier = Modifier) {
+    val strings = rememberStrings()
     val controller = LocalMiuixListeningController.current ?: rememberMiuixListeningController(state,
         { PodsService.setControl(0x0d, it) }, { PodsService.setControl(0x2e, it) })
-    val ui = intentPresentation(state, controller.intent)
+    val ui = intentPresentation(state, strings, controller.intent)
     val notice = ui.modeNotice.ifBlank { ui.strengthNotice }
     Column(modifier.fillMaxWidth()) {
         Slider(value = (ui.strength ?: 50).toFloat(), enabled = ui.strengthEnabled,
@@ -169,7 +172,7 @@ internal fun AdaptiveStrengthControl(state: PodsState, showNotice: Boolean = tru
             })
         if (notice.isBlank()) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             SettingsCatalog.adaptiveAnchors.forEach { anchor ->
-                Text(com.hyper.podsrx.ui.ios.adaptiveStrengthLabel(anchor), style = MiuixTheme.textStyles.footnote1,
+                Text(com.hyper.podsrx.ui.ios.adaptiveStrengthLabel(anchor, strings), style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary)
             }
         }

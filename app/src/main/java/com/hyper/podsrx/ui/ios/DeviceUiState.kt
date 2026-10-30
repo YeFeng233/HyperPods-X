@@ -1,8 +1,10 @@
 // Adapted from NEORUAA/HyperPods-X PR #1 (ae9fa5e), GPL-3.0-or-later.
 package com.hyper.podsrx.ui.ios
 
-import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.R
 import com.hyper.podsrx.device.Controls
+import com.hyper.podsrx.device.PodsState
+import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.ui.SettingsCatalog
 import kotlin.math.roundToInt
 
@@ -17,21 +19,22 @@ internal data class ListeningPresentation(
 
 internal fun listeningPresentation(
     state: PodsState,
+    strings: Strings,
     intent: ListeningIntentState? = null,
 ): ListeningPresentation {
     val mode = intent?.mode?.value ?: state.controls[0x0d]?.firstOrNull()?.takeIf { it in 1..4 }
         ?: if (intent?.strength != null) 4 else null
     val strength = intent?.strength?.value ?: state.adaptiveTarget?.takeIf {
-        it in 0..100 && intent?.strengthFailure.isNullOrBlank()
+        it in 0..100 && (intent == null || intent.strengthFailure == 0)
     }
         ?: Controls.adaptiveStrength(state.controls)
     val pending = 0x0d in state.pending || 0x2e in state.pending
     val interactive = state.connected || pending || intent?.hasWork == true
-    val modeFailed = intent == null && !pending && state.message.startsWith("聆听模式未确认目标值")
-    val strengthFailed = intent == null && !pending && state.message.startsWith("自适应降噪幅度未确认目标值")
+    val modeFailed = intent == null && !pending && state.messageCode == R.string.setting_unconfirmed && state.messageControl == 0x0d
+    val strengthFailed = intent == null && !pending && state.messageCode == R.string.setting_unconfirmed && state.messageControl == 0x2e
     val commonNotice = when {
-        !interactive -> "连接耳机后可切换聆听模式"
-        mode == null -> "等待读取耳机支持的聆听模式"
+        !interactive -> strings(R.string.connect_to_change_listening)
+        mode == null -> strings(R.string.waiting_listening_modes)
         else -> ""
     }
     return ListeningPresentation(
@@ -43,26 +46,26 @@ internal fun listeningPresentation(
         pending = pending,
         hiddenModes = if (mode == 4 || state.controls[0x34]?.firstOrNull() == 2) setOf(1) else emptySet(),
         modeNotice = when {
-            intent?.modeFailure?.isNotBlank() == true -> intent.modeFailure
+            intent != null && intent.modeFailure != 0 -> strings(intent.modeFailure)
             commonNotice.isNotBlank() -> commonNotice
-            modeFailed -> "聆听模式未能更新，请重试。"
+            modeFailed -> strings(R.string.listening_update_failed)
             else -> ""
         },
         strengthNotice = when {
-            intent?.strengthFailure?.isNotBlank() == true -> intent.strengthFailure
+            intent != null && intent.strengthFailure != 0 -> strings(intent.strengthFailure)
             commonNotice.isNotBlank() -> commonNotice
-            strengthFailed -> "自适应音频未能更新，请重试。"
-            mode != 4 -> "使用自适应音频后可调整幅度"
-            strength == null -> "耳机尚未上报自适应幅度，暂不可调整"
+            strengthFailed -> strings(R.string.adaptive_update_failed)
+            mode != 4 -> strings(R.string.adaptive_mode_required)
+            strength == null -> strings(R.string.adaptive_strength_not_reported)
             else -> ""
         },
     )
 }
 
-internal fun adaptiveStrengthLabel(value: Int): String = when (value) {
-    0 -> "较多噪声"
-    50 -> "默认"
-    100 -> "较少噪声"
+internal fun adaptiveStrengthLabel(value: Int, strings: Strings): String = when (value) {
+    0 -> strings(R.string.more_noise)
+    50 -> strings(R.string.default_option)
+    100 -> strings(R.string.less_noise)
     else -> value.toString()
 }
 
@@ -83,8 +86,8 @@ internal data class ListeningIntentState(
     val mode: ListeningTarget? = null,
     val strength: ListeningTarget? = null,
     val inFlight: ListeningFlight? = null,
-    val modeFailure: String = "",
-    val strengthFailure: String = "",
+    val modeFailure: Int = 0,
+    val strengthFailure: Int = 0,
 ) {
     val hasWork get() = mode != null || strength != null || inFlight != null
 }
@@ -96,7 +99,7 @@ internal fun requestListeningMode(intent: ListeningIntentState, mode: Int): List
         serial = serial,
         mode = ListeningTarget(0x0d, mode, serial),
         strength = if (mode == 4) ListeningTarget(0x2e, 50, serial) else null,
-        modeFailure = "", strengthFailure = "",
+        modeFailure = 0, strengthFailure = 0,
     )
 }
 
@@ -107,17 +110,16 @@ internal fun requestListeningStrength(intent: ListeningIntentState, value: Int):
         serial = serial,
         mode = intent.mode?.let { if (it.value == 4) it.copy(serial = serial) else it },
         strength = ListeningTarget(0x2e, value, serial),
-        modeFailure = "", strengthFailure = "",
+        modeFailure = 0, strengthFailure = 0,
     )
 }
 
-private fun listeningWriteFailed(state: PodsState, control: Int): Boolean = when (state.message) {
-    "耳机控制尚未连接", "请先连接耳机", "请在自适应模式下调整降噪幅度",
-    "当前设置或取值尚未开放写入", "请等待自适应模式与降噪幅度读取完成",
-    "请等待降噪幅度确认后再切换模式", "请等待降噪指令发送完成后再切换模式" -> true
-    else -> state.message.startsWith("设置发送失败：") || state.message.startsWith(
-        if (control == 0x0d) "聆听模式未确认目标值" else "自适应降噪幅度未确认目标值",
-    )
+private fun listeningWriteFailed(state: PodsState, control: Int): Boolean = when (state.messageCode) {
+    R.string.control_not_connected, R.string.connect_earbuds_first, R.string.select_adaptive_before_adjusting,
+    R.string.setting_not_writable, R.string.wait_adaptive_readback,
+    R.string.wait_strength_confirmation, R.string.wait_noise_command -> true
+    R.string.setting_send_failed, R.string.setting_unconfirmed -> state.messageControl == control
+    else -> false
 }
 
 private fun finishListeningFlight(intent: ListeningIntentState, failed: Boolean): ListeningIntentState {
@@ -127,11 +129,11 @@ private fun finishListeningFlight(intent: ListeningIntentState, failed: Boolean)
             mode = null,
             strength = if (failed && intent.strength?.serial == target.serial) null else intent.strength,
             inFlight = null,
-            modeFailure = if (failed) "聆听模式未能更新，请重试。" else "",
+            modeFailure = if (failed) R.string.listening_update_failed else 0,
         )
         target.control == 0x2e && intent.strength == target -> intent.copy(
             strength = null, inFlight = null,
-            strengthFailure = if (failed) "自适应音频未能更新，请重试。" else "",
+            strengthFailure = if (failed) R.string.adaptive_update_failed else 0,
         )
         else -> intent.copy(inFlight = null)
     }
@@ -141,8 +143,8 @@ internal fun syncListeningIntent(intent: ListeningIntentState, state: PodsState)
     val busy = 0x0d in state.pending || 0x2e in state.pending
     if (!state.connected && !busy && intent.hasWork) return intent.copy(
         mode = null, strength = null, inFlight = null,
-        modeFailure = if (intent.mode != null) "耳机已断开连接，请重新连接后重试。" else intent.modeFailure,
-        strengthFailure = if (intent.mode == null && intent.strength != null) "耳机已断开连接，请重新连接后重试。" else intent.strengthFailure,
+        modeFailure = if (intent.mode != null) R.string.earbuds_disconnected_retry else intent.modeFailure,
+        strengthFailure = if (intent.mode == null && intent.strength != null) R.string.earbuds_disconnected_retry else intent.strengthFailure,
     )
     var next = intent
     intent.inFlight?.let { flight ->
