@@ -87,6 +87,7 @@ HyperPods-X 读取 AirPods 内置运动传感器的六轴姿态数据，并桥�
 1. 配置 `local.properties` 中的 `sdk.dir`。
 2. 运行初始化脚本准备 Glasmio 源码及 SF Pro 字体依赖：
    ```bash
+   python -m pip install -r scripts/requirements-fonts.txt
    python scripts/prepare-ui.py --fonts
    ```
 3. 执行编译与打包：

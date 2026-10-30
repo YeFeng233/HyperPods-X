@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
 if (-not (Test-Path (Join-Path $root '.reference\Glasmio\settings.gradle.kts'))) {
+    python -m pip install -r (Join-Path $root 'scripts\requirements-fonts.txt')
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
     python (Join-Path $root 'scripts\prepare-ui.py') --fonts
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }

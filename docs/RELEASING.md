@@ -16,7 +16,7 @@ HyperPods-X 借助 GitHub Actions 实现了自动化构建、质量门禁检查�
 ## 2. CI 门禁检查项目
 
 每次流水线运行必须依序通过以下自动化质量门禁：
-1. **环境初始化**：安装 JDK 21、Android SDK 37 及对应 Build Tools，执行 `scripts/prepare-ui.py --fonts` 完成 Glasmio 依赖与 SF Pro 字体校验；
+1. **环境初始化**：安装 JDK 21、Android SDK 37 及对应 Build Tools，执行 `python -m pip install -r scripts/requirements-fonts.txt` 和 `python scripts/prepare-ui.py --fonts` 完成 Glasmio 依赖、SF Pro 常规字体校验与子集裁剪；
 2. **测试与静态检查**：
    - `:app:testDebugUnitTest`（应用层单元测试）
    - `:core:protocol:test`（纯 Kotlin 底层协议测试）

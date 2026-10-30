@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import subprocess
+import sys
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -10,7 +11,6 @@ GLASMIO_COMMIT = "bbba63b2f2584c4819bd88043332e241820d1ca0"
 FONT_TAG = "v27.0.1789118100"
 FONTS = {
     "SF-Pro.ttf": "7270e1593be7b88597d8ab302e4d156a33084c85b8161e042ff6510cdaf10e10",
-    "SF-Pro-Italic.ttf": "9c80b0d5ec685fc6408c40f8698f7c5f6f8115be3981a5c23e00f11726b20c5f",
 }
 
 
@@ -53,9 +53,12 @@ def prepare(with_fonts):
             if sha256(output) != expected:
                 raise SystemExit("Existing font differs from the pinned SFWindows version: " + name)
             print("Verified " + name)
-        for key, name in [("glasmio.symbolFont", "SF-Pro.ttf"), ("glasmio.italicFont", "SF-Pro-Italic.ttf")]:
-            if not any(line.startswith(key + "=") for line in text.splitlines()):
-                text = text.rstrip() + "\n" + key + "=" + (destination / name).as_posix() + "\n"
+        subset = destination / "SF-Pro-Subset.ttf"
+        subprocess.run([sys.executable, str(ROOT / "scripts/subset-ui-font.py"),
+                        str(destination / "SF-Pro.ttf"), str(subset), "--glasmio", str(library)], check=True)
+        text = "\n".join(line for line in text.splitlines()
+                         if not line.startswith(("glasmio.symbolFont=", "glasmio.italicFont=")))
+        text = text.rstrip() + "\nglasmio.symbolFont=" + subset.as_posix() + "\n"
         properties.write_text(text, encoding="utf-8")
 
 

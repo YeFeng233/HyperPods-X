@@ -309,7 +309,7 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
                 "restartHosts" -> {
                     val restart by HostRestartCoordinator.state.collectAsStateWithLifecycle()
                     RowItem(if (restart.running) "正在重启作用域…" else SettingsCatalog.moduleLabel(key),
-                        restart.message.resolve(strings), enabled = !restart.running, action = HostRestartCoordinator::restart)
+                        restart.message.resolve(strings), enabled = !restart.running, action = { HostRestartCoordinator.restart() })
                 }
                 "overlayPermission" -> RowItem(SettingsCatalog.moduleLabel(key), action = onOverlay)
                 "bluetoothSettings" -> RowItem(SettingsCatalog.moduleLabel(key), action = onSystemBluetooth)

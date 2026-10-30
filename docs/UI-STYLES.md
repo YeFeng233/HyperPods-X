@@ -20,16 +20,18 @@ iOS 主题引入了开源玻璃拟态库 [Glasmio](https://github.com/NEORUAA/Gl
 - **编译工具**：JDK 21、Android SDK Platform 37.0、NDK 27.1.12297006、CMake 3.22.1
 - **自动化拉取**：在项目根目录运行初始化脚本，拉取固定版本的 Glasmio 源码并下载校验 SF Pro 字体：
   ```bash
+  python -m pip install -r scripts/requirements-fonts.txt
   python scripts/prepare-ui.py --fonts
   ```
 
 ### 2.2 字体校验说明
-`--fonts` 脚本会自动从开源镜像下载并校验 SF Pro 常规与斜体字体：
+`--fonts` 脚本下载并校验 SF Pro 常规字体，再生成 `SF-Pro-Subset.ttf`。APK 只打包子集字体，不包含斜体字体。
 
 | 字体文件 | SHA-256 校验和 |
 | --- | --- |
 | `SF-Pro.ttf` | `7270e1593be7b88597d8ab302e4d156a33084c85b8161e042ff6510cdaf10e10` |
-| `SF-Pro-Italic.ttf` | `9c80b0d5ec685fc6408c40f8698f7c5f6f8115be3981a5c23e00f11726b20c5f` |
+
+子集保留拉丁字母、西里尔字母、常用标点、符号及固定 Glasmio 图标目录中的 SF Symbols，并保留字重和光学尺寸可变轴。中文、日文、韩文使用 Android 系统字体回退。字体原文件和生成结果均留在本地 `.tooling/fonts/`，不提交到仓库。
 
 若本地不配置自定义字体，构建流程会自动回退至系统默认字体与 Material 图标，不影响任何功能的使用。
 

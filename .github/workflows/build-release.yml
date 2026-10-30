@@ -60,7 +60,10 @@ jobs:
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 
       - name: Prepare pinned iOS UI source and fonts
-        run: python3 scripts/prepare-ui.py --fonts
+        run: |
+          python3 -m pip install -r scripts/requirements-fonts.txt
+          python3 -m unittest discover -s scripts/tests -v
+          python3 scripts/prepare-ui.py --fonts
 
       - name: Restore the project test signing identity
         env:

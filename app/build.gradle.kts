@@ -134,8 +134,6 @@ dependencies {
 abstract class GenerateHyperPodsFontAssets : DefaultTask() {
     @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE)
     abstract val sourceFont: RegularFileProperty
-    @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE)
-    abstract val sourceItalicFont: RegularFileProperty
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     @TaskAction fun generate() {
@@ -156,7 +154,6 @@ abstract class GenerateHyperPodsFontAssets : DefaultTask() {
             }
         }
         copy(sourceFont, "sf_pro.ttf")
-        copy(sourceItalicFont, "sf_pro_italic.ttf")
     }
 }
 
@@ -166,13 +163,8 @@ val regularFontPath = providers.gradleProperty("glasmio.symbolFont")
     .orElse(providers.environmentVariable("HYPERPODS_SF_PRO"))
     .orElse(fontProperties.map { it.getProperty("glasmio.symbolFont", "") })
     .map { it.trim() }.filter { it.isNotEmpty() }
-val italicFontPath = providers.gradleProperty("glasmio.italicFont")
-    .orElse(providers.environmentVariable("HYPERPODS_SF_PRO_ITALIC"))
-    .orElse(fontProperties.map { it.getProperty("glasmio.italicFont", "") })
-    .map { it.trim() }.filter { it.isNotEmpty() }
 val generateHyperPodsFontAssets = tasks.register<GenerateHyperPodsFontAssets>("generateHyperPodsFontAssets") {
     sourceFont.set(layout.file(regularFontPath.map { File(it) }))
-    sourceItalicFont.set(layout.file(italicFontPath.map { File(it) }))
     outputDirectory.set(layout.buildDirectory.dir("generated/hyperpods-fonts/assets"))
 }
 androidComponents.onVariants { variant ->

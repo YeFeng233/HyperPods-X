@@ -397,7 +397,7 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
                             when (key) {
                                 "nativeScope" -> RowItem(SettingsCatalog.moduleLabel(key), "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
                                 "restartHosts" -> RowItem(if (hostRestart.running) "正在重启作用域…" else SettingsCatalog.moduleLabel(key), hostRestart.message.resolve(strings),
-                                    enabled = !hostRestart.running, action = HostRestartCoordinator::restart)
+                                    enabled = !hostRestart.running, action = { HostRestartCoordinator.restart() })
                                 "overlayPermission" -> RowItem(SettingsCatalog.moduleLabel(key), action = onOverlay)
                                 "bluetoothSettings" -> RowItem(SettingsCatalog.moduleLabel(key), action = onSystemBluetooth)
                             }

@@ -30,7 +30,7 @@ object HostRestartCoordinator {
     private val mutable = MutableStateFlow(HostRestartState())
     val state = mutable.asStateFlow()
 
-    fun restart() {
+    fun restart(selectedHosts: Set<String>? = null) {
         if (!busy.compareAndSet(false, true)) return
         mutable.value = HostRestartState(true, text(R.string.waiting_root_authorization))
         worker.launch {
@@ -38,7 +38,8 @@ object HostRestartCoordinator {
             try {
                 val service = FrameworkBridge.service
                     ?: error(strings(R.string.enable_and_authorize_module))
-                val hosts = HostRestartPolicy.hosts.filter { it.pkg in service.scope }
+                val hosts = HostRestartPolicy.hosts.filter { it.pkg in service.scope &&
+                    (selectedHosts == null || it.pkg in selectedHosts) }
                 check(hosts.isNotEmpty()) { strings(R.string.enable_system_integration_first) }
                 RootCommandSession().use { root ->
                     root.authorize()

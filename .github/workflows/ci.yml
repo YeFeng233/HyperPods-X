@@ -84,6 +84,9 @@ jobs:
       - name: Prepare pinned iOS UI source
         run: python3 scripts/prepare-ui.py
 
+      - name: Test font subset selection
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Test, lint and build
         shell: bash
         run: |
