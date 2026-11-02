@@ -47,6 +47,7 @@
 - **进行中的计划**：
   - [plans/ENGINEERING-PLAN.md](plans/ENGINEERING-PLAN.md)：工程规范化、代码结构优化与 AACP 迁移
   - [plans/CONVERSATION-AWARENESS-PLAN.md](plans/CONVERSATION-AWARENESS-PLAN.md)：对话感知独立音轨调节与复杂场景优化
+  - [plans/WINDOWS-ANDROID-INTERCONNECT-PLAN.md](plans/WINDOWS-ANDROID-INTERCONNECT-PLAN.md)：Windows 扩展与 Android 双设备互联设计草案，包含平台验证、控制协议与连接切换
 - **历史归档**：
   - [archive/HOST-HUB-MIGRATION-PLAN.md](archive/HOST-HUB-MIGRATION-PLAN.md)：蓝牙宿主状态中心迁移方案（0.5.0 已完成）
   - [archive/SPATIAL-AUDIO-FEASIBILITY.md](archive/SPATIAL-AUDIO-FEASIBILITY.md)：早期空间音频可行性调研
