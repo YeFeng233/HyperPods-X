@@ -19,6 +19,14 @@ class CaseStatusTest {
         assertEquals(Battery(2, 81, true, true), values.first { it.component == 2 })
         assertEquals(Battery(8, 81, false, true), values.first { it.component == 8 })
     }
+    @Test fun prefixedCaseStatusIsExtractedAndDecrypted() {
+        val data = byteArrayOf(0x12, 2, 1, 0) + message("29200e51e4d15b0200000000b11a0000")
+        assertTrue(AppleAdvertisement.hasHeadsetStatus(data))
+        val values = CaseStatusCodec.decode(AppleAdvertisement.proximityMessages(data).single(), key)!!
+        assertEquals(Battery(8, 81, false, true), values.first { it.component == 8 })
+        assertEquals(Battery(4, 100, true, true), values.first { it.component == 4 })
+        assertEquals(Battery(2, 81, true, true), values.first { it.component == 2 })
+    }
     // A Pro 3 capture with 04 in byte 9 and 01 in byte 14: case 98 % charging, left 100 %, right 99 %.
     @Test fun aCaseWithItsFlagBytesIsRead() {
         val values = CaseStatusCodec.decode(message("29200ce2e4e35b02000400" + "00ad050100"), key)!!

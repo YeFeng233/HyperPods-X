@@ -6,6 +6,7 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.os.Process;
 import android.os.SystemClock;
+import com.hyper.podsrx.protocol.AppleAdvertisement;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -13,8 +14,8 @@ import java.util.Map;
 
 /**
  * The Bluetooth stack hands the Apple advertisements its running scans hear to this ROM provider
- * as they arrive. The proximity ones go straight to the hub in this process, without the scan
- * callback's own delivery path, so the lid is followed as fast as the stack reports it.
+ * as they arrive. Headset status goes straight to the hub in this process, without the scan
+ * callback's own delivery path, so lid and case battery changes follow the stack's reports.
  */
 final class LidRelayHost {
     static final String PROVIDER = "com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider";
@@ -43,13 +44,12 @@ final class LidRelayHost {
         ScanResult result = extras.getParcelable(EXTRA_RESULT, ScanResult.class);
         ScanRecord record = result == null ? null : result.getScanRecord();
         byte[] data = record == null ? null : record.getManufacturerSpecificData(0x004c);
-        // Only proximity-pairing messages carry the lid state.
-        if (data == null || data.length < 2 || data[0] != 0x07 || data[1] != 0x19) return;
+        if (data == null || !AppleAdvertisement.INSTANCE.hasHeadsetStatus(data)) return;
         if (!changed(result.getDevice().getAddress(), data)) return;
         HubHost.relay(result);
         if (!relayed) {
             relayed = true;
-            DiagnosticLog.i("HyperPods-X", "Relaying Apple proximity advertisements to the hub");
+            DiagnosticLog.i("HyperPods-X", "Relaying Apple headset advertisements to the hub");
         }
     }
 

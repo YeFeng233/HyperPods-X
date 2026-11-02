@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
@@ -16,7 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
-import com.hyper.podsrx.protocol.CaseStatusCodec;
+import com.hyper.podsrx.protocol.AppleAdvertisement;
 import com.hyper.podsrx.protocol.PresenceTracker;
 import java.util.Collections;
 
@@ -208,14 +209,9 @@ final class ScanEngine {
         }
     }
 
-    /**
-     * The case status is connectable, so the stack leaves it on the regular scan path. The
-     * offloaded filter only matched once the pattern spanned the whole payload.
-     */
+    /** Case status can follow other Continuity messages; match its type after TLV parsing. */
     private void startBox(BluetoothLeScanner scanner) {
         if (!due(boxStartedAt)) return;
-        byte[] pattern = new byte[CaseStatusCodec.LENGTH + 2], mask = new byte[CaseStatusCodec.LENGTH + 2];
-        pattern[0] = 7; pattern[1] = (byte) CaseStatusCodec.LENGTH; mask[0] = -1; mask[1] = -1;
         ScanCallback callback = new Callback(HookStrings.get(context, R.string.hook_scan_case)) {
             @Override boolean current() { return box == this; }
             @Override void failed() { box = null; }
@@ -223,7 +219,7 @@ final class ScanEngine {
         box = callback;
         boxStartedAt = SystemClock.elapsedRealtime();
         try {
-            scanner.startScan(Collections.singletonList(new ScanFilter.Builder().setManufacturerData(0x004c, pattern, mask).build()),
+            scanner.startScan(Collections.singletonList(new ScanFilter.Builder().setManufacturerData(0x004c, new byte[0]).build()),
                 new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).setLegacy(true).setReportDelay(0).build(), callback);
             starts++;
         } catch (RuntimeException error) {
@@ -269,7 +265,12 @@ final class ScanEngine {
 
         private void deliver(ScanResult result) {
             if (closed || !current() || !ReloadLifecycle.isActive()) return;
-            try { listener.onResult(result, source); }
+            try {
+                ScanRecord record = result.getScanRecord();
+                byte[] data = record == null ? null : record.getManufacturerSpecificData(0x004c);
+                if (data == null || !AppleAdvertisement.INSTANCE.hasHeadsetStatus(data)) return;
+                listener.onResult(result, source);
+            }
             catch (Throwable error) { DiagnosticLog.w(TAG, "Hub advertisement skipped", error); }
         }
 

@@ -10,6 +10,10 @@ import javax.crypto.spec.SecretKeySpec
 data class Proximity(val modelId: Int, val lidOpen: Boolean, val batteries: List<Battery>, val precise: Boolean)
 /** Apple manufacturer data may contain several length-prefixed Continuity messages. */
 object AppleAdvertisement {
+    fun hasHeadsetStatus(data: ByteArray): Boolean = proximityMessages(data).any {
+        it.u(1) == 0x19 || it.u(1) == CaseStatusCodec.LENGTH
+    }
+
     fun proximityMessages(data: ByteArray): List<ByteArray> {
         val messages=mutableListOf<ByteArray>()
         var offset=0
