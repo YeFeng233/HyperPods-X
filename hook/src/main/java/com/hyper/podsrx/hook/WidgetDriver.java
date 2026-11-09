@@ -70,7 +70,11 @@ final class WidgetDriver {
         main.postDelayed(() -> {
             if (!ReloadLifecycle.isActive()) return;
             try {
-                context.sendBroadcast(new Intent(HEADSET).putExtra("android.intent.extra.show_bluetooth_handsfree_battery", 1));
+                // Only refresh Security Center's battery widget; do not affect SystemUI's headset icon.
+                context.sendBroadcast(new Intent(HEADSET)
+                    .setPackage("com.miui.securitycenter")
+                    .putExtra("android.intent.extra.show_bluetooth_handsfree_battery", nextHeadset >= 0 ? 1 : 0)
+                    .putExtra("android.intent.extra.bluetooth_handsfree_battery_level", nextHeadset));
             } catch (RuntimeException error) {
                 DiagnosticLog.w("HyperPods-X", "Widget headset refresh skipped", error);
             }
