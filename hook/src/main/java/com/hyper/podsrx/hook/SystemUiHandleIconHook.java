@@ -389,8 +389,7 @@ final class SystemUiHandleIconHook {
         }
 
         private int symbolColor() {
-            if (tintList != null) return tintList.getColorForState(getState(), tintList.getDefaultColor());
-            return nightMode ? Color.WHITE : Color.BLACK;
+            return Color.WHITE;
         }
 
         @Override protected void onBoundsChange(Rect bounds) { original.setBounds(bounds); }
