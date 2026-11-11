@@ -5,6 +5,8 @@ import com.hyper.podsrx.R
 internal object HostRestartPolicy {
     data class Host(val pkg: String, val labelRes: Int, val service: String? = null)
     data class Process(val pid: Int, val uid: Int, val name: String)
+    data class Service(val name: String, val process: String, val enabled: Boolean,
+        val exported: Boolean, val permission: String? = null)
     val hosts = listOf(
         Host("com.xiaomi.bluetooth", R.string.host_xiaomi_bluetooth, "com.android.bluetooth.ble.app.MiuiNearbyService"),
         Host("com.milink.service", R.string.host_interconnectivity, "com.milink.server.MiLinkProcessAliveService"),
@@ -12,6 +14,25 @@ internal object HostRestartPolicy {
         Host("com.miui.securitycenter", R.string.host_security),
     )
     private val auxiliary = setOf("com.milink.runtime", "com.milink.crossdeviceservice", "com.xiaomi.vtcamera")
+
+    /** Only the existing start-service contracts are used; bound headset services need their client. */
+    fun wakeService(host: Host, services: List<Service>): Service? = services.firstOrNull {
+        it.name == host.service && it.enabled && it.exported && it.permission.isNullOrEmpty() &&
+            it.name.matches(Regex("[A-Za-z0-9_.]+")) && acceptsName(host.pkg, it.process)
+    }
+
+    fun recoveryProcess(host: Host, services: List<Service>): String? {
+        if (host.service == null) return null
+        wakeService(host, services)?.let { return it.process }
+        if (host.pkg == "com.milink.service") {
+            services.firstOrNull { it.name == "com.miui.headset.runtime.HeadsetLocalService" &&
+                it.enabled && acceptsName(host.pkg, it.process) }?.let { return it.process }
+        }
+        return host.pkg
+    }
+
+    fun recovered(processes: List<Process>, uid: Int, expectedProcess: String?): Boolean =
+        expectedProcess == null || processes.any { it.uid == uid && it.name == expectedProcess }
 
     fun acceptsName(pkg: String, name: String): Boolean = hosts.any { it.pkg == pkg } &&
         name.matches(Regex("[A-Za-z0-9_.:]+")) &&

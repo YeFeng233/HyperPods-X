@@ -48,3 +48,43 @@ HyperPods-X 支持将 AirPods 接入 HyperOS 控制中心内置的“融合设�
 ### 模块热重载与安全防护
 - 模块支持现代 libxposed API 102 热重载。覆盖安装时框架会自动通知宿主卸载旧 Hook 并安装新逻辑；
 - 当正在执行头部追踪、对话降音或写配置时，模块会安全延迟重载，保障现有会话不受干扰。
+
+## 5. 宿主版本兼容
+
+2026-11-02 的 APK 静态分析样本对应以下适配分支：
+
+| 宿主 | 版本 | 适配入口 |
+| --- | --- | --- |
+| `com.xiaomi.bluetooth` | `16`，versionCode `36` | `n1.a.j(Context, BluetoothDevice, String)`、`y0.j.r(String, Context)`、`y0.j.h(String, Context)` |
+| `com.milink.service` | `17.2.4.1.2606161948`，versionCode `170020401` | `HeadsetControlAncItemView`、`com.miui.circulateplus.world.headset.j` |
+
+### 蓝牙状态桥接与通道保护
+
+新增蓝牙混淆名须同时匹配 versionName、versionCode 和完整方法签名。原始类名与旧版映射继续保留，诊断日志记录实际挂接的方法及宿主版本。
+
+通道保护仅对已绑定设备、应用会话存活期间的 `ConnectL2cap` 查询返回不支持。其他设备和功能查询执行宿主原始逻辑。状态桥维持十项数组格式，并通过 `airpodsstate` 与 `airpodsRepository` 的 ContentObserver 通知刷新电量、佩戴状态和聆听模式。
+
+### 三项 ANC 布局
+
+固定控件布局使用独立分支，校验 `anc_clear`、`anc_noise_cancel`、`anc_off` 的类型和顺序，再创建第四个原生自适应控件。`j.w(View, int, String)` 的点击值与 AACP 映射为：
+
+| 控制项 | 设备中心模式值 | AACP 值 |
+| --- | --- | --- |
+| 通透 | `1` | `3` |
+| 降噪 | `0` | `2` |
+| 关闭 | `2` | `1` |
+| 自适应 | 无对应值，使用模块新增控件 | `4` |
+
+`j.F()` 的能力显示与 `j.z(int)` 的状态更新由绑定设备的 Hub 快照驱动。发送期间保持已确认模式的高亮；断连、回读或已有命令待确认时禁用操作。退出接管与热重载时恢复原生顺序、可用状态和能力查询。布局校验失败会在兼容性诊断中记录具体原因。
+
+### 重启后恢复
+
+唤起前检查 PackageManager 返回的服务声明、启用状态、导出状态和权限，按服务实际进程判断恢复结果。旧版 `MiLinkProcessAliveService` 仅在声明存在且满足启动条件时使用。
+
+新版 `HeadsetLocalService` 属于 `:core` 进程，使用受 `miui.permission.ACCESS_HEADSET_LOCAL` 保护的绑定契约。该版本由系统客户端重新绑定后恢复；界面提示等待恢复时，重新打开控制中心的设备中心卡片。
+
+### 已知限制
+
+- 新版蓝牙映射限定于上述版本；其他构建需补充宿主证据和匹配规则。
+- 固定 ANC 布局的耳机大图保留宿主实现，当前分支未定义大图替换入口。
+- 原机仍需回归四档切换及回读、电量与佩戴状态刷新、解绑后原生行为、热重载和重复重连。AACP 通道保护对断连频率的实际影响需结合运行日志确认。

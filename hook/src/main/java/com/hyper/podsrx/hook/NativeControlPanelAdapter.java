@@ -16,7 +16,9 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.hyper.podsrx.protocol.NativeHeadsetPolicy;
 import io.github.libxposed.api.XposedModule;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -56,11 +58,13 @@ final class NativeControlPanelAdapter {
     private final Field currentNativeMode;
     private final Class<?> cardType;
     private final Class<?> itemType;
+    private final RomAncMethods.FixedItems fixedItems;
     private final Map<ViewGroup, Panel> panels = Collections.synchronizedMap(new WeakHashMap<>());
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable synchronize = this::synchronizePanels;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
     private String lastTargetDiagnostic;
+    private String lastLayoutFailure;
     private volatile boolean closed;
     private final AtomicInteger pendingCommands = new AtomicInteger();
     private final ExecutorService commands = Executors.newSingleThreadExecutor(task -> {
@@ -73,14 +77,32 @@ final class NativeControlPanelAdapter {
         final WeakReference<View> detail;
         final WeakReference<View> adaptive;
         final List<WeakReference<View>> nativeOrder = new ArrayList<>();
+        final boolean[] originalEnabled;
+        final int[] originalVisibility;
         String address;
         long lastRequest;
         int lastMode;
+        int lastHostMode = -1;
         Panel(View detail, View adaptive, String address, ViewGroup card) {
             this.detail = new WeakReference<>(detail);
             this.adaptive = new WeakReference<>(adaptive);
             this.address = address;
             for (int i = 0; i < card.getChildCount(); i++) nativeOrder.add(new WeakReference<>(card.getChildAt(i)));
+            originalEnabled = new boolean[card.getChildCount()];
+            originalVisibility = new int[card.getChildCount()];
+            for (int i = 0; i < card.getChildCount(); i++) {
+                originalEnabled[i] = card.getChildAt(i).isEnabled();
+                originalVisibility[i] = card.getChildAt(i).getVisibility();
+            }
+        }
+
+        void restoreItems() {
+            for (int i = 0; i < nativeOrder.size(); i++) {
+                View item = nativeOrder.get(i).get();
+                if (item == null) continue;
+                item.setEnabled(originalEnabled[i]);
+                item.setVisibility(originalVisibility[i]);
+            }
         }
 
         void arrange(ViewGroup card, boolean boundDevice) {
@@ -106,28 +128,43 @@ final class NativeControlPanelAdapter {
     private NativeControlPanelAdapter(ClassLoader loader, SharedPreferences preferences) throws Exception {
         this.preferences = preferences;
         detailType = Class.forName("com.miui.circulateplus.world.headset.HeadSetsDetail", false, loader);
-        cardType = Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectCardView", false, loader);
-        nativeItems = onlyField(cardType, List.class, false);
-        itemType = Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectItemView", false, loader);
+        Class<?> selector = null;
+        try { selector = Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectCardView", false, loader); }
+        catch (ClassNotFoundException absent) { /* Resolve the independent fixed-item layout below. */ }
+        fixedItems = selector == null ? RomAncMethods.fixedItems(name -> Class.forName(name, false, loader)) : null;
+        cardType = fixedItems == null ? selector : LinearLayout.class;
+        nativeItems = fixedItems == null ? onlyField(cardType, List.class, false) : null;
+        itemType = fixedItems == null
+            ? Class.forName("com.miui.circulate.world.headset.ui.HeadsetSelectItemView", false, loader) : fixedItems.item();
         deviceInfo = detailType.getMethod("getHeadsetDeviceInfo");
         address = deviceInfo.getReturnType().getField("mac");
         modeVisible = detailType.getMethod("setModeVisible", boolean.class);
-        updateHeight = detailType.getMethod("W");
-        addItem = cardType.getMethod("a", int.class, int.class);
-        selectItem = cardType.getMethod("b", int.class);
-        Class<?> sectionType = Class.forName("com.miui.circulateplus.world.headset.r", false, loader);
+        updateHeight = fixedItems == null ? detailType.getMethod("W") : fixedItems.height();
+        addItem = fixedItems == null ? cardType.getMethod("a", int.class, int.class) : null;
+        selectItem = fixedItems == null ? cardType.getMethod("b", int.class) : null;
+        Class<?> sectionType = fixedItems == null
+            ? Class.forName("com.miui.circulateplus.world.headset.r", false, loader) : fixedItems.section();
         ancSection = onlyField(detailType, sectionType, false);
         sectionOwner = onlyField(sectionType, detailType, false);
         currentNativeMode = onlyField(sectionType, int.class, true);
-        updateMode = sectionType.getDeclaredMethod("M", int.class);
+        updateMode = fixedItems == null ? sectionType.getDeclaredMethod("M", int.class) : fixedItems.update();
         updateMode.setAccessible(true);
-        artwork = detailType.getDeclaredMethod("C", deviceInfo.getReturnType());
-        artwork.setAccessible(true);
+        Method picture = null;
+        if (fixedItems == null) {
+            try {
+                picture = detailType.getDeclaredMethod("C", deviceInfo.getReturnType());
+                picture.setAccessible(true);
+            } catch (ReflectiveOperationException error) {
+                Compatibility.failed("Native headset card artwork", error);
+                DiagnosticLog.w("HyperPods-X", "Native headset card artwork unavailable", error);
+            }
+        }
+        artwork = picture;
         // a0() sets the card image from a single generic AirPods drawable on every state update.
         // Without it the card keeps that drawable; the controls do not depend on it.
         Method state = null;
         Field icon = null;
-        try {
+        if (fixedItems == null) try {
             state = detailType.getDeclaredMethod("a0");
             icon = onlyField(detailType, ImageView.class, false);
         } catch (ReflectiveOperationException error) {
@@ -140,7 +177,8 @@ final class NativeControlPanelAdapter {
     private static Field onlyField(Class<?> owner, Class<?> type, boolean mutable) throws ReflectiveOperationException {
         List<Field> fields = new ArrayList<>();
         for (Field field : owner.getDeclaredFields())
-            if (field.getType() == type && (!mutable || !Modifier.isFinal(field.getModifiers()))) fields.add(field);
+            if (field.getType() == type && !Modifier.isStatic(field.getModifiers()) &&
+                (!mutable || !Modifier.isFinal(field.getModifiers()))) fields.add(field);
         if (fields.size() != 1) throw new NoSuchFieldException(owner.getName() + ": ambiguous " + type.getName());
         Field result = fields.get(0);
         result.setAccessible(true);
@@ -151,7 +189,7 @@ final class NativeControlPanelAdapter {
         NativeControlPanelAdapter adapter = new NativeControlPanelAdapter(loader, preferences);
         ReloadLifecycle.add(adapter::close);
         ReloadLifecycle.rejectWhile(() -> adapter.pendingCommands.get() != 0);
-        module.hook(adapter.artwork).intercept(chain -> {
+        if (adapter.artwork != null) module.hook(adapter.artwork).intercept(chain -> {
             if (!adapter.active()) return chain.proceed();
             try {
                 Object info = chain.getArg(0);
@@ -180,7 +218,7 @@ final class NativeControlPanelAdapter {
             }
             return result;
         });
-        module.hook(adapter.selectItem).intercept(chain -> {
+        if (adapter.selectItem != null) module.hook(adapter.selectItem).intercept(chain -> {
             if (!adapter.active()) return chain.proceed();
             Panel panel = adapter.panels.get(chain.getThisObject());
             if (panel != null) {
@@ -203,11 +241,14 @@ final class NativeControlPanelAdapter {
             if (!adapter.active()) return chain.proceed();
             try {
                 View detail = (View) adapter.sectionOwner.get(chain.getThisObject());
-                if (adapter.confirmedMode(detail) != 0) {
+                Panel panel = adapter.panel(detail);
+                if (panel != null) panel.lastHostMode = (int) chain.getArg(0);
+                if (adapter.confirmedMode(detail) != 0 && adapter.refresh(detail)) {
                     // Both provider updates and optimistic click callbacks enter here.
                     // Native unknown-mode handling hides and rebuilds the section for
                     // adaptive; update its state in place instead.
-                    adapter.refresh(detail);
+                    panel = adapter.panel(detail);
+                    if (panel != null) panel.lastHostMode = (int) chain.getArg(0);
                     return null;
                 }
             }
@@ -216,12 +257,57 @@ final class NativeControlPanelAdapter {
             }
             return chain.proceed();
         });
+        if (adapter.fixedItems != null) adapter.installFixedItems(module);
         adapter.listen();
         installedAdapter = adapter;
         // Package lifecycle callbacks are not replayed by libxposed after reload.
         // Reattach to an already visible headset detail after the old item is removed.
         adapter.main.post(adapter::refreshOpenWindows);
-        DiagnosticLog.i("HyperPods-X", "Native adaptive headset panel adapter ready");
+        DiagnosticLog.i("HyperPods-X", "Native adaptive headset panel adapter ready: "
+            + (adapter.fixedItems == null ? "select-card" : "fixed-items")
+            + " update=" + adapter.updateMode.toGenericString());
+    }
+
+    private void installFixedItems(XposedModule module) {
+        module.hook(fixedItems.capabilities()).intercept(chain -> {
+            if (!active()) return chain.proceed();
+            try {
+                View detail = (View) sectionOwner.get(chain.getThisObject());
+                if (confirmedMode(detail) != 0 && refresh(detail)) {
+                    return null;
+                }
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                DiagnosticLog.w("HyperPods-X", "Native ANC capabilities unavailable", error);
+            }
+            return chain.proceed();
+        });
+        module.hook(fixedItems.click()).intercept(chain -> {
+            if (!active()) return chain.proceed();
+            try {
+                View detail = (View) sectionOwner.get(chain.getThisObject());
+                Object info = deviceInfo.invoke(detail);
+                String target = info == null ? null : (String) address.get(info);
+                if (freshTarget(target) && refresh(detail)) {
+                    Panel panel = panel(detail);
+                    int mode = NativeHeadsetPolicy.toAacpMode((int) chain.getArg(1));
+                    if (panel != null && mode != 0) requestMode(panel, (View) chain.getArg(0), mode);
+                    return null;
+                }
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                DiagnosticLog.w("HyperPods-X", "Native ANC click unavailable", error);
+            }
+            return chain.proceed();
+        });
+    }
+
+    private Panel panel(View detail) {
+        View card = resourceView(detail, fixedItems == null ? "anc_select_card" : "anc_card");
+        return card instanceof ViewGroup group ? panels.get(group) : null;
+    }
+
+    private static View resourceView(View root, String name) {
+        int id = root.getResources().getIdentifier(name, "id", root.getContext().getPackageName());
+        return id == 0 ? null : root.findViewById(id);
     }
 
     private void listen() {
@@ -259,6 +345,7 @@ final class NativeControlPanelAdapter {
                 DiagnosticLog.w("HyperPods-X", "Native headset acknowledgment refresh unavailable", error);
             }
         }
+        if (details.isEmpty()) refreshOpenWindows();
     }
 
     private boolean fresh(String target) {
@@ -326,57 +413,108 @@ final class NativeControlPanelAdapter {
         return mode >= 1 && mode <= 4 ? mode : 0;
     }
 
-    private void refresh(View detail) throws ReflectiveOperationException {
-        if (!active()) return;
+    private boolean layoutUnavailable(String detail) {
+        if (!detail.equals(lastLayoutFailure)) {
+            lastLayoutFailure = detail;
+            Compatibility.failed("Native ANC view layout", new IllegalStateException(detail));
+            DiagnosticLog.w("HyperPods-X", "Native ANC view layout unavailable: " + detail);
+        }
+        return false;
+    }
+
+    private boolean refresh(View detail) throws ReflectiveOperationException {
+        if (!active()) return false;
         Context context = detail.getContext();
         String pkg = context.getPackageName();
-        int cardId = detail.getResources().getIdentifier("anc_select_card", "id", pkg);
-        int titleId = detail.getResources().getIdentifier("anc_card_text", "id", pkg);
-        if (cardId == 0 || titleId == 0) return;
+        int cardId = detail.getResources().getIdentifier(fixedItems == null ? "anc_select_card" : "anc_card", "id", pkg);
+        int titleId = detail.getResources().getIdentifier(fixedItems == null ? "anc_card_text" : "anc_card_title", "id", pkg);
+        if (cardId == 0 || titleId == 0) return layoutUnavailable("ANC card/title resource missing");
         View view = detail.findViewById(cardId);
         View title = detail.findViewById(titleId);
-        if (!(view instanceof ViewGroup card) || !cardType.isInstance(card) || title == null) return;
+        if (!(view instanceof ViewGroup card) || !cardType.isInstance(card) || title == null)
+            return layoutUnavailable("ANC card/title view hierarchy mismatch");
         int mode = confirmedMode(detail);
         Panel panel = panels.get(card);
         if (mode == 0) {
-            if (panel != null) panel.arrange(card, false);
-            if (panel != null) panel.lastMode = 0;
-            if (panel != null && panel.adaptive.get() != null) panel.adaptive.get().setVisibility(View.GONE);
-            return;
+            if (panel != null) {
+                boolean wasActive = panel.lastMode != 0;
+                panel.arrange(card, false);
+                if (wasActive) panel.restoreItems();
+                panel.lastMode = 0;
+                if (panel.adaptive.get() != null) panel.adaptive.get().setVisibility(View.GONE);
+                if (wasActive && fixedItems != null) {
+                    Object section = ancSection.get(detail);
+                    if (section != null) {
+                        updateMode.invoke(section, panel.lastHostMode);
+                        fixedItems.capabilities().invoke(section);
+                    }
+                }
+            }
+            return false;
         }
         boolean layoutChanged = panel == null || card.getVisibility() != View.VISIBLE || title.getVisibility() != View.VISIBLE;
         String target = preferences.getString("address", "");
         if (panel == null) {
-            if (card.getChildCount() != 3) return;
-            for (int i = 0; i < 3; i++) if (!itemType.isInstance(card.getChildAt(i))) return;
-            int iconId = detail.getResources().getIdentifier("headset_noise_cancel_selector", "drawable", pkg);
+            if (card.getChildCount() != 3) return layoutUnavailable("Expected three native ANC items");
+            for (int i = 0; i < 3; i++) if (!itemType.isInstance(card.getChildAt(i)))
+                return layoutUnavailable("Native ANC item type mismatch");
+            if (fixedItems != null && (card.getChildAt(0) != resourceView(detail, "anc_clear") ||
+                card.getChildAt(1) != resourceView(detail, "anc_noise_cancel") ||
+                card.getChildAt(2) != resourceView(detail, "anc_off")))
+                return layoutUnavailable("Native ANC item IDs/order mismatch");
+            int iconId = detail.getResources().getIdentifier(
+                fixedItems == null ? "headset_noise_cancel_selector" : "anc_selector", "drawable", pkg);
             int textId = detail.getResources().getIdentifier("circulate_headset_control_anc_noise_cancel", "string", pkg);
             int toolsTextId = detail.getResources().getIdentifier("tools_text", "id", pkg);
-            if (iconId == 0 || textId == 0 || toolsTextId == 0) return;
-            // Add through the native API so its internal item list and index3 agree.
-            // Keep the native backing-list indexes; only the visual child order changes.
-            View adaptive = (View) addItem.invoke(card, iconId, textId);
-            View labelView = adaptive.findViewById(toolsTextId);
+            if (iconId == 0 || (fixedItems == null && (textId == 0 || toolsTextId == 0)))
+                return layoutUnavailable("ANC icon/label resource missing");
+            // The select-card owns an indexed list; the fixed layout owns three views.
+            View adaptive;
+            View labelView;
+            if (fixedItems == null) {
+                adaptive = (View) addItem.invoke(card, iconId, textId);
+                labelView = adaptive.findViewById(toolsTextId);
+            } else {
+                adaptive = (View) fixedItems.createItem().newInstance(context);
+                adaptive.setId(View.generateViewId());
+                ((ImageView) fixedItems.icon().invoke(adaptive)).setImageResource(iconId);
+                labelView = (View) fixedItems.title().invoke(adaptive);
+                card.addView(adaptive, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            }
             if (!(labelView instanceof TextView label)) {
-                ((List<?>) nativeItems.get(card)).remove(adaptive);
+                if (nativeItems != null) ((List<?>) nativeItems.get(card)).remove(adaptive);
                 card.removeView(adaptive);
-                return;
+                return layoutUnavailable("ANC label is not a TextView");
             }
             label.setText(HookStrings.get(context, R.string.hook_adaptive));
             label.setContentDescription(HookStrings.get(context, R.string.hook_adaptive));
+            adaptive.setContentDescription(HookStrings.get(context, R.string.hook_adaptive));
             panel = new Panel(detail, adaptive, target, card);
+            Object section = ancSection.get(detail);
+            if (section != null) panel.lastHostMode = currentNativeMode.getInt(section);
             panels.put(card, panel);
             Panel endpoint = panel;
-            adaptive.setOnClickListener(clicked -> requestAdaptive(endpoint, clicked));
+            adaptive.setOnClickListener(clicked -> requestMode(endpoint, clicked, 4));
         }
         View adaptive = panel.adaptive.get();
-        if (adaptive == null || card.getChildCount() != 4 || adaptive.getParent() != card) return;
+        if (adaptive == null || card.getChildCount() != 4 || adaptive.getParent() != card)
+            return layoutUnavailable("Adaptive item detached or ANC hierarchy changed");
         panel.address = target;
         adaptive.setVisibility(View.VISIBLE);
         panel.arrange(card, true);
         Object section = ancSection.get(detail);
-        if (section != null) currentNativeMode.setInt(section, switch (mode) { case 1 -> 2; case 2 -> 0; case 3 -> 1; default -> -1; });
-        if (panel.lastMode != mode) {
+        if (section != null) currentNativeMode.setInt(section, NativeHeadsetPolicy.toNativeMode(mode));
+        if (fixedItems != null) {
+            for (int i = 0; i < panel.nativeOrder.size(); i++) {
+                View item = panel.nativeOrder.get(i).get();
+                if (item != null) {
+                    item.setVisibility(View.VISIBLE);
+                    boolean selected = i == index(mode);
+                    if (item.isSelected() != selected) item.setSelected(selected);
+                }
+            }
+            panel.lastMode = mode;
+        } else if (panel.lastMode != mode) {
             selectItem.invoke(card, index(mode));
             panel.lastMode = mode;
         }
@@ -398,15 +536,20 @@ final class NativeControlPanelAdapter {
                 }
             });
         }
+        lastLayoutFailure = null;
+        Compatibility.installed("Native ANC view layout");
+        return true;
     }
 
-    private void requestAdaptive(Panel panel, View clicked) {
+    private void requestMode(Panel panel, View clicked, int mode) {
         if (!active()) return;
         try {
             View detail = panel.detail.get();
             long now = SystemClock.elapsedRealtime();
             if (detail == null || confirmedMode(detail) == 0 || !fresh(panel.address) ||
-                preferences.getInt("panel_anc", 0) == 4 || preferences.getBoolean("panel_anc_pending", false) ||
+                mode < 1 || mode > 4 || preferences.getInt("panel_anc", 0) == mode ||
+                !preferences.getBoolean("native_connected", false) || preferences.getLong("panel_readback_until", 0) != 0 ||
+                preferences.getBoolean("panel_anc_pending", false) ||
                 now - panel.lastRequest < 300) return;
             panel.lastRequest = now;
             clicked.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
@@ -415,18 +558,19 @@ final class NativeControlPanelAdapter {
             pendingCommands.incrementAndGet();
             try { commands.execute(() -> {
                 try {
-                    if (!fresh(target) || preferences.getBoolean("panel_anc_pending", false)) return;
+                    if (!fresh(target) || !preferences.getBoolean("native_connected", false) ||
+                        preferences.getLong("panel_readback_until", 0) != 0 || preferences.getBoolean("panel_anc_pending", false)) return;
                     BluetoothManager manager = context.getSystemService(BluetoothManager.class);
                     if (manager == null || manager.getAdapter() == null) return;
                     Bundle request = new Bundle();
                     request.putString("extra_key", "air_anc");
-                    request.putString("extra_value", "04");
+                    request.putString("extra_value", "0" + mode);
                     request.putParcelable(BluetoothDevice.EXTRA_DEVICE, manager.getAdapter().getRemoteDevice(target));
                     Bundle result = context.getContentResolver().call(REPOSITORY, "airpodsRepository", "send_command", request);
                     if (result == null || result.getInt("extra_command_state", 0) != 1)
-                        DiagnosticLog.w("HyperPods-X", "Native adaptive request was not accepted");
+                        DiagnosticLog.w("HyperPods-X", "Native ANC request was not accepted: " + mode);
                 } catch (RuntimeException error) {
-                    DiagnosticLog.w("HyperPods-X", "Native adaptive request unavailable", error);
+                    DiagnosticLog.w("HyperPods-X", "Native ANC request unavailable", error);
                 } finally {
                     pendingCommands.decrementAndGet();
                 }
@@ -473,7 +617,7 @@ final class NativeControlPanelAdapter {
                     DiagnosticLog.w("HyperPods-X", "Native headset card artwork unavailable", error);
                 }
             }
-            if (bound && !applied) {
+            if (bound && !applied && artwork != null) {
                 int id = view.getResources().getIdentifier("device_item", "id", view.getContext().getPackageName());
                 View icon = id == 0 ? null : view.findViewById(id);
                 int drawable = (int) artwork.invoke(view, info);
@@ -522,12 +666,21 @@ final class NativeControlPanelAdapter {
                 if (adaptive == null) continue;
                 adaptive.setOnClickListener(null);
                 panel.arrange(card, false);
+                panel.restoreItems();
                 try {
                     // Removing only the child leaves index 3 in the host's private list,
                     // causing duplicate items and stale selection on the next generation.
-                    ((List<?>) nativeItems.get(card)).remove(adaptive);
+                    if (nativeItems != null) ((List<?>) nativeItems.get(card)).remove(adaptive);
                     if (adaptive.getParent() == card) card.removeView(adaptive);
-                } catch (IllegalAccessException error) {
+                    if (fixedItems != null) {
+                        View detail = panel.detail.get();
+                        Object section = detail == null ? null : ancSection.get(detail);
+                        if (section != null) {
+                            updateMode.invoke(section, panel.lastHostMode);
+                            fixedItems.capabilities().invoke(section);
+                        }
+                    }
+                } catch (ReflectiveOperationException error) {
                     throw new IllegalStateException("Could not remove old adaptive item", error);
                 }
             }

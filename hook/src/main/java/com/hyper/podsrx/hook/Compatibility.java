@@ -9,7 +9,7 @@ import android.os.Looper;
 
 /**
  * What each scoped process could hook, reported to the hub so the app shows it per process instead
- * of a lone log line. A component maps to "" when installed, or to the failure's class name.
+ * of a lone log line. A component maps to "" when installed, or to a bounded, redacted failure.
  */
 final class Compatibility {
     /** Results arriving together are sent once. */
@@ -27,7 +27,9 @@ final class Compatibility {
     static synchronized void installed(String component) { record(component, ""); }
 
     static synchronized void failed(String component, Throwable error) {
-        record(component, error.getClass().getSimpleName());
+        String detail = error.getMessage();
+        record(component, error.getClass().getSimpleName()
+            + (detail == null || detail.isEmpty() ? "" : ": " + LogRedactor.limitUtf8(LogRedactor.redact(detail), 240)));
     }
 
     /** A new hub generation has forgotten every report; this process sends its own again. */

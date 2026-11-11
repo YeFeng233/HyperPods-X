@@ -13,6 +13,7 @@ import android.os.SystemClock;
 import io.github.libxposed.api.XposedModule;
 import java.util.Locale;
 import java.lang.reflect.Method;
+import com.hyper.podsrx.protocol.NativeHeadsetPolicy;
 
 /** Projects the app-owned session into HyperOS's existing headset interfaces. */
 final class NativeControlHost {
@@ -37,7 +38,8 @@ final class NativeControlHost {
         NativeControlHost host = new NativeControlHost(context, preferences);
         ReloadLifecycle.add(host::close);
         ClassLoader loader = context.getClassLoader();
-        RomHeadsetMethods.OfflineState state = RomHeadsetMethods.offlineState(name -> Class.forName(name, false, loader));
+        RomHeadsetMethods.HostVersion version = RomHeadsetMethods.HostVersion.read(context);
+        RomHeadsetMethods.OfflineState state = RomHeadsetMethods.offlineState(name -> Class.forName(name, false, loader), version);
         Class<?> provider = Class.forName("com.android.bluetooth.ble.app.headset.miuibluetoothprovider.MiuiBluetoothContentProvider", false, loader);
         Method identity = state.identity();
         Method stateRead = state.read();
@@ -74,7 +76,8 @@ final class NativeControlHost {
             return answer != null ? answer : chain.proceed();
         });
         host.register();
-        DiagnosticLog.i("HyperPods-X", "Native fusion headset control bridge ready: " + stateRead.getDeclaringClass().getName());
+        DiagnosticLog.i("HyperPods-X", "Native fusion headset control bridge ready: " + version
+            + " identity=" + identity.toGenericString() + " state=" + stateRead.toGenericString());
     }
 
     private void close() {
@@ -111,18 +114,10 @@ final class NativeControlHost {
     }
 
     private String[] state() {
-        int charging = preferences.getInt("native_charging", 0);
-        return new String[] {
-            Boolean.toString(preferences.getInt("panel_left_wearing", -1) == 1), battery("left"),
-            Boolean.toString(preferences.getInt("panel_right_wearing", -1) == 1), battery("right"), battery("box"),
-            Boolean.toString((charging & 1) != 0), Boolean.toString((charging & 2) != 0),
-            Boolean.toString((charging & 4) != 0), TEMPLATE, "true"
-        };
-    }
-
-    private String battery(String component) {
-        int value = preferences.getInt("native_" + component, -1);
-        return value >= 0 && value <= 100 ? Integer.toString(value) : "-";
+        return NativeHeadsetPolicy.offlineState(
+            preferences.getInt("panel_left_wearing", -1), preferences.getInt("native_left", -1),
+            preferences.getInt("panel_right_wearing", -1), preferences.getInt("native_right", -1),
+            preferences.getInt("native_box", -1), preferences.getInt("native_charging", 0), TEMPLATE, true);
     }
 
     private Bundle repository(String action, Bundle request) {

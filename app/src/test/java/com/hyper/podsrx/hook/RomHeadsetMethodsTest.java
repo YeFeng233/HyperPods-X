@@ -35,6 +35,34 @@ public class RomHeadsetMethodsTest {
         assertEquals("j", RomHeadsetMethods.featureSupport(lookup).getName());
     }
 
+    @Test public void bluetooth16ResolvesVerifiedOwnersDespiteReusedOldClassName() throws Exception {
+        var lookup = classes(Map.of("y0.j", Obfuscated.class, "n1.a", Obfuscated.class, "l1.a", HandlerLayout.class));
+        var version = new RomHeadsetMethods.HostVersion("16", 36);
+        var state = RomHeadsetMethods.offlineState(lookup, version);
+        assertEquals("r", state.identity().getName());
+        assertEquals("h", state.read().getName());
+        assertEquals("j", RomHeadsetMethods.featureSupport(lookup, version).getName());
+    }
+
+    @Test public void bluetooth16ObfuscatedNamesRequireTheVerifiedVersion() {
+        var lookup = classes(Map.of("y0.j", Obfuscated.class, "n1.a", Obfuscated.class));
+        for (var version : new RomHeadsetMethods.HostVersion[] {
+            null, new RomHeadsetMethods.HostVersion("15", 36), new RomHeadsetMethods.HostVersion("16", 37)
+        }) {
+            assertThrows(NoSuchMethodException.class, () -> RomHeadsetMethods.offlineState(lookup, version));
+            assertThrows(NoSuchMethodException.class, () -> RomHeadsetMethods.featureSupport(lookup, version));
+        }
+    }
+
+    @Test public void bluetooth16StillValidatesEveryMethodSignature() {
+        var version = new RomHeadsetMethods.HostVersion("16", 36);
+        for (Class<?> wrong : new Class<?>[] { WrongReturn.class, Instance.class, WrongArguments.class, Private.class, HandlerLayout.class }) {
+            var lookup = classes(Map.of("y0.j", wrong, "n1.a", wrong));
+            assertThrows(NoSuchMethodException.class, () -> RomHeadsetMethods.offlineState(lookup, version));
+            assertThrows(NoSuchMethodException.class, () -> RomHeadsetMethods.featureSupport(lookup, version));
+        }
+    }
+
     @Test public void incompleteNamedLayoutFallsBackAsAUnit() throws Exception {
         var lookup = classes(Map.of(OFFLINE, Incomplete.class, "w0.j", Obfuscated.class));
         var state = RomHeadsetMethods.offlineState(lookup);
@@ -63,6 +91,9 @@ public class RomHeadsetMethodsTest {
     }
     public static class Incomplete {
         public static boolean isAppleHeadset(String address, Context context) { return false; }
+    }
+    public static class HandlerLayout {
+        public void handleMessage(android.os.Message message) {}
     }
     public static class Obfuscated {
         public static boolean r(String address, Context context) { return false; }

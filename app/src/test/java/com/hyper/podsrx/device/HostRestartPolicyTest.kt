@@ -84,5 +84,37 @@ class HostRestartPolicyTest {
         assertFalse(HostRestartPolicy.acceptsName(center, "$center:ui"))
     }
 
+    @Test fun missingLegacyServiceDefersToTheNewHeadsetClientAndTracksCore() {
+        val host = HostRestartPolicy.hosts.first { it.pkg == milink }
+        val services = listOf(HostRestartPolicy.Service("com.miui.headset.runtime.HeadsetLocalService",
+            "$milink:core", true, true, "miui.permission.ACCESS_HEADSET_LOCAL"))
+        assertNull(HostRestartPolicy.wakeService(host, services))
+        assertEquals("$milink:core", HostRestartPolicy.recoveryProcess(host, services))
+        assertTrue(HostRestartPolicy.recovered(listOf(process(10183, "$milink:core")), 10183, "$milink:core"))
+        assertFalse(HostRestartPolicy.recovered(listOf(process(10183, milink)), 10183, "$milink:core"))
+        assertFalse(HostRestartPolicy.recovered(listOf(process(1_010_183, "$milink:core")), 10183, "$milink:core"))
+    }
+
+    @Test fun wakeRequiresTheDeclaredEnabledExportedUnprotectedService() {
+        val host = HostRestartPolicy.hosts.first { it.pkg == bluetooth }
+        val service = HostRestartPolicy.Service(checkNotNull(host.service), bluetooth, true, true)
+        assertEquals(service, HostRestartPolicy.wakeService(host, listOf(service)))
+        assertNull(HostRestartPolicy.wakeService(host, emptyList()))
+        for (invalid in listOf(service.copy(enabled = false), service.copy(exported = false),
+            service.copy(permission = "signature.permission"), service.copy(process = "com.android.bluetooth"),
+            service.copy(name = "some.other.Service"))) {
+            assertNull(HostRestartPolicy.wakeService(host, listOf(invalid)))
+        }
+    }
+
+    @Test fun legacyWakeTracksTheServicesDeclaredProcessInsteadOfThePackageName() {
+        val host = HostRestartPolicy.hosts.first { it.pkg == milink }
+        val service = HostRestartPolicy.Service(checkNotNull(host.service), "$milink:core", true, true)
+        assertEquals(service, HostRestartPolicy.wakeService(host, listOf(service)))
+        assertEquals("$milink:core", HostRestartPolicy.recoveryProcess(host, listOf(service)))
+        val settingsHost = HostRestartPolicy.hosts.first { it.pkg == settings }
+        assertNull(HostRestartPolicy.recoveryProcess(settingsHost, emptyList()))
+    }
+
     private fun process(uid: Int, name: String) = HostRestartPolicy.Process(4321, uid, name)
 }

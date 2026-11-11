@@ -2,6 +2,7 @@ package com.hyper.podsrx.hook;
 
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
@@ -12,21 +13,35 @@ final class RomHeadsetMethods {
     }
 
     record OfflineState(Method identity, Method read) {}
-    private record OfflineLayout(String owner, String identity, String read) {}
-    private record FeatureLayout(String owner, String support) {}
+    record HostVersion(String name, long code) {
+        static HostVersion read(Context context) throws PackageManager.NameNotFoundException {
+            var info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            return new HostVersion(info.versionName, info.getLongVersionCode());
+        }
+    }
+    private static final HostVersion BLUETOOTH_16 = new HostVersion("16", 36);
+    private record OfflineLayout(String owner, String identity, String read, HostVersion version) {}
+    private record FeatureLayout(String owner, String support, HostVersion version) {}
 
     private static final OfflineLayout[] OFFLINE = {
-        new OfflineLayout("com.android.bluetooth.ble.app.offlinefind.OfflineFindProvider", "isAppleHeadset", "getAirPodsState"),
-        new OfflineLayout("w0.j", "r", "h")
+        new OfflineLayout("com.android.bluetooth.ble.app.offlinefind.OfflineFindProvider", "isAppleHeadset", "getAirPodsState", null),
+        new OfflineLayout("y0.j", "r", "h", BLUETOOTH_16),
+        new OfflineLayout("w0.j", "r", "h", null)
     };
     private static final FeatureLayout[] FEATURES = {
-        new FeatureLayout("com.xiaomi.bluetooth.modules.airlibrary.db.AirLocalStorage", "isFeatureSupport"),
-        new FeatureLayout("l1.a", "j")
+        new FeatureLayout("com.xiaomi.bluetooth.modules.airlibrary.db.AirLocalStorage", "isFeatureSupport", null),
+        new FeatureLayout("n1.a", "j", BLUETOOTH_16),
+        new FeatureLayout("l1.a", "j", null)
     };
 
     static OfflineState offlineState(ClassLookup classes) throws NoSuchMethodException {
-        NoSuchMethodException failure = new NoSuchMethodException("Unsupported ROM headset state layout");
+        return offlineState(classes, null);
+    }
+
+    static OfflineState offlineState(ClassLookup classes, HostVersion version) throws NoSuchMethodException {
+        NoSuchMethodException failure = new NoSuchMethodException("Unsupported ROM headset state layout: " + version);
         for (OfflineLayout layout : OFFLINE) {
+            if (layout.version() != null && !layout.version().equals(version)) continue;
             try {
                 Class<?> owner = classes.load(layout.owner());
                 Method identity = staticMethod(owner, layout.identity(), boolean.class, String.class, Context.class);
@@ -40,8 +55,13 @@ final class RomHeadsetMethods {
     }
 
     static Method featureSupport(ClassLookup classes) throws NoSuchMethodException {
-        NoSuchMethodException failure = new NoSuchMethodException("Unsupported ROM headset feature layout");
+        return featureSupport(classes, null);
+    }
+
+    static Method featureSupport(ClassLookup classes, HostVersion version) throws NoSuchMethodException {
+        NoSuchMethodException failure = new NoSuchMethodException("Unsupported ROM headset feature layout: " + version);
         for (FeatureLayout layout : FEATURES) {
+            if (layout.version() != null && !layout.version().equals(version)) continue;
             try {
                 return staticMethod(classes.load(layout.owner()), layout.support(), boolean.class,
                     Context.class, BluetoothDevice.class, String.class);

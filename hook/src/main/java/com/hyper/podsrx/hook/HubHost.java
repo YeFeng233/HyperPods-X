@@ -120,7 +120,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         };
         context.registerReceiver(host.capabilityReceiver, new IntentFilter(HubWire.CAPABILITIES), null, host.main, Context.RECEIVER_EXPORTED);
         hookProvider(module, context.getClassLoader());
-        try { hookAirCore(module, context.getClassLoader()); Compatibility.installed("ROM AACP channel guard"); }
+        try { hookAirCore(module, context); Compatibility.installed("ROM AACP channel guard"); }
         catch (Exception | LinkageError error) {
             Compatibility.failed("ROM AACP channel guard", error);
             DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error);
@@ -197,14 +197,17 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
      * so that channel starved the app's, at once or in the middle of a session. While the app is
      * alive the bound headset is its alone; without the app the ROM keeps its own controls.
      */
-    private static void hookAirCore(HyperPodsModule module, ClassLoader loader) throws Exception {
-        Method support = RomHeadsetMethods.featureSupport(name -> Class.forName(name, false, loader));
+    private static void hookAirCore(HyperPodsModule module, Context context) throws Exception {
+        ClassLoader loader = context.getClassLoader();
+        RomHeadsetMethods.HostVersion version = RomHeadsetMethods.HostVersion.read(context);
+        Method support = RomHeadsetMethods.featureSupport(name -> Class.forName(name, false, loader), version);
         module.hook(support).intercept(chain -> {
             if (!ReloadLifecycle.isActive() || !"ConnectL2cap".equals(chain.getArg(2))) return chain.proceed();
             try {
                 HubHost hub = instance;
                 BluetoothDevice device = (BluetoothDevice) chain.getArg(1);
-                if (hub != null && device != null && device.getAddress().equalsIgnoreCase(hub.address) && hub.state.appAlive) {
+                if (hub != null && device != null && com.hyper.podsrx.protocol.NativeHeadsetPolicy.guardNativeChannel(
+                    (String) chain.getArg(2), device.getAddress(), hub.address, hub.state.appAlive)) {
                     DiagnosticLog.i(TAG, "Kept the ROM's AACP channel off the app's headset");
                     return false;
                 }
@@ -213,7 +216,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
             return chain.proceed();
         });
-        DiagnosticLog.i(TAG, "ROM AACP channel guard ready: " + support.getDeclaringClass().getName());
+        DiagnosticLog.i(TAG, "ROM AACP channel guard ready: " + version + " " + support.toGenericString());
     }
 
     private boolean mayRead(int uid) {
