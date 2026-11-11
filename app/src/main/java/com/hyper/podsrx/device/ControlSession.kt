@@ -1,10 +1,12 @@
 package com.hyper.podsrx.device
 
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.os.PowerManager
 import android.os.SystemClock
 import com.hyper.podsrx.R
 import com.hyper.podsrx.i18n.stringResolver
@@ -235,12 +237,20 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                     reconnect.receive()
                     continue
                 }
-                // A channel opened before the audio profiles heard no settings for 5-20 s. A link
-                // whose audio never comes, such as one serving another phone, opens it anyway.
+                // A channel opened before the audio profiles heard no settings for 5-20 s. Give the
+                // profiles a short head start, then only open a control-only link while the phone
+                // is in use.
                 val audioWait=linkedAt+AUDIO_WAIT_MS-SystemClock.elapsedRealtime()
                 if(audio==false&&audioWait>0){
                     DeviceRepository.update{it.copy(status=text(R.string.waiting_audio_connection))}
                     withTimeoutOrNull(audioWait){reconnect.receive()}
+                    continue
+                }
+                // A control-only ACL can remain while the earbuds are serving another phone. Do
+                // not page that link from the background; wait until this phone is being used.
+                if(audio==false&&!phoneInUse()){
+                    DeviceRepository.update{it.copy(status=text(R.string.waiting_audio_connection))}
+                    withTimeoutOrNull(PHONE_RECHECK_MS){reconnect.receive()}
                     continue
                 }
                 // Needs BLUETOOTH_SCAN, which the app no longer asks for.
@@ -335,5 +345,12 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
         const val SILENT_HANDSHAKE_MS=5000L
         const val SILENT_RETRIES=3
         const val AUDIO_WAIT_MS=3000L
+        const val PHONE_RECHECK_MS=5000L
+    }
+
+    private fun phoneInUse():Boolean {
+        val power=context.getSystemService(PowerManager::class.java)
+        val keyguard=context.getSystemService(KeyguardManager::class.java)
+        return power?.isInteractive==true && keyguard?.isKeyguardLocked!=true
     }
 }

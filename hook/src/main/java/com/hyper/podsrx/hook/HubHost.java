@@ -19,6 +19,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcel;
 import android.os.Process;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import com.hyper.podsrx.protocol.Battery;
@@ -292,10 +293,16 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         boolean shown = false;
         boolean wanted = preferences.getBoolean("popup_enabled", true);
         boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
-        if (wanted && preferences.getBoolean("native_popup", true) && !locked) {
+        boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
+        boolean phoneInUse = interactive && !locked;
+        if (wanted && preferences.getBoolean("native_popup", true) && phoneInUse) {
             try { shown = PopupDriver.show(context, popupRequest(false, false)); }
             catch (Throwable error) { DiagnosticLog.w(TAG, "Native headset popup unavailable", error); }
-        } else if (preferences.getBoolean("auto_connect", true)) PopupDriver.reconnectProfiles(context, address);
+        } else if (preferences.getBoolean("auto_connect", true) && phoneInUse) {
+            PopupDriver.reconnectProfiles(context, address);
+        } else if (preferences.getBoolean("auto_connect", true)) {
+            DiagnosticLog.i(TAG, "Skipped automatic profile reconnect while the phone is not in use");
+        }
         // Without a native popup the app shows its own card, if it is running.
         callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
         publish();

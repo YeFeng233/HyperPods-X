@@ -1,6 +1,7 @@
 package com.hyper.podsrx.hook;
 
 import android.app.ActivityManager;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -8,6 +9,7 @@ import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.PowerManager;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -118,6 +120,12 @@ final class PopupDriver {
      */
     static void reconnectProfiles(Context context, String address) {
         if (!BluetoothAdapter.checkBluetoothAddress(address)) return;
+        PowerManager power = context.getSystemService(PowerManager.class);
+        KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+        if (power == null || !power.isInteractive() || (keyguard != null && keyguard.isKeyguardLocked())) {
+            DiagnosticLog.i("HyperPods-X", "Skipped profile reconnect while the phone is not in use");
+            return;
+        }
         BluetoothDevice device = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
         try {
             Class<?> serviceType = Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService", false, context.getClassLoader());

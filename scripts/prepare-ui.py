@@ -6,7 +6,7 @@ import subprocess
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-GLASMIO_COMMIT = "bbba63b2f2584c4819bd88043332e241820d1ca0"
+GLASMIO_COMMIT = "032a88914a582bdcd270b13af7f8566ac9070b01"
 FONT_TAG = "v27.0.1789118100"
 FONTS = {
     "SF-Pro.ttf": "7270e1593be7b88597d8ab302e4d156a33084c85b8161e042ff6510cdaf10e10",
