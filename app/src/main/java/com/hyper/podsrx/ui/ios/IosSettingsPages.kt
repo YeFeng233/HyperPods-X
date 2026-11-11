@@ -361,8 +361,18 @@ private fun LazyListScope.ModuleSettings(state: PodsState, onOverlay: () -> Unit
                                     label = { it.label },
                                 )
                             })
-                            else if (key == "language") RowItem(strings(R.string.app_language),
-                                value = strings(currentAppLanguage().labelRes)) { navigate("language") }
+                            else if (key == "language") {
+                                val context = LocalContext.current
+                                val language = currentAppLanguage()
+                                GlasmioListRow(strings(R.string.app_language), showTopSeparator = true, trailing = {
+                                    GlasmioPopUpButton(
+                                        selected = language,
+                                        items = AppLanguage.entries,
+                                        onSelected = { setAppLanguage(context, it) },
+                                        label = { strings(it.labelRes) },
+                                    )
+                                })
+                            }
                         }
                     }
                 }
