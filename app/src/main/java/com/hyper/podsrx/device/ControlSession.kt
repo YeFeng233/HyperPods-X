@@ -90,6 +90,12 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     /** HFP or A2DP connected to the bound headset. */
     fun audioConnected() { audio=true;reconnect.trySend(Unit) }
 
+    /** HFP and A2DP both went away while the ACL may still be alive. */
+    fun audioDisconnected() {
+        audio = false
+        reconnect.trySend(Unit)
+    }
+
     /**
      * Opening the control channel without an ACL makes the phone page the headset. On a lid opening
      * that page held up the headset's own connection and the audio profiles by about 10 s, and with
@@ -253,6 +259,19 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
                     withTimeoutOrNull(PHONE_RECHECK_MS){reconnect.receive()}
                     continue
                 }
+                // Never open a new control channel while the phone is locked or its screen is off.
+                // A stale profile state can otherwise make an existing background service page the
+                // headset away from the device that is actively playing on it.
+                if(!phoneInUse()){
+                    DeviceRepository.update{it.copy(status=text(R.string.waiting_audio_connection))}
+                    withTimeoutOrNull(PHONE_RECHECK_MS){reconnect.receive()}
+                    continue
+                }
+                if(BluetoothRouteGuard.hasCompetingOutput(context, target.address)){
+                    DeviceRepository.update{it.copy(status=text(R.string.waiting_audio_connection))}
+                    withTimeoutOrNull(PHONE_RECHECK_MS){reconnect.receive()}
+                    continue
+                }
                 // Needs BLUETOOTH_SCAN, which the app no longer asks for.
                 runCatching{if(adapter.isDiscovering)adapter.cancelDiscovery()}
                 DeviceRepository.update{
@@ -349,6 +368,7 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     }
 
     private fun phoneInUse():Boolean {
+        if(DeviceRepository.pagesVisible.value <= 0) return false
         val power=context.getSystemService(PowerManager::class.java)
         val keyguard=context.getSystemService(KeyguardManager::class.java)
         return power?.isInteractive==true && keyguard?.isKeyguardLocked!=true

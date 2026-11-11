@@ -192,8 +192,28 @@ final class NativeAirPodsDialogAdapter {
         // A preview and an explicitly disabled auto-connect setting remain presentation-only.
         module.hook(pair).intercept(chain->{
             Intent request=request(chain.getThisObject(),preferences);
-            return request!=null&&(request.getBooleanExtra("hyperpods_preview",false)
-                    || !preferences.getBoolean("auto_connect",true))?null:chain.proceed();
+            if(request==null){
+                try {
+                    Object owner=field(chain.getThisObject(),"mActivityContext").get(chain.getThisObject());
+                    if(owner instanceof Activity){
+                        String address=((Activity)owner).getIntent().getStringExtra("headset_addresses");
+                        if(address!=null&&address.equalsIgnoreCase(preferences.getString("address",""))) return null;
+                    }
+                    return chain.proceed();
+                } catch(Exception | LinkageError error) { report("pairBackgroundGuard",error); return null; }
+            }
+            boolean blocked=request.getBooleanExtra("hyperpods_preview",false)
+                    || request.getBooleanExtra(ADOPTED,false)
+                    || !appForeground(preferences)
+                    || !preferences.getBoolean("auto_connect",true);
+            if(!blocked){
+                try {
+                    Object popupContext=field(chain.getThisObject(),"mActivityContext").get(chain.getThisObject());
+                    if(popupContext instanceof Context)
+                        blocked=PopupDriver.hasCompetingBluetoothOutput((Context)popupContext, preferences.getString("address",""));
+                } catch(Exception | LinkageError error) { report("pairRouteGuard",error); blocked=true; }
+            }
+            return blocked?null:chain.proceed();
         });
         // The ROM's timers and disconnect handling call finish() on the host Activity, which cuts the
         // dialog window's exit animation. Dismiss the dialog first so it slides out like a manual close.
@@ -220,6 +240,11 @@ final class NativeAirPodsDialogAdapter {
         }
         installed.add(loader);
         DiagnosticLog.i("HyperPods-X","Native AirPods dialog adapter ready");
+    }
+
+    private static boolean appForeground(SharedPreferences preferences) {
+        return preferences.getBoolean("app_foreground", false)
+                && System.currentTimeMillis() - preferences.getLong("app_foreground_at", 0L) < 10_000L;
     }
     /** The ROM's "connecting"/"connection failed" island shares SystemUI's headset_wear_notification slot with ours. */
     static void suppressConnectToast(HyperPodsModule module,ClassLoader loader,SharedPreferences preferences) throws Exception {

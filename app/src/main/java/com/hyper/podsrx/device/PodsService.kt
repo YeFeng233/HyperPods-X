@@ -95,6 +95,10 @@ class PodsService: Service() {
     private var connectionCardShown=false
     private var batteriesReady=false
     private var audioReady=false
+    private var headsetReady=false
+    private fun updateAudioProfileState() {
+        if(audioReady||headsetReady) control.audioConnected() else control.audioDisconnected()
+    }
     private fun showConnectionCard() {
         if(connectionCardShown||!batteriesReady||!audioReady)return
         connectionCardShown=true
@@ -120,7 +124,7 @@ class PodsService: Service() {
                 val device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice::class.java)
                 if(!device?.address.equals(DeviceRepository.state.value.address,true))return
                 audioReady=intent.getIntExtra(BluetoothProfile.EXTRA_STATE,0)==BluetoothProfile.STATE_CONNECTED
-                if(audioReady)control.audioConnected()
+                updateAudioProfileState()
                 spatial.refreshNow()
                 showConnectionCard()
             } else if(intent.action==A2DP_ACTIVE_DEVICE_CHANGED) {
@@ -129,7 +133,8 @@ class PodsService: Service() {
             } else if(intent.action==BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED) {
                 val device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice::class.java)
                 if(!device?.address.equals(DeviceRepository.state.value.address,true))return
-                if(intent.getIntExtra(BluetoothProfile.EXTRA_STATE,0)==BluetoothProfile.STATE_CONNECTED)control.audioConnected()
+                headsetReady=intent.getIntExtra(BluetoothProfile.EXTRA_STATE,0)==BluetoothProfile.STATE_CONNECTED
+                updateAudioProfileState()
             }
         }
     }

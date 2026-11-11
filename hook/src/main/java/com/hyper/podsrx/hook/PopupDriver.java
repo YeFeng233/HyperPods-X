@@ -8,6 +8,8 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.PowerManager;
 import java.util.List;
@@ -126,6 +128,10 @@ final class PopupDriver {
             DiagnosticLog.i("HyperPods-X", "Skipped profile reconnect while the phone is not in use");
             return;
         }
+        if (hasCompetingBluetoothOutput(context, address)) {
+            DiagnosticLog.i("HyperPods-X", "Skipped profile reconnect while another Bluetooth output is active");
+            return;
+        }
         BluetoothDevice device = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
         try {
             Class<?> serviceType = Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService", false, context.getClassLoader());
@@ -147,6 +153,35 @@ final class PopupDriver {
         } catch (ReflectiveOperationException | RuntimeException error) {
             DiagnosticLog.w("HyperPods-X", "Stack A2DP/HFP connect unavailable", error);
         }
+    }
+
+    /** Never redirect an active Bluetooth output away from the device currently using it. */
+    static boolean hasCompetingBluetoothOutput(Context context, String boundAddress) {
+        try {
+            AudioManager audio = context.getSystemService(AudioManager.class);
+            if (audio == null || audio.getMode() != AudioManager.MODE_NORMAL) return true;
+            java.util.ArrayList<AudioDeviceInfo> devices = new java.util.ArrayList<>();
+            java.util.Collections.addAll(devices, audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS));
+            AudioDeviceInfo communication = audio.getCommunicationDevice();
+            if (communication != null) devices.add(communication);
+            for (AudioDeviceInfo device : devices) {
+                if (!isBluetoothOutput(device.getType())) continue;
+                String address = device.getAddress();
+                if (address == null || address.isEmpty() || !boundAddress.equalsIgnoreCase(address)) return true;
+            }
+        } catch (RuntimeException | LinkageError error) {
+            DiagnosticLog.w("HyperPods-X", "Bluetooth output check unavailable", error);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isBluetoothOutput(int type) {
+        return type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                || type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                || type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+                || type == AudioDeviceInfo.TYPE_HEARING_AID;
     }
 
     private static String percentage(int level) {

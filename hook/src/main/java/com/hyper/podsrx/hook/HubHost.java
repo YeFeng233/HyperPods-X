@@ -294,7 +294,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         boolean wanted = preferences.getBoolean("popup_enabled", true);
         boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
         boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
-        boolean phoneInUse = interactive && !locked;
+        boolean phoneInUse = appForeground() && interactive && !locked;
         if (wanted && preferences.getBoolean("native_popup", true) && phoneInUse) {
             try { shown = PopupDriver.show(context, popupRequest(false, false)); }
             catch (Throwable error) { DiagnosticLog.w(TAG, "Native headset popup unavailable", error); }
@@ -306,6 +306,11 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         // Without a native popup the app shows its own card, if it is running.
         callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
         publish();
+    }
+
+    private boolean appForeground() {
+        return preferences.getBoolean("app_foreground", false)
+                && System.currentTimeMillis() - preferences.getLong("app_foreground_at", 0L) < 10_000L;
     }
 
     @Override public void confirmed() {

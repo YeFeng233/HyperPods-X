@@ -8,6 +8,8 @@ import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import com.hyper.podsrx.R
@@ -80,7 +82,21 @@ object DeviceRepository {
     val state = mutable.asStateFlow()
     /** App pages on screen; the spatial bridge follows the host only while one is. */
     val pagesVisible = MutableStateFlow(0)
-    fun pageVisible(visible:Boolean) { pagesVisible.update{(it+if(visible)1 else -1).coerceAtLeast(0)};if(visible){PodsService.spatialRefresh();PodsService.refreshHubDiagnostics()} }
+    private val foregroundHandler = Handler(Looper.getMainLooper())
+    private val foregroundHeartbeat = object : Runnable {
+        override fun run() {
+            if (pagesVisible.value <= 0) return
+            FrameworkBridge.publish()
+            foregroundHandler.postDelayed(this, 5_000)
+        }
+    }
+    fun pageVisible(visible:Boolean) {
+        pagesVisible.update{(it+if(visible)1 else -1).coerceAtLeast(0)}
+        FrameworkBridge.publish()
+        foregroundHandler.removeCallbacks(foregroundHeartbeat)
+        if (pagesVisible.value > 0) foregroundHandler.postDelayed(foregroundHeartbeat, 5_000)
+        if(visible){PodsService.spatialRefresh();PodsService.refreshHubDiagnostics()}
+    }
     fun initialize(application: Application) {
         app = application
         keys = SecureKeys(app)
