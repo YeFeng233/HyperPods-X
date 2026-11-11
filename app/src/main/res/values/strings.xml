@@ -170,7 +170,7 @@
     <string name="scope_first_restart">"Scopes authorized. Restart the corresponding hosts to load the module for the first time"</string>
     <string name="no_loaded_hosts">"No hosts with the module loaded were found. Restart the hosts after first enabling the module"</string>
     <string name="host_module_current">"Module code in running hosts is up to date"</string>
-    <string name="restart_scope_description">"Restart Settings, Xiaomi Bluetooth and Device Interconnectivity. Root access is required"</string>
+    <string name="restart_scope_description">"Restart Settings, System UI, Xiaomi Bluetooth and Device Interconnectivity. Root access is required"</string>
     <string name="waiting_root_authorization">"Waiting for Root access. Allow the permission prompt"</string>
     <string name="enable_and_authorize_module">"Enable the module in LSPosed and authorize its scopes first"</string>
     <string name="enable_system_integration_first">"Enable system integration and authorize its scopes first"</string>
@@ -194,6 +194,7 @@
     <string name="host_xiaomi_bluetooth">"Xiaomi Bluetooth"</string>
     <string name="host_interconnectivity">"Device Interconnectivity"</string>
     <string name="host_settings">"Settings"</string>
+    <string name="host_system_ui">"System UI"</string>
     <string name="host_security">"Security"</string>
     <string name="hub_not_ready">"State hub is not ready. Check the Xiaomi Bluetooth scope"</string>
     <string name="hub_handshake_failed">"State hub handshake failed: %1$s"</string>
@@ -404,7 +405,7 @@
     <string name="connection_battery_card">"Connection Battery Card"</string>
     <string name="connection_card_description">"Show actual battery levels on reconnection"</string>
     <string name="enable_system_integration">"Enable System Integration"</string>
-    <string name="authorize_scopes_description">"Authorize Settings, Xiaomi Bluetooth, Device Interconnectivity and Security in LSPosed"</string>
+    <string name="authorize_scopes_description">"Authorize Settings, System UI, Xiaomi Bluetooth, Device Interconnectivity and Security in LSPosed"</string>
     <string name="restarting_scopes">"Restarting Scopes…"</string>
     <string name="restart_scopes">"Restart Scopes"</string>
     <string name="allow_overlay">"Allow Display over Other Apps"</string>

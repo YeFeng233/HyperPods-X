@@ -17,7 +17,7 @@ internal class HostReloadPolicy(
     }
 
     companion object {
-        val hosts = listOf("com.xiaomi.bluetooth", "com.milink.service", "com.android.settings", "com.miui.securitycenter")
+        val hosts = listOf("com.xiaomi.bluetooth", "com.milink.service", "com.android.settings", "com.android.systemui", "com.miui.securitycenter")
         // The security center names its widget provider process "<package>.remote".
         const val WIDGET_PROCESS = "com.miui.securitycenter.remote"
         fun hostFor(process: String): String? = hosts.firstOrNull { process == it || process.startsWith("$it:") }

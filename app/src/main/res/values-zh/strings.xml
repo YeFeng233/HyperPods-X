@@ -167,7 +167,7 @@
     <string name="scope_first_restart">"作用域已授权；首次启用请重启对应宿主，以加载模块"</string>
     <string name="no_loaded_hosts">"尚未发现已加载模块的宿主；首次启用请重启相关宿主"</string>
     <string name="host_module_current">"已运行宿主的模块代码已是最新"</string>
-    <string name="restart_scope_description">"重启系统设置、小米蓝牙和设备互联，需要 Root 权限"</string>
+    <string name="restart_scope_description">"重启系统设置、系统界面、小米蓝牙和设备互联，需要 Root 权限"</string>
     <string name="waiting_root_authorization">"等待 Root 授权，请在权限弹窗中允许"</string>
     <string name="enable_and_authorize_module">"请先在 LSPosed 中启用模块并授权作用域"</string>
     <string name="enable_system_integration_first">"请先启用系统适配并授权作用域"</string>
@@ -191,6 +191,7 @@
     <string name="host_xiaomi_bluetooth">"小米蓝牙"</string>
     <string name="host_interconnectivity">"设备互联"</string>
     <string name="host_settings">"系统设置"</string>
+    <string name="host_system_ui">"系统界面"</string>
     <string name="host_security">"手机管家"</string>
     <string name="hub_not_ready">"状态中心未就绪，请检查小米蓝牙作用域"</string>
     <string name="hub_handshake_failed">"状态中心握手失败：%1$s"</string>
@@ -401,7 +402,7 @@
     <string name="connection_battery_card">"连接电量卡片"</string>
     <string name="connection_card_description">"重新连接时显示真实电量"</string>
     <string name="enable_system_integration">"启用系统适配"</string>
-    <string name="authorize_scopes_description">"在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家"</string>
+    <string name="authorize_scopes_description">"在 LSPosed 中授权系统设置、系统界面、小米蓝牙、设备互联和手机管家"</string>
     <string name="restarting_scopes">"正在重启作用域…"</string>
     <string name="restart_scopes">"重启作用域"</string>
     <string name="allow_overlay">"允许悬浮显示"</string>

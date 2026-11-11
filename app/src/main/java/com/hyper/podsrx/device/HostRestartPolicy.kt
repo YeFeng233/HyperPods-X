@@ -9,6 +9,7 @@ internal object HostRestartPolicy {
         Host("com.xiaomi.bluetooth", R.string.host_xiaomi_bluetooth, "com.android.bluetooth.ble.app.MiuiNearbyService"),
         Host("com.milink.service", R.string.host_interconnectivity, "com.milink.server.MiLinkProcessAliveService"),
         Host("com.android.settings", R.string.host_settings),
+        Host("com.android.systemui", R.string.host_system_ui),
         Host("com.miui.securitycenter", R.string.host_security),
     )
     private val auxiliary = setOf("com.milink.runtime", "com.milink.crossdeviceservice", "com.xiaomi.vtcamera")

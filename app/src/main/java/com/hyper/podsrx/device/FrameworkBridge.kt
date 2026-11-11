@@ -39,6 +39,8 @@ object FrameworkBridge {
                 ?.putBoolean("native_popup", s.nativePopup)
                 ?.putBoolean("battery_alerts", s.batteryAlerts)
                 ?.putBoolean("auto_connect", s.autoConnect)
+                ?.putBoolean("app_foreground", DeviceRepository.pagesVisible.value > 0)
+                ?.putLong("app_foreground_at", System.currentTimeMillis())
                 // Known from an advertisement before the first session reports the model.
                 ?.putInt("panel_product", s.product)
                 ?.putBoolean("enabled", true)?.apply()
@@ -46,7 +48,7 @@ object FrameworkBridge {
     }
     fun requestNativeScope() {
         val bound = service ?: return DeviceRepository.message(R.string.enable_module_first)
-        bound.requestScope(listOf("com.android.settings","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
+        bound.requestScope(listOf("com.android.settings","com.android.systemui","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
             override fun onScopeRequestApproved(approved:MutableList<String>){
                 DeviceRepository.message(R.string.scope_authorized_checking)
                 HostReloadCoordinator.onScopeApproved(bound, approved)

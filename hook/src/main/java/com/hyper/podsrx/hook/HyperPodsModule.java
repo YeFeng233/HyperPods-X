@@ -38,13 +38,18 @@ public final class HyperPodsModule extends XposedModule {
             if (preferences != null && listener != null) preferences.unregisterOnSharedPreferenceChangeListener(listener);
             listener = null;
             lastPreference.clear();
+            DeviceCenterIconHook.reset();
         });
         moduleLog(Log.INFO, "HyperPods-X", "Loaded in " + param.getProcessName() + "; API=" + getApiVersion());
     }
 
     @Override public void onPackageReady(PackageReadyParam param) {
-        if (!param.isFirstPackage()) return;
-        installPackage(param.getPackageName(), param.getClassLoader(), null);
+        super.onPackageReady(param);
+        String pkg = param.getPackageName();
+        // SystemUI loads several package namespaces in one process. Its package
+        // may not be reported first, but the icon hook must still be installed.
+        if (!pkg.equals("com.android.systemui") && !param.isFirstPackage()) return;
+        installPackage(pkg, param.getClassLoader(), null);
     }
 
     @Override public boolean onHotReloading(HotReloadingParam param) {
@@ -78,6 +83,18 @@ public final class HyperPodsModule extends XposedModule {
 
     private void installPackage(String pkg, ClassLoader loader, Application runningApp) {
         if (!ReloadLifecycle.isActive()) return;
+        if (pkg.equals("com.android.systemui")) {
+            if (!processName.equals(pkg)) return;
+            try {
+                SystemUiHandleIconHook.install(this, loader);
+                installed("SystemUI handle battery icon");
+                try { DeviceCenterIconHook.install(this, loader); installed("SystemUI Device Center icon"); }
+                catch (Throwable error) { installationFailure("SystemUI Device Center icon", error); }
+            } catch (Throwable error) {
+                installationFailure("SystemUI handle battery icon", error);
+            }
+            return;
+        }
         if (pkg.equals("com.android.settings") || pkg.equals("com.xiaomi.bluetooth") || pkg.equals("com.milink.service")) {
             installDiagnosticBridge();
         }
