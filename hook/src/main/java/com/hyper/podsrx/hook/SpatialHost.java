@@ -3,11 +3,10 @@ package com.hyper.podsrx.hook;
 import android.bluetooth.*;
 import android.content.*;
 import android.hardware.SensorManager;
-import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
+import android.media.Spatializer;
 import android.os.*;
 import java.lang.reflect.*;
-import java.util.List;
 
 /** Owns only the explicitly requested, bound-device virtual head tracker. */
 final class SpatialHost extends Binder {
@@ -15,8 +14,9 @@ final class SpatialHost extends Binder {
     private final android.content.SharedPreferences preferences;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final AudioManager audio;
-    private final Object spatializer;
+    private final Spatializer spatializer;
     private final Class<?> attributesClass;
+    private final SpatialOutputPreference outputPreference;
     private volatile BluetoothProfile a2dp;
     private final BluetoothAdapter adapter;
     private BluetoothProfile profileProxy;
@@ -60,7 +60,7 @@ final class SpatialHost extends Binder {
     }
     private SpatialHost(Context c,android.content.SharedPreferences p)throws Exception {
         context=c;lastStatus=HookStrings.get(c,R.string.hook_motion_bridge_ready);preferences=p;audio=c.getSystemService(AudioManager.class);
-        spatializer=audio.getSpatializer();attributesClass=Class.forName("android.media.AudioDeviceAttributes");
+        spatializer=audio.getSpatializer();outputPreference=new SpatialOutputPreference();attributesClass=outputPreference.attributesClass;
         appUid=c.getPackageManager().getPackageUid(SpatialWire.APP,0);
         attachInterface(null,SpatialWire.DESCRIPTOR);
         adapter=c.getSystemService(BluetoothManager.class).getAdapter();
@@ -101,7 +101,7 @@ final class SpatialHost extends Binder {
     }
     private void stopAsync(){if(!closed)handler.post(()->{synchronized(this){if(!closed)stop();}});}
     private Object attrs(String address)throws Exception {
-        return attributesClass.getConstructor(int.class,int.class,String.class).newInstance(2,AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,address);
+        return outputPreference.a2dpDevice(address);
     }
     private Object call(String name,Class<?>[] types,Object...values)throws Exception {
         return spatializer.getClass().getMethod(name,types).invoke(spatializer,values);
@@ -115,7 +115,7 @@ final class SpatialHost extends Binder {
         }catch(Exception error){return false;}
     }
     private boolean compatible(Object attr)throws Exception {
-        return ((List<?>)call("getCompatibleAudioDevices",new Class<?>[0])).contains(attr);
+        return outputPreference.isEnabled(spatializer,attr);
     }
     private synchronized Bundle execute(int code,Bundle request)throws Exception {
         if(cleanupComplete){
@@ -145,7 +145,7 @@ final class SpatialHost extends Binder {
             if(!routeMatches(address))throw new IllegalStateException(HookStrings.get(context, R.string.hook_connect_and_select_output));
             stop();
             boolean enabled=request.getBoolean("enabled");
-            call(enabled?"addCompatibleAudioDevice":"removeCompatibleAudioDevice",new Class<?>[]{attributesClass},attr);
+            outputPreference.setEnabled(spatializer,attr,enabled);
             if(enabled)call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},-1);
             lastStatus=enabled?HookStrings.get(context, R.string.hook_fixed_spatial_enabled):HookStrings.get(context, R.string.hook_spatial_disabled);
         }else if(code==SpatialWire.START){

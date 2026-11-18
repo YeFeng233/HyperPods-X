@@ -57,6 +57,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     private final Handler main = new Handler(Looper.getMainLooper());
     private final int appUid;
     private final int milinkUid;
+    private final int soundSettingsUid;
     private final KeyVault keys;
     private final ScanEngine scan;
     private final AdvertisementParser parser = new AdvertisementParser();
@@ -110,8 +111,10 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             @Override public void onReceive(Context c, Intent intent) {
                 if (host.closed || !ReloadLifecycle.isActive() || !HubWire.CAPABILITIES.equals(intent.getAction())) return;
                 // Only the scoped hosts may report; any app could send this broadcast.
-                if (!host.mayRead(getSentFromUid())) return;
                 String process = intent.getStringExtra("process");
+                int sender = getSentFromUid();
+                boolean soundSettings = sender >= 0 && sender == host.soundSettingsUid && HubWire.SOUND_SETTINGS.equals(process);
+                if (!host.mayRead(sender) && !soundSettings) return;
                 Bundle results = intent.getBundleExtra("results");
                 if (process != null && !process.isEmpty() && results != null) host.capabilities.put(process, results);
             }
@@ -140,6 +143,10 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         try { milink = context.getPackageManager().getPackageUid("com.milink.service", 0); }
         catch (PackageManager.NameNotFoundException absent) { milink = -1; }
         milinkUid = milink;
+        int soundSettings;
+        try { soundSettings = context.getPackageManager().getPackageUid(HubWire.SOUND_SETTINGS, 0); }
+        catch (PackageManager.NameNotFoundException absent) { soundSettings = -1; }
+        soundSettingsUid = soundSettings;
         keys = new KeyVault(context);
         address = preferences.getString("address", "");
         if (address.isEmpty()) address = keys.address();

@@ -157,6 +157,7 @@
     <string name="module_service_disconnected">"模块服务已断开"</string>
     <string name="enable_module_first">"请先在 LSPosed 中启用 HyperPods-X"</string>
     <string name="scope_authorized_checking">"作用域已授权，正在检查宿主加载状态"</string>
+    <string name="native_scope_description">"在 LSPosed 中授权 HyperPods-X 的系统作用域"</string>
     <string name="module_service_wait_reconnect">"模块服务已断开，等待重新连接"</string>
     <string name="host_update_unknown">"无法确认宿主更新状态，请重新打开相关宿主"</string>
     <string name="hot_reload_unsupported">"框架不支持热重载，请重启相关宿主"</string>
@@ -193,6 +194,7 @@
     <string name="host_settings">"系统设置"</string>
     <string name="host_system_ui">"系统界面"</string>
     <string name="host_security">"手机管家"</string>
+    <string name="host_sound_settings">"音质音效"</string>
     <string name="hub_not_ready">"状态中心未就绪，请检查小米蓝牙作用域"</string>
     <string name="hub_handshake_failed">"状态中心握手失败：%1$s"</string>
     <string name="hub_version_mismatch">"状态中心版本不一致，请重载宿主"</string>

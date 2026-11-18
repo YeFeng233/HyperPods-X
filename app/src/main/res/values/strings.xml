@@ -160,6 +160,7 @@
     <string name="module_service_disconnected">"Module service disconnected"</string>
     <string name="enable_module_first">"Enable HyperPods-X in LSPosed first"</string>
     <string name="scope_authorized_checking">"Scopes authorized. Checking host loading status"</string>
+    <string name="native_scope_description">"Authorize HyperPods-X system scopes in LSPosed"</string>
     <string name="module_service_wait_reconnect">"Module service disconnected. Waiting to reconnect"</string>
     <string name="host_update_unknown">"Unable to confirm host update status. Reopen the affected hosts"</string>
     <string name="hot_reload_unsupported">"The framework does not support hot reload. Restart the affected hosts"</string>
@@ -196,6 +197,7 @@
     <string name="host_settings">"Settings"</string>
     <string name="host_system_ui">"System UI"</string>
     <string name="host_security">"Security"</string>
+    <string name="host_sound_settings">"Sound effects"</string>
     <string name="hub_not_ready">"State hub is not ready. Check the Xiaomi Bluetooth scope"</string>
     <string name="hub_handshake_failed">"State hub handshake failed: %1$s"</string>
     <string name="hub_version_mismatch">"State hub versions do not match. Reload the host"</string>

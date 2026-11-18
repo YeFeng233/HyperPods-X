@@ -21,6 +21,7 @@
         <package android:name="com.android.settings" />
         <package android:name="com.xiaomi.bluetooth" />
         <package android:name="com.milink.service" />
+        <package android:name="com.miui.misound" />
     </queries>
     <application android:name=".HyperPodsApp" android:label="@string/app_name"
         android:description="@string/module_description" android:theme="@style/AppTheme"
