@@ -3,22 +3,17 @@ package com.hyper.podsrx.hook;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.media.AudioAttributes;
-import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.media.Spatializer;
 import io.github.libxposed.api.XposedModule;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.List;
 
 /** Mirrors explicit MiSound toggles to the bound A2DP output preference. */
 final class MiSoundSpatialAdapter {
     private static final String TAG = "HyperPods-X";
     private static final String ACTIVITY = HubWire.SOUND_SETTINGS + ".HeadsetSettingsActivity";
     private static final long SUPPORTED_VERSION = 260917;
-    private static final AudioAttributes MEDIA = new AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_MEDIA).build();
 
     private final SharedPreferences preferences;
     private final SpatialOutputPreference outputPreference;
@@ -68,13 +63,14 @@ final class MiSoundSpatialAdapter {
         if (address.isEmpty()) return;
 
         AudioManager audio = activity.getSystemService(AudioManager.class);
-        if (audio == null || !isBoundOutput(audio, address)) {
+        if (audio == null || !SpatialOutputPreference.isBoundMediaOutput(audio, address)) {
             DiagnosticLog.i(TAG, "MiSound spatial toggle skipped: bound AirPods are not the sole A2DP media output");
             return;
         }
         Spatializer spatializer = audio.getSpatializer();
         Object device = outputPreference.a2dpDevice(address);
-        if (outputPreference.isEnabled(spatializer, device) == enabled || !isBoundOutput(audio, address)) return;
+        if (outputPreference.isEnabled(spatializer, device) == enabled ||
+                !SpatialOutputPreference.isBoundMediaOutput(audio, address)) return;
         // Apply the device preference before MiSound's global write so the app's
         // Spatializer callback can read the updated preference.
         outputPreference.setEnabled(spatializer, device, enabled);
@@ -85,11 +81,4 @@ final class MiSoundSpatialAdapter {
         }
     }
 
-    private static boolean isBoundOutput(AudioManager audio, String address) {
-        List<AudioDeviceInfo> outputs = audio.getAudioDevicesForAttributes(MEDIA);
-        if (outputs.size() != 1) return false;
-        AudioDeviceInfo device = outputs.get(0);
-        return device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP &&
-            address.equalsIgnoreCase(device.getAddress());
-    }
 }

@@ -217,7 +217,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
         if(mode==SpatialMode.HEAD_TRACKING){startTracking();return}
         val canStop=mode==SpatialMode.OFF&&(active||trackingRequested||forwarding)
         if((!current.bridge||!current.route)&&!canStop){notice(text(R.string.wait_system_spatial_ready));return}
-        if(current.mode==mode&&(mode==SpatialMode.OFF||current.desiredMode==-1)&&!active&&!trackingRequested&&!forwarding)return
+        if(current.mode==mode&&(mode==SpatialMode.OFF||current.enabled&&current.desiredMode==-1)&&!active&&!trackingRequested&&!forwarding)return
         if(active||trackingRequested||forwarding)stopMotion(text(R.string.switching_spatial_mode))
         val cleanup=cleanupJob
         state{it.copy(modeChanging=true,requestedMode=mode,notice=text(""))}
@@ -231,7 +231,8 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
                 check(answer.getBoolean("ok")){answer.getString("status",strings(R.string.spatial_mode_update_failed))}
                 refresh()
                 val reported=DeviceRepository.state.value.spatial
-                check(reported.bridge&&reported.compatible==enabled&&!reported.nativeActive){strings(R.string.spatial_mode_unconfirmed)}
+                check(reported.bridge&&reported.compatible==enabled&&!reported.nativeActive&&
+                    (!enabled||!reported.available||reported.enabled)){strings(R.string.spatial_mode_unconfirmed)}
             }catch(error:CancellationException){throw error}
             catch(error:Exception){notice(error.message?.let(::text) ?:text(R.string.spatial_mode_update_failed));refresh()}
             finally{

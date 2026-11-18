@@ -17,6 +17,7 @@ final class SpatialHost extends Binder {
     private final Spatializer spatializer;
     private final Class<?> attributesClass;
     private final SpatialOutputPreference outputPreference;
+    private final SpatialRenderer renderer;
     private volatile BluetoothProfile a2dp;
     private final BluetoothAdapter adapter;
     private BluetoothProfile profileProxy;
@@ -52,6 +53,7 @@ final class SpatialHost extends Binder {
             context.registerReceiver(host.receiver,new IntentFilter(SpatialWire.ACTION),SpatialWire.PERMISSION,host.handler,Context.RECEIVER_EXPORTED);
             host.receiverRegistered=true;
             host.connectProfile();
+            host.renderer.start();
         } catch (RuntimeException error) {
             host.close();
             throw error;
@@ -61,6 +63,7 @@ final class SpatialHost extends Binder {
     private SpatialHost(Context c,android.content.SharedPreferences p)throws Exception {
         context=c;lastStatus=HookStrings.get(c,R.string.hook_motion_bridge_ready);preferences=p;audio=c.getSystemService(AudioManager.class);
         spatializer=audio.getSpatializer();outputPreference=new SpatialOutputPreference();attributesClass=outputPreference.attributesClass;
+        renderer=new SpatialRenderer(c,p,audio,spatializer,outputPreference);
         appUid=c.getPackageManager().getPackageUid(SpatialWire.APP,0);
         attachInterface(null,SpatialWire.DESCRIPTOR);
         adapter=c.getSystemService(BluetoothManager.class).getAdapter();
@@ -93,6 +96,7 @@ final class SpatialHost extends Binder {
         if(receiverRegistered){context.unregisterReceiver(receiver);receiverRegistered=false;}
         receiver=null;
         stop();
+        renderer.close();
         handler.removeCallbacksAndMessages(null);
         BluetoothProfile proxy=profileProxy;
         if(proxy!=null)adapter.closeProfileProxy(BluetoothProfile.A2DP,proxy);
@@ -147,6 +151,7 @@ final class SpatialHost extends Binder {
             boolean enabled=request.getBoolean("enabled");
             outputPreference.setEnabled(spatializer,attr,enabled);
             if(enabled)call("setDesiredHeadTrackingMode",new Class<?>[]{int.class},-1);
+            renderer.sync();
             lastStatus=enabled?HookStrings.get(context, R.string.hook_fixed_spatial_enabled):HookStrings.get(context, R.string.hook_spatial_disabled);
         }else if(code==SpatialWire.START){
             if(!routeMatches(address))throw new IllegalStateException(HookStrings.get(context, R.string.hook_earbuds_not_current_output));
