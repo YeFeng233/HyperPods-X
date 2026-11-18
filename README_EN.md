@@ -62,7 +62,7 @@ For first-time Head Tracking use, complete the guided 3-axis calibration (turn r
    - **Xiaomi Bluetooth** (`com.xiaomi.bluetooth`)
    - **Device Interconnectivity** (`com.milink.service`)
    - **Security** (`com.miui.securitycenter`)
-   - **Sound Effects** (`com.miui.misound`) to sync the Immersive sound switch with Spatial Audio on the active AirPods
+   - **Sound Effects** (`com.miui.misound`)
    > After first activation or module updates, reboot your device or tap **Restart Scopes** in **More Settings** so system hosts load the updated code.
 3. **Grant Permissions**: Open HyperPods-X, grant **Nearby Devices** and **Notifications** permissions, and allow unrestricted background execution for AACP control, ear detection, and Spatial Audio services.
 4. **Connect**: Tap **Connect Earbuds** to begin. Afterwards, you can also open settings directly from System Bluetooth Settings.
