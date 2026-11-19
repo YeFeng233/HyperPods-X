@@ -369,19 +369,29 @@ final class SystemUiHandleIconHook {
         private void drawDeviceGlyph(Canvas canvas, Rect bounds) {
             float left = bounds.left;
             float right = bounds.left + bounds.width() * batteryIcon.batteryStart;
-            float centerX = (left + right) * 0.5f;
+            float textSize = bounds.height() * 0.68f;
             float centerY = bounds.exactCenterY();
             float targetWidth = (right - left) * 0.64f;
-            float targetHeight = bounds.height() * 0.68f;
+            float targetHeight = textSize;
+            boolean headset = batteryIcon == BatteryIcon.HEADSET;
+            if (headset) {
+                // The battery in the 25 x 20 headset viewport spans y=5.1 to y=16.3.
+                right = left + (right - left) * 0.92f;
+                centerY = bounds.top + bounds.height() * (10.7f / 20f);
+                targetHeight = bounds.height() * (11.2f / 20f);
+                targetWidth = right - left;
+            }
+            float centerX = (left + right) * 0.5f;
             String glyph = batteryIcon.glyph;
-            symbolPaint.setTextSize(targetHeight);
+            symbolPaint.setTextSize(textSize);
             symbolPaint.setColor(symbolColor());
             symbolPaint.setAlpha(alpha);
             Rect textBounds = new Rect();
             symbolPaint.getTextBounds(glyph, 0, glyph.length(), textBounds);
             if (textBounds.width() <= 0 || textBounds.height() <= 0) return;
-            float scale = Math.min(1f, Math.min(targetWidth / textBounds.width(), targetHeight / textBounds.height()));
-            symbolPaint.setTextSize(targetHeight * scale);
+            float scale = Math.min(targetWidth / textBounds.width(), targetHeight / textBounds.height());
+            if (!headset) scale = Math.min(1f, scale);
+            symbolPaint.setTextSize(textSize * scale);
             symbolPaint.getTextBounds(glyph, 0, glyph.length(), textBounds);
             float baseline = centerY - (textBounds.top + textBounds.bottom) * 0.5f;
             float x = centerX - symbolPaint.measureText(glyph) * 0.5f;
