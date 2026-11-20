@@ -363,6 +363,7 @@
     <string name="automatic_connection_help">"Automatic Connection Help"</string>
     <string name="connection_diagnostics">"Connection Diagnostics"</string>
     <string name="open_source_licenses">"Open Source Licenses"</string>
+    <string name="open_source_projects">Open source</string>
     <string name="bluetooth_device_settings_suffix">" · Bluetooth Device Settings"</string>
     <string name="back">"Back"</string>
     <string name="connect_earbuds">"Connect Earbuds"</string>
@@ -534,6 +535,8 @@
     <string name="auto_connect">"Automatically Connect to This Device"</string>
     <string name="auto_connect_description">"When enabled, AirPods will try to connect automatically to this device. Otherwise, they will only try to connect automatically when they were connected here last time."</string>
     <string name="clear_text">"Clear Text"</string>
+    <string name="floating_bottom_bar">Floating navigation bar</string>
+    <string name="glass_bottom_bar">Glass navigation bar</string>
     <string name="personalized_volume_footnote">"Adjust overall volume based on your surroundings."</string>
     <string name="conversation_footnote">"Lower media volume and reduce background noise when you start speaking to someone."</string>
     <string name="custom">"Custom"</string>
@@ -588,4 +591,6 @@
     <string name="more_cancellation">"More Cancellation"</string>
     <string name="strength_swipe_hint">"Slide %1$s to continuously increase noise cancellation."</string>
     <string name="file_picker_failed">"Unable to open the save dialog. Try again later"</string>
+    <string name="tab_earbuds">Earbuds</string>
+    <string name="tab_connection">Connection</string>
 </resources>

@@ -4,89 +4,140 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.offset
+import com.hyper.podsrx.R
+import com.hyper.podsrx.i18n.rememberStrings
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurColors
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.glass.GlassIconButton
+import top.yukonga.miuix.kmp.glass.GlassTopAppBar
+import top.yukonga.miuix.kmp.glass.GlassTopAppBarDefaults
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.glass.ChevronBackward
+import top.yukonga.miuix.kmp.icon.glass.SettingsOutline
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
-/** Each retained page owns its title, scroll physics, insets and backdrop. */
+internal val LocalPageBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
+
 @Composable
-internal fun MiuixPageScaffold(
-    title: String,
-    onBack: () -> Unit,
-    onMore: (() -> Unit)? = null,
-    startsWithHeading: Boolean = false,
-    content: LazyListScope.() -> Unit,
-) {
-    val listState = rememberLazyListState()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val window = LocalWindowInfo.current.containerSize
-    val density = LocalDensity.current
-    val windowWidth = with(density) { window.width.toDp() }
-    val windowHeight = with(density) { window.height.toDp() }
-    val compactAppBar = windowWidth >= 600.dp || windowHeight < 480.dp
-    val centered = ((windowWidth - 800.dp) / 2).coerceAtLeast(0.dp)
-    val direction = LocalLayoutDirection.current
-    val horizontalInsets = WindowInsets.navigationBars.union(WindowInsets.displayCutout).asPaddingValues()
-    val start = maxOf(centered, horizontalInsets.calculateStartPadding(direction))
-    val end = maxOf(centered, horizontalInsets.calculateEndPadding(direction))
+internal fun rememberSurfaceBackdrop(): LayerBackdrop {
     val surface = MiuixTheme.colorScheme.surface
-    val backdrop = rememberLayerBackdrop {
+    return rememberLayerBackdrop {
         drawRect(surface)
         drawContent()
     }
-    val barModifier = Modifier.textureBlur(
-        backdrop = backdrop,
-        shape = RectangleShape,
-        blurRadius = 25f,
-        colors = BlurColors(blendColors = listOf(BlendColorEntry(surface.copy(alpha = .8f)))),
-    )
-    Scaffold(
-        contentWindowInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout),
-        topBar = {
-            val navigation: @Composable () -> Unit = { NavigationButton("返回", true, onBack) }
-            val actions: @Composable RowScope.() -> Unit = {
-                onMore?.let { NavigationButton("更多设置", false, it) }
+}
+
+@Composable
+internal fun PageBackdropBox(content: @Composable () -> Unit) {
+    val backdrop = rememberSurfaceBackdrop()
+    CompositionLocalProvider(LocalPageBackdrop provides backdrop) {
+        Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) { content() }
+    }
+}
+
+internal fun Modifier.railInset(inset: () -> Dp): Modifier = layout { measurable, constraints ->
+    val width = inset().roundToPx()
+    val placeable = measurable.measure(constraints.offset(horizontal = -width))
+    layout(placeable.width + width, placeable.height) { placeable.placeRelative(width, 0) }
+}
+
+private val CutoutAndNavigationSides
+    @Composable get() = WindowInsets.displayCutout.union(WindowInsets.navigationBars)
+        .only(WindowInsetsSides.Horizontal)
+
+@Composable
+internal fun MiuixPageScaffold(
+    title: String,
+    expandable: Boolean,
+    railInset: () -> Dp,
+    onBack: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
+    startsWithHeading: Boolean = false,
+    tabBottomPadding: Dp? = null,
+    scrollState: LazyListState = rememberLazyListState(),
+    titleAlpha: () -> Float = { 1f },
+    barAlpha: () -> Float = { 1f },
+    background: @Composable (PaddingValues) -> Unit = {},
+    content: LazyListScope.() -> Unit,
+) {
+    val strings = rememberStrings()
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val contentScrolled by remember(scrollState) { derivedStateOf { scrollState.canScrollBackward } }
+    val backdrop = rememberSurfaceBackdrop()
+    val surface = MiuixTheme.colorScheme.surface
+    val bandBrush = remember(surface) { GlassTopAppBarDefaults.bandBrush(surface) }
+    val mirror = LocalLayoutDirection.current == LayoutDirection.Rtl
+
+    PageBackdropBox {
+        Scaffold(
+            contentWindowInsets = WindowInsets(0),
+            topBar = {
+                GlassTopAppBar(
+                    title = title,
+                    expandable = expandable,
+                    isContentScrolled = contentScrolled,
+                    backdrop = backdrop,
+                    bandBrush = bandBrush,
+                    bandOverhang = GlassTopAppBarDefaults.BandOverhang,
+                    progressiveBlur = true,
+                    titleAlpha = titleAlpha,
+                    backgroundAlpha = barAlpha,
+                    scrollBehavior = scrollBehavior,
+                    contentModifier = Modifier.windowInsetsPadding(CutoutAndNavigationSides).railInset(railInset),
+                    navigationIcon = {
+                        if (onBack != null) GlassIconButton(onClick = onBack) {
+                            Icon(MiuixIcons.Glass.ChevronBackward, strings(R.string.back),
+                                Modifier.size(28.dp).graphicsLayer { scaleX = if (mirror) -1f else 1f })
+                        }
+                    },
+                    actions = {
+                        if (onSettings != null) GlassIconButton(onClick = onSettings) {
+                            Icon(MiuixIcons.Glass.SettingsOutline, strings(R.string.settings), Modifier.size(28.dp))
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize()) {
+                background(padding)
+                LazyColumn(
+                    state = scrollState,
+                    modifier = Modifier.fillMaxSize()
+                        .layerBackdrop(backdrop)
+                        .windowInsetsPadding(CutoutAndNavigationSides)
+                        .railInset(railInset)
+                        .scrollEndHaptic()
+                        .overScrollVertical(onOffsetChanged = { scrollBehavior.state.overscrollOffset = it })
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = tabBottomPadding ?: 0.dp),
+                ) {
+                    if (!startsWithHeading) item("page-top") { Spacer(Modifier.height(12.dp)) }
+                    content()
+                    item("page-bottom") {
+                        Spacer(if (tabBottomPadding == null) Modifier.height(24.dp).navigationBarsPadding() else Modifier.height(12.dp))
+                    }
+                }
             }
-            if (compactAppBar) {
-                SmallTopAppBar(title = title, modifier = barModifier, color = Color.Transparent,
-                    navigationIcon = navigation, actions = actions)
-            } else {
-                TopAppBar(title = title, modifier = barModifier, color = Color.Transparent,
-                    navigationIcon = navigation, actions = actions, scrollBehavior = scrollBehavior)
-            }
-        },
-    ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().consumeWindowInsets(padding)
-                .scrollEndHaptic().overScrollVertical()
-                .then(if (compactAppBar) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection))
-                .layerBackdrop(backdrop),
-            contentPadding = PaddingValues(start = start, end = end, top = padding.calculateTopPadding()),
-        ) {
-            if (!startsWithHeading) item("page-top-spacing") { Spacer(Modifier.height(12.dp)) }
-            content()
-            item("page-bottom-spacing") { Spacer(Modifier.height(24.dp).navigationBarsPadding()) }
         }
     }
 }
@@ -95,7 +146,6 @@ internal fun LazyListScope.miuixHeader(key: String, title: String) {
     item(key) { SmallTitle(title, Modifier.semantics { heading() }) }
 }
 
-/** Composite widgets keep their own native card; this helper owns only outer page spacing. */
 internal fun LazyListScope.miuixItem(key: String, content: @Composable () -> Unit) {
     item(key) { Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp)) { content() } }
 }
@@ -109,7 +159,7 @@ internal fun LazyListScope.miuixFootnote(key: String, text: String) {
     }
 }
 
-/** Dynamic preference groups remain independently lazy while sharing one squircle outline. */
+/** Individual lazy rows share the outline and press clipping of one miuix card. */
 internal fun <T> LazyListScope.miuixGroupedItems(
     keyPrefix: String,
     items: List<T>,
@@ -118,8 +168,8 @@ internal fun <T> LazyListScope.miuixGroupedItems(
     itemContent: @Composable (T) -> Unit,
 ) {
     if (items.isEmpty()) return
-    title?.let { miuixHeader(keyPrefix + ".title", it) }
-    itemsIndexed(items = items, key = { _, row -> keyPrefix + "." + itemKey(row) }) { index, row ->
+    title?.let { miuixHeader("$keyPrefix.title", it) }
+    itemsIndexed(items = items, key = { _, row -> "$keyPrefix.${itemKey(row)}" }) { index, row ->
         val first = index == 0
         val last = index == items.lastIndex
         val color = MiuixTheme.colorScheme.surfaceContainer
