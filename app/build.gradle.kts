@@ -1,14 +1,10 @@
 import javax.imageio.ImageIO
 import java.io.File
-import java.util.Properties
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.CacheableTask
-import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
@@ -117,8 +113,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation:1.12.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3:1.4.0")
-    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.0")
-    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.0")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.3")
+    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.3")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
@@ -128,53 +125,4 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.2")
     testImplementation("junit:junit:4.13.2")
-}
-
-/** Host-owned fonts are copied only into generated APK assets. */
-abstract class GenerateHyperPodsFontAssets : DefaultTask() {
-    @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE)
-    abstract val sourceFont: RegularFileProperty
-    @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE)
-    abstract val sourceItalicFont: RegularFileProperty
-    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
-
-    @TaskAction fun generate() {
-        val output = outputDirectory.get().asFile
-        check(output.isDirectory || output.mkdirs()) { "Cannot create font output directory" }
-        for (name in listOf("sf_pro.ttf", "sf_pro_italic.ttf")) {
-            val previous = output.resolve(name)
-            check(!previous.exists() || previous.delete()) { "Cannot replace generated font $name" }
-        }
-        fun copy(source: RegularFileProperty, name: String) {
-            source.orNull?.asFile?.let { font ->
-                val signature = font.inputStream().use { it.readNBytes(4).toList() }
-                require(signature in listOf(
-                    listOf<Byte>(0, 1, 0, 0), "OTTO".toByteArray().toList(),
-                    "ttcf".toByteArray().toList(), "true".toByteArray().toList()
-                )) { "$name must be an OpenType or TrueType font." }
-                font.copyTo(output.resolve(name), overwrite = true)
-            }
-        }
-        copy(sourceFont, "sf_pro.ttf")
-        copy(sourceItalicFont, "sf_pro_italic.ttf")
-    }
-}
-
-val fontProperties = providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
-    .asText.orElse("").map { contents -> Properties().apply { load(contents.reader()) } }
-val regularFontPath = providers.gradleProperty("glasmio.symbolFont")
-    .orElse(providers.environmentVariable("HYPERPODS_SF_PRO"))
-    .orElse(fontProperties.map { it.getProperty("glasmio.symbolFont", "") })
-    .map { it.trim() }.filter { it.isNotEmpty() }
-val italicFontPath = providers.gradleProperty("glasmio.italicFont")
-    .orElse(providers.environmentVariable("HYPERPODS_SF_PRO_ITALIC"))
-    .orElse(fontProperties.map { it.getProperty("glasmio.italicFont", "") })
-    .map { it.trim() }.filter { it.isNotEmpty() }
-val generateHyperPodsFontAssets = tasks.register<GenerateHyperPodsFontAssets>("generateHyperPodsFontAssets") {
-    sourceFont.set(layout.file(regularFontPath.map { File(it) }))
-    sourceItalicFont.set(layout.file(italicFontPath.map { File(it) }))
-    outputDirectory.set(layout.buildDirectory.dir("generated/hyperpods-fonts/assets"))
-}
-androidComponents.onVariants { variant ->
-    variant.sources.assets?.addGeneratedSourceDirectory(generateHyperPodsFontAssets, GenerateHyperPodsFontAssets::outputDirectory)
 }

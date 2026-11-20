@@ -363,8 +363,10 @@
     <string name="automatic_connection_help">"Automatic Connection Help"</string>
     <string name="connection_diagnostics">"Connection Diagnostics"</string>
     <string name="open_source_licenses">"Open Source Licenses"</string>
+    <string name="open_source_projects">Open source</string>
     <string name="bluetooth_device_settings_suffix">" · Bluetooth Device Settings"</string>
     <string name="back">"Back"</string>
+    <string name="ios_sidebar">Sidebar</string>
     <string name="connect_earbuds">"Connect Earbuds"</string>
     <string name="rename">"Rename"</string>
     <string name="rename_in_bluetooth">"Change this device\'s name in system Bluetooth settings"</string>
@@ -396,9 +398,11 @@
     <string name="waiting_readback">"Waiting to Read"</string>
     <string name="reported_version">"Device-Reported Version"</string>
     <string name="appearance">"Appearance"</string>
+    <string name="feature_settings">Feature Settings</string>
     <string name="switch_ui_style">"Switch interface style"</string>
     <string name="popups_and_alerts">"Popups and Alerts"</string>
     <string name="lid_popup">"Case Open Popup"</string>
+    <string name="battery_alert">Battery Alerts</string>
     <string name="lid_popup_description">"Respond only to verified earbud case open advertisements"</string>
     <string name="hyperos_native_popup">"HyperOS Native Popup"</string>
     <string name="native_popup_description">"Prefer system popups and HyperIsland"</string>
@@ -483,6 +487,7 @@
     <string name="proximity_identity_matches">"Proximity Advertisements / Identity Matches"</string>
     <string name="case_lid">"Case Lid"</string>
     <string name="opened">"Open"</string>
+    <string name="closed">Closed</string>
     <string name="waiting_advertisement">"Waiting for Advertisement"</string>
     <string name="reported_settings_count">"Device-Reported Settings"</string>
     <string name="wearing_status">"Wearing Status"</string>
@@ -588,4 +593,6 @@
     <string name="more_cancellation">"More Cancellation"</string>
     <string name="strength_swipe_hint">"Slide %1$s to continuously increase noise cancellation."</string>
     <string name="file_picker_failed">"Unable to open the save dialog. Try again later"</string>
+    <string name="tab_earbuds">Earbuds</string>
+    <string name="tab_connection">Connection</string>
 </resources>
