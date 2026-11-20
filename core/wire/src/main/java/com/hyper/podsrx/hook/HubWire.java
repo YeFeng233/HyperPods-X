@@ -31,6 +31,13 @@ public final class HubWire {
     public static final String PROVIDER_URI = "content://com.android.bluetooth.ble.app.headsetdata.provider/AirpodsModel";
     public static final String STATE_METHOD = "hyperpods_state";
 
+    /** HyperOS' protected headset battery broadcast also carries the selected earbud component. */
+    public static final String HEADSET_BATTERY = "android.intent.action.BLUETOOTH_HANDSFREE_BATTERY_CHANGED";
+    public static final String HEADSET_BATTERY_SHOW = "android.intent.extra.show_bluetooth_handsfree_battery";
+    public static final String HEADSET_BATTERY_LEVEL = "android.intent.extra.bluetooth_handsfree_battery_level";
+    public static final String HEADSET_BATTERY_COMPONENT = APP + ".HEADSET_BATTERY_COMPONENT";
+    public static final String HEADSET_BATTERY_REFRESH = APP + ".HEADSET_BATTERY_REFRESH";
+
     /**
      * The app's channel for the battery alerts. The app makes {@link #HOST} its notification
      * delegate, so the hub posts them as the app even while it is not running.

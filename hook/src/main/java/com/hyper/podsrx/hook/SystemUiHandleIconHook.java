@@ -1,7 +1,11 @@
 package com.hyper.podsrx.hook;
 
 import android.app.Application;
+import android.app.BroadcastOptions;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.ColorStateList;
 import android.content.res.AssetManager;
 import android.graphics.Canvas;
@@ -12,8 +16,11 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.ImageView;
 import android.view.View;
+import com.hyper.podsrx.protocol.HeadsetIconPolicy.Side;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -22,23 +29,24 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import io.github.libxposed.api.XposedModule;
 
-/** Replaces only the camera-grip half of HyperOS' handle battery status icon. */
+/** Replaces the device glyphs in HyperOS' charging-case and headset battery icons. */
 final class SystemUiHandleIconHook {
     private static final String TAG = "HyperPods-X";
-    private static final String SLOT = "handle_battery";
-    private static final String LEGACY_SLOT = "bluetooth_handsfree_battery";
     private static final String SYSTEM_UI = "com.android.systemui";
-    private static final String RESOURCE_PREFIX = "stat_sys_handle_battery_";
-    private static final String LEGACY_RESOURCE_PREFIX = "stat_sys_bluetooth_handsfree_battery_";
-    private static final int AIRPODS_CASE_GLYPH = 0x102B47;
-    private static final float RIGHT_START = 21.78f / 30f;
     private static final float BATTERY_SHIFT_PX = 3.5f;
     private static final float BATTERY_CLIP_GUARD_PX = 0.25f;
+    private static final float HEADSET_PAIR_LEFT_INSET = 1.25f / 25f;
+    // Single earbuds face inward: the left earbud faces right, and the right faces left.
+    private static final String LEFT_GLYPH = new String(Character.toChars(0x102B45));
+    private static final String RIGHT_GLYPH = new String(Character.toChars(0x102B44));
 
     private static AssetManager symbolAssets;
     private static Typeface symbolTypeface;
     private static Field slotField;
     private static final Map<Object, String> iconSlots = new WeakHashMap<>();
+    private static final Map<HandleBatteryDrawable, Boolean> headsetDrawables = new WeakHashMap<>();
+    private static volatile int headsetComponent;
+    private static boolean listeningForHeadset;
 
     private SystemUiHandleIconHook() {}
 
@@ -56,23 +64,8 @@ final class SystemUiHandleIconHook {
                 Object result = chain.proceed();
                 if (!(result instanceof Drawable drawable) || result instanceof HandleBatteryDrawable) return result;
                 Object owner = chain.getThisObject();
-                String slot = readString(slotField, owner);
-                String rememberedSlot;
-                synchronized (SystemUiHandleIconHook.class) {
-                    rememberedSlot = iconSlots.get(chain.getArg(0));
-                }
-                String resourceName = null;
-                boolean match = targetSlot(slot) || targetSlot(rememberedSlot);
-                if (!match) {
-                    Object icon = argumentIcon == null
-                        ? readField(findField(owner.getClass(), "mIcon"), owner)
-                        : readField(argumentIcon, chain.getArg(0));
-                    resourceName = resourceName(owner, icon);
-                    match = targetResource(resourceName);
-                }
-                if (!match) return result;
-                boolean night = readBoolean(owner, "mNightMode");
-                return new HandleBatteryDrawable(drawable, typeface, resourceName, night);
+                Object statusIcon = getIcon.getParameterCount() == 1 ? chain.getArg(0) : currentIcon(owner);
+                return replaceDrawable(owner, drawable, statusIcon, argumentIcon, typeface);
             });
         }
         for (Method updateDrawable : getMethods(iconView, "updateDrawable", 1)) {
@@ -111,7 +104,69 @@ final class SystemUiHandleIconHook {
                 });
             }
         }
+        listenForHeadset();
         DiagnosticLog.i(TAG, "SystemUI handle battery icon hook installed methods=" + getIcons.size());
+    }
+
+    private static synchronized void listenForHeadset() {
+        if (listeningForHeadset) return;
+        listeningForHeadset = true;
+        HeadsetReceiver receiver = new HeadsetReceiver();
+        ReloadLifecycle.add(receiver::close);
+        receiver.main.post(receiver::attach);
+    }
+
+    private static final class HeadsetReceiver extends BroadcastReceiver {
+        private final Handler main = new Handler(Looper.getMainLooper());
+        private Application app;
+
+        void attach() {
+            if (!ReloadLifecycle.isActive()) return;
+            try {
+                app = (Application) Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+                if (app == null) {
+                    main.postDelayed(this::attach, 200);
+                    return;
+                }
+                app.registerReceiver(this, new IntentFilter(HubWire.HEADSET_BATTERY), null, main,
+                    Context.RECEIVER_EXPORTED);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                app = null;
+                DiagnosticLog.w(TAG, "SystemUI headset side receiver unavailable", error);
+                return;
+            }
+            try {
+                BroadcastOptions options = BroadcastOptions.makeBasic().setShareIdentityEnabled(true);
+                app.sendBroadcast(new Intent(HubWire.HEADSET_BATTERY_REFRESH).setPackage(HubWire.HOST),
+                    null, options.toBundle());
+            } catch (RuntimeException error) {
+                DiagnosticLog.w(TAG, "SystemUI headset battery refresh request failed", error);
+            }
+        }
+
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!ReloadLifecycle.isActive() || !HubWire.HEADSET_BATTERY.equals(intent.getAction())) return;
+            int next = intent.getBooleanExtra(HubWire.HEADSET_BATTERY_SHOW, true)
+                ? intent.getIntExtra(HubWire.HEADSET_BATTERY_COMPONENT, 0) : 0;
+            if (next == headsetComponent) return;
+            headsetComponent = next;
+            // A side change can leave the native battery resource ID unchanged.
+            HandleBatteryDrawable[] drawables;
+            synchronized (headsetDrawables) {
+                drawables = headsetDrawables.keySet().toArray(HandleBatteryDrawable[]::new);
+            }
+            for (HandleBatteryDrawable drawable : drawables) drawable.invalidateSelf();
+        }
+
+        void close() {
+            main.removeCallbacksAndMessages(null);
+            if (app != null) {
+                try { app.unregisterReceiver(this); }
+                catch (IllegalArgumentException ignored) {}
+                app = null;
+            }
+        }
     }
 
     private static Class<?> findClass(ClassLoader loader, String... names) {
@@ -162,28 +217,64 @@ final class SystemUiHandleIconHook {
 
     private static Drawable wrapDrawable(Object owner, Drawable drawable, Typeface typeface) {
         if (drawable == null || drawable instanceof HandleBatteryDrawable) return drawable;
-        String slot = readString(slotField, owner);
-        if (targetSlot(slot)) {
-            return new HandleBatteryDrawable(drawable, typeface, null, readBoolean(owner, "mNightMode"));
-        }
-        Object icon = readField(findField(owner.getClass(), "mIcon"), owner);
-        String rememberedSlot;
-        synchronized (SystemUiHandleIconHook.class) { rememberedSlot = iconSlots.get(icon); }
-        if (targetSlot(rememberedSlot)) {
-            return new HandleBatteryDrawable(drawable, typeface, null, readBoolean(owner, "mNightMode"));
-        }
-        String resourceName = resourceName(owner, icon);
-        if (!targetResource(resourceName)) return drawable;
-        return new HandleBatteryDrawable(drawable, typeface, resourceName, readBoolean(owner, "mNightMode"));
+        return replaceDrawable(owner, drawable, currentIcon(owner), null, typeface);
     }
 
-    private static boolean targetSlot(String slot) {
-        return SLOT.equals(slot) || LEGACY_SLOT.equals(slot);
+    private static Object currentIcon(Object owner) {
+        return readField(findField(owner.getClass(), "mIcon"), owner);
     }
 
-    private static boolean targetResource(String resourceName) {
-        return resourceName != null && (resourceName.startsWith(RESOURCE_PREFIX)
-            || resourceName.startsWith(LEGACY_RESOURCE_PREFIX));
+    private static Drawable replaceDrawable(Object owner, Drawable drawable, Object statusIcon,
+                                            Field iconField, Typeface typeface) {
+        BatteryIcon batteryIcon = BatteryIcon.forSlot(readString(slotField, owner));
+        if (batteryIcon == null) {
+            synchronized (SystemUiHandleIconHook.class) {
+                batteryIcon = BatteryIcon.forSlot(iconSlots.get(statusIcon));
+            }
+        }
+        if (batteryIcon == null && statusIcon != null) {
+            Object icon = statusIcon instanceof Icon ? statusIcon : readField(
+                iconField == null ? findField(statusIcon.getClass(), "icon") : iconField, statusIcon);
+            batteryIcon = BatteryIcon.forResource(resourceName(owner, icon));
+        }
+        if (batteryIcon == null) return drawable;
+
+        HandleBatteryDrawable replacement = new HandleBatteryDrawable(drawable, typeface, batteryIcon);
+        if (!replacement.symbolPaint.hasGlyph(batteryIcon.glyph)) return drawable;
+        if (batteryIcon == BatteryIcon.HEADSET) {
+            synchronized (headsetDrawables) { headsetDrawables.put(replacement, Boolean.TRUE); }
+        }
+        return replacement;
+    }
+
+    private enum BatteryIcon {
+        CASE("handle_battery", 0x102B47, 21.78f / 30f),
+        HEADSET("bluetooth_handsfree_battery", 0x102B43, 16f / 25f);
+
+        final String slot;
+        final String resourcePrefix;
+        final String glyph;
+        final float batteryStart;
+
+        BatteryIcon(String slot, int codePoint, float batteryStart) {
+            this.slot = slot;
+            this.resourcePrefix = "stat_sys_" + slot + "_";
+            this.glyph = new String(Character.toChars(codePoint));
+            this.batteryStart = batteryStart;
+        }
+
+        static BatteryIcon forSlot(String slot) {
+            if (CASE.slot.equals(slot)) return CASE;
+            if (HEADSET.slot.equals(slot)) return HEADSET;
+            return null;
+        }
+
+        static BatteryIcon forResource(String name) {
+            if (name == null) return null;
+            if (name.startsWith(CASE.resourcePrefix)) return CASE;
+            if (name.startsWith(HEADSET.resourcePrefix)) return HEADSET;
+            return null;
+        }
     }
 
     private static Field findField(Class<?> type, String name) {
@@ -213,12 +304,6 @@ final class SystemUiHandleIconHook {
         return value instanceof String ? (String) value : null;
     }
 
-    private static boolean readBoolean(Object owner, String name) {
-        if (owner == null) return false;
-        Object value = readField(findField(owner.getClass(), name), owner);
-        return value instanceof Boolean && (Boolean) value;
-    }
-
     private static String resourceName(Object owner, Object iconObject) {
         if (!(iconObject instanceof Icon icon) || icon.getType() != Icon.TYPE_RESOURCE) return null;
         try {
@@ -245,7 +330,7 @@ final class SystemUiHandleIconHook {
             Typeface candidate = new Typeface.Builder(assets, "sf_pro.ttf").build();
             Paint probe = new Paint(Paint.ANTI_ALIAS_FLAG);
             probe.setTypeface(candidate);
-            if (!probe.hasGlyph(new String(Character.toChars(AIRPODS_CASE_GLYPH)))) return null;
+            if (!probe.hasGlyph(BatteryIcon.CASE.glyph)) return null;
             symbolAssets = assets;
             symbolTypeface = candidate;
             return candidate;
@@ -330,20 +415,22 @@ final class SystemUiHandleIconHook {
 
     private static final class HandleBatteryDrawable extends Drawable {
         private final Drawable original;
-        private final Typeface symbolTypeface;
-        private final String resourceName;
-        private final boolean nightMode;
+        private final BatteryIcon batteryIcon;
         private final Paint symbolPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+        private final String leftGlyph;
+        private final String rightGlyph;
         private ColorStateList tintList;
         private int alpha = 255;
 
-        HandleBatteryDrawable(Drawable original, Typeface symbolTypeface, String resourceName, boolean nightMode) {
+        HandleBatteryDrawable(Drawable original, Typeface symbolTypeface, BatteryIcon batteryIcon) {
             this.original = original;
-            this.symbolTypeface = symbolTypeface;
-            this.resourceName = resourceName;
-            this.nightMode = nightMode;
+            this.batteryIcon = batteryIcon;
             symbolPaint.setTypeface(symbolTypeface);
             symbolPaint.setFontFeatureSettings("'ss16' 1");
+            leftGlyph = batteryIcon == BatteryIcon.HEADSET && symbolPaint.hasGlyph(LEFT_GLYPH)
+                ? LEFT_GLYPH : batteryIcon.glyph;
+            rightGlyph = batteryIcon == BatteryIcon.HEADSET && symbolPaint.hasGlyph(RIGHT_GLYPH)
+                ? RIGHT_GLYPH : batteryIcon.glyph;
         }
 
         @Override public void draw(Canvas canvas) {
@@ -351,36 +438,56 @@ final class SystemUiHandleIconHook {
             if (bounds.isEmpty()) return;
             original.setBounds(bounds);
             int save = canvas.save();
-            // The battery is translated left to sit closer to the case glyph. Expand the
+            String glyph = batteryIcon.glyph;
+            if (batteryIcon == BatteryIcon.HEADSET) {
+                int component = headsetComponent;
+                if (component == Side.LEFT.getComponent()) glyph = leftGlyph;
+                else if (component == Side.RIGHT.getComponent()) glyph = rightGlyph;
+                if (glyph.equals(batteryIcon.glyph)) {
+                    canvas.translate(bounds.width() * HEADSET_PAIR_LEFT_INSET, 0f);
+                }
+            }
+            int battery = canvas.save();
+            // The battery is translated left to sit closer to the device glyph. Expand the
             // clip edge by the same amount so the battery's leading pixels remain visible.
             canvas.clipRect(
-                bounds.left + bounds.width() * RIGHT_START - BATTERY_SHIFT_PX - BATTERY_CLIP_GUARD_PX,
+                bounds.left + bounds.width() * batteryIcon.batteryStart - BATTERY_SHIFT_PX - BATTERY_CLIP_GUARD_PX,
                 bounds.top,
                 bounds.right,
                 bounds.bottom
             );
             canvas.translate(-BATTERY_SHIFT_PX, 0f);
             original.draw(canvas);
+            canvas.restoreToCount(battery);
+            drawDeviceGlyph(canvas, bounds, glyph);
             canvas.restoreToCount(save);
-            drawAirPodsCase(canvas, bounds);
         }
 
-        private void drawAirPodsCase(Canvas canvas, Rect bounds) {
+        private void drawDeviceGlyph(Canvas canvas, Rect bounds, String glyph) {
             float left = bounds.left;
-            float right = bounds.left + bounds.width() * RIGHT_START;
-            float centerX = (left + right) * 0.5f;
+            float right = bounds.left + bounds.width() * batteryIcon.batteryStart;
+            float textSize = bounds.height() * 0.68f;
             float centerY = bounds.exactCenterY();
             float targetWidth = (right - left) * 0.64f;
-            float targetHeight = bounds.height() * 0.68f;
-            String glyph = new String(Character.toChars(AIRPODS_CASE_GLYPH));
-            symbolPaint.setTextSize(targetHeight);
+            float targetHeight = textSize;
+            boolean headset = batteryIcon == BatteryIcon.HEADSET;
+            if (headset) {
+                // The battery in the 25 x 20 headset viewport spans y=5.1 to y=16.3.
+                right = left + (right - left) * 0.92f;
+                centerY = bounds.top + bounds.height() * (10.7f / 20f);
+                targetHeight = bounds.height() * (11.2f / 20f);
+                targetWidth = right - left;
+            }
+            float centerX = (left + right) * 0.5f;
+            symbolPaint.setTextSize(textSize);
             symbolPaint.setColor(symbolColor());
             symbolPaint.setAlpha(alpha);
             Rect textBounds = new Rect();
             symbolPaint.getTextBounds(glyph, 0, glyph.length(), textBounds);
             if (textBounds.width() <= 0 || textBounds.height() <= 0) return;
-            float scale = Math.min(1f, Math.min(targetWidth / textBounds.width(), targetHeight / textBounds.height()));
-            symbolPaint.setTextSize(targetHeight * scale);
+            float scale = Math.min(targetWidth / textBounds.width(), targetHeight / textBounds.height());
+            if (!headset) scale = Math.min(1f, scale);
+            symbolPaint.setTextSize(textSize * scale);
             symbolPaint.getTextBounds(glyph, 0, glyph.length(), textBounds);
             float baseline = centerY - (textBounds.top + textBounds.bottom) * 0.5f;
             float x = centerX - symbolPaint.measureText(glyph) * 0.5f;

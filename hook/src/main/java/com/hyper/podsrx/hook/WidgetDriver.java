@@ -3,11 +3,14 @@ package com.hyper.podsrx.hook;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import com.hyper.podsrx.protocol.HeadsetIconPolicy;
 import com.hyper.podsrx.protocol.Reading;
 import java.util.Map;
 
@@ -20,9 +23,6 @@ import java.util.Map;
 final class WidgetDriver {
     private static final String GRIP = "miui.intent.action.ACTION_HANDLE_BATTERY_STATE_CHANGED";
     private static final String GRIP_CONNECTED = "miui.intent.extra.EXTRA_HANDLE_CONNECT_STATE";
-    private static final String HEADSET = "android.intent.action.BLUETOOTH_HANDSFREE_BATTERY_CHANGED";
-    private static final String HEADSET_SHOW = "android.intent.extra.show_bluetooth_handsfree_battery";
-    private static final String HEADSET_LEVEL = "android.intent.extra.bluetooth_handsfree_battery_level";
     /** The widget forgets the grip when the launcher restarts; a slow repeat brings it back. */
     private static final long RESEND_MS = 60_000;
     /** Lets the hub's change notice reach the security center before the widget asks again. */
@@ -30,15 +30,37 @@ final class WidgetDriver {
 
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final HeadsetIconPolicy headsetIcon = new HeadsetIconPolicy();
+    private final Runnable sendHeadset = this::sendHeadsetBattery;
+    private BroadcastReceiver refreshReceiver;
+    private String address = "";
     private int headset = Integer.MIN_VALUE, caseLevel = Integer.MIN_VALUE;
     private boolean charging;
     /** Null on the first update, so an old status-bar indicator is explicitly withdrawn. */
     private Boolean headsetShown;
     private int headsetShownLevel = Integer.MIN_VALUE;
+    private int headsetShownComponent;
     private long sentAt = Long.MIN_VALUE / 2;
 
     WidgetDriver(Context context) {
         this.context = context;
+    }
+
+    void start() {
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context ignored, Intent intent) {
+                if (!ReloadLifecycle.isActive() || !HubWire.HEADSET_BATTERY_REFRESH.equals(intent.getAction())
+                        || !"com.android.systemui".equals(getSentFromPackage())) return;
+                if (Boolean.TRUE.equals(headsetShown)) scheduleHeadsetUpdate();
+            }
+        };
+        try {
+            context.registerReceiver(receiver, new IntentFilter(HubWire.HEADSET_BATTERY_REFRESH), null, main,
+                Context.RECEIVER_EXPORTED);
+            refreshReceiver = receiver;
+        } catch (RuntimeException error) {
+            DiagnosticLog.w("HyperPods-X", "Headset battery refresh receiver unavailable", error);
+        }
     }
 
     /** The mean of the earbuds, as the widget shows one headset level; -1 when neither is known. */
@@ -53,6 +75,10 @@ final class WidgetDriver {
     }
 
     void update(HubBundles.State state) {
+        if (!address.equals(state.address)) {
+            address = state.address;
+            headsetIcon.reset();
+        }
         boolean bound = !state.address.isEmpty();
         int nextHeadset = bound ? headsetLevel(state.readings) : -1;
         Reading box = bound ? state.readings.get(8) : null;
@@ -65,12 +91,16 @@ final class WidgetDriver {
         // Case advertisements can retain valid earbud levels long after both buds are docked.
         boolean bothCharging = charging(state.readings, 4) && charging(state.readings, 2);
         boolean showHeadset = nextHeadset >= 0 && !bothCharging && boundDeviceConnected(state);
+        int component = headsetIcon.update(state.readings).getComponent();
+        Reading active = state.readings.get(component);
+        int statusLevel = active != null && active.getLevel() != null ? active.getLevel() : nextHeadset;
         boolean headsetChanged = headsetShown == null || headsetShown != showHeadset
-            || (showHeadset && headsetShownLevel != nextHeadset);
+            || (showHeadset && (headsetShownLevel != statusLevel || headsetShownComponent != component));
         if (!widgetChanged && !headsetChanged) return;
         headset = nextHeadset;
         headsetShown = showHeadset;
-        headsetShownLevel = showHeadset ? nextHeadset : -1;
+        headsetShownLevel = showHeadset ? statusLevel : -1;
+        headsetShownComponent = showHeadset ? component : 0;
         caseLevel = nextCase;
         charging = nextCharging;
         if (widgetChanged) {
@@ -83,22 +113,31 @@ final class WidgetDriver {
                 DiagnosticLog.w("HyperPods-X", "Widget case refresh skipped", error);
             }
         }
-        if (!headsetChanged) return;
-        main.removeCallbacksAndMessages(null);
-        main.postDelayed(() -> {
-            if (!ReloadLifecycle.isActive()) return;
-            try {
-                // The status bar also consumes this broadcast; send a real level on connection,
-                // and explicitly withdraw it after docking, disconnect or loss of readings.
-                // This extra is a BOOLEAN in MIUI/HyperOS. Passing int 0/1 makes
-                // getBooleanExtra(..., true) fall back to true, leaving a 0%-style icon.
-                Intent notice = new Intent(HEADSET).putExtra(HEADSET_SHOW, showHeadset);
-                if (showHeadset) notice.putExtra(HEADSET_LEVEL, toSystemBatteryLevel(nextHeadset));
-                context.sendBroadcast(notice);
-            } catch (RuntimeException error) {
-                DiagnosticLog.w("HyperPods-X", "Widget headset refresh skipped", error);
+        if (headsetChanged) scheduleHeadsetUpdate();
+    }
+
+    private void scheduleHeadsetUpdate() {
+        main.removeCallbacks(sendHeadset);
+        main.postDelayed(sendHeadset, HEADSET_DELAY_MS);
+    }
+
+    private void sendHeadsetBattery() {
+        if (!ReloadLifecycle.isActive()) return;
+        boolean shown = Boolean.TRUE.equals(headsetShown);
+        try {
+            // The status bar also consumes this broadcast; send a real level on connection,
+            // and explicitly withdraw it after docking, disconnect or loss of readings.
+            // This extra is a BOOLEAN in MIUI/HyperOS. Passing int 0/1 makes
+            // getBooleanExtra(..., true) fall back to true, leaving a 0%-style icon.
+            Intent notice = new Intent(HubWire.HEADSET_BATTERY).putExtra(HubWire.HEADSET_BATTERY_SHOW, shown);
+            if (shown) {
+                notice.putExtra(HubWire.HEADSET_BATTERY_LEVEL, toSystemBatteryLevel(headsetShownLevel))
+                    .putExtra(HubWire.HEADSET_BATTERY_COMPONENT, headsetShownComponent);
             }
-        }, HEADSET_DELAY_MS);
+            context.sendBroadcast(notice);
+        } catch (RuntimeException error) {
+            DiagnosticLog.w("HyperPods-X", "Widget headset refresh skipped", error);
+        }
     }
 
     /** MIUI SystemUI's handsfree battery slot uses 0..9 for ten 10%-wide levels. */
@@ -131,5 +170,10 @@ final class WidgetDriver {
 
     void close() {
         main.removeCallbacksAndMessages(null);
+        if (refreshReceiver != null) {
+            try { context.unregisterReceiver(refreshReceiver); }
+            catch (IllegalArgumentException ignored) {}
+            refreshReceiver = null;
+        }
     }
 }
