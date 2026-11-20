@@ -1,0 +1,70 @@
+diff --git a/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NativeControlLens.kt b/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NativeControlLens.kt
+index 4bbf81a..a41739d 100644
+--- a/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NativeControlLens.kt
++++ b/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NativeControlLens.kt
+@@ -151,36 +151,30 @@ fun BackdropEffectScope.nativeControlLens(
+         if (precomposedScene) max(base.width, sceneSize.width) else base.width,
+         sceneTop + if (precomposedScene) sceneSize.height else 0)
+     val corners = glassCornerRadii(shape, size, layoutDirection, this)
+-    val fieldPlane = if (tab && !fullyResting && !small && separateSceneOutput &&
+-        scope.supportsNativeControlLensConsumerSharing && scope.supportsNativeGlassHardwareLinearSampling &&
+-        scope.nativeGlassHardwareRendering && !managed && scope.samplingScale == 1f) {
+-        scope.nativeControlLensFieldPlane(shape, size, corners, density, padding, opticalProgress,
+-            base, sceneTop, requireNotNull(rects.getOrNull(3)), storageSize)
+-    } else null
+-    val atlas = NativeGlassMipAtlas(base, fieldPlane?.consumerSize ?: storageSize, rects,
++    // Calculate the lens contour in the shader at its output coordinates. Sampling
++    // the cached distance plane through HWUI can resolve transparent texels to inside
++    // the lens, exposing the rectangular output region during a tab lift.
++    val atlas = NativeGlassMipAtlas(base, storageSize, rects,
+         producer, scope.colorManagedNativeGlass,
+         producerStages = stages,
+         controlBlurPlane = rects.getOrNull(2).takeIf { planeOnlyBlur && stagedBlur },
+         controlScenePlane = rects.getOrNull(3).takeIf { separateSceneOutput },
+-        controlFieldPlane = fieldPlane,
+         controlUnwarpedBlurSource = fusedExtract,
+         allowHardwareLinearSampling = scope.supportsNativeGlassHardwareLinearSampling)
+     val builtInConsumer = scope.supportsNativeControlLensConsumerSharing
+     val sampledTabConsumer = tab && separateSceneOutput && builtInConsumer
+-    val sampledField = fieldPlane != null
+-    val lensKey = "Glasmio.ControlLens.${atlas.colorManaged}.$fullyResting.$small.$tab.$precomposedScene.layout=${atlas.samplingLayoutKey}.sampledScene=$sampledTabConsumer.field=$sampledField"
++    val lensKey = "Glasmio.ControlLens.${atlas.colorManaged}.$fullyResting.$small.$tab.$precomposedScene.layout=${atlas.samplingLayoutKey}.sampledScene=$sampledTabConsumer"
+     val sourceKey = if (builtInConsumer) "$lensKey.builtin.source" else "$lensKey.source"
+     val lensSource = scope.cachedResource(sourceKey) {
+         if (builtInConsumer) {
+             nativeBuiltInControlLensProgram(atlas.samplingFunctions, fullyResting, small, tab, precomposedScene, heldTab,
+-                sampledTabConsumer, sampledField)
++                sampledTabConsumer)
+         } else nativeControlLensProgram(atlas.samplingFunctions, fullyResting, small, tab, precomposedScene)
+     }
+-    fun configureLens(shader: android.graphics.RuntimeShader, highlight: Boolean, scenePass: Boolean = false) {
++    fun configureLens(shader: android.graphics.RuntimeShader, highlight: Boolean) {
+         atlas.configure(shader)
+         shader.setFloatUniform("size", size.width, size.height)
+         shader.setFloatUniform("cornerRadii", corners)
+-        fieldPlane?.configure(shader, scenePass)
+         shader.setFloatUniform("lensOrigin", padding, padding)
+         shader.setFloatUniform("lensDensity", density)
+         shader.setFloatUniform("lensScale", scope.samplingScale)
+@@ -216,18 +210,18 @@ fun BackdropEffectScope.nativeControlLens(
+         if (highlight) NativeVibrantColorMatrix.RegularHighlight.configure(shader::setFloatUniform)
+     }
+     if (precomposedScene) {
+-        val sceneKey = if (separateSceneOutput) "Glasmio.ControlLens.scenePlane.${atlas.colorManaged}.$small.$tab.layout=${atlas.samplingLayoutKey}.field=$sampledField"
++        val sceneKey = if (separateSceneOutput) "Glasmio.ControlLens.scenePlane.${atlas.colorManaged}.$small.$tab.layout=${atlas.samplingLayoutKey}"
+             else "Glasmio.ControlLens.scene.${atlas.colorManaged}.layout=${atlas.samplingLayoutKey}"
+         val sceneShader = obtainRuntimeShader(sceneKey,
+             scope.cachedResource("$sceneKey.source") {
+-                if (separateSceneOutput) nativeControlScenePlaneProgram(atlas.samplingFunctions, heldTab, style, sampledField)
++                if (separateSceneOutput) nativeControlScenePlaneProgram(atlas.samplingFunctions, heldTab, style)
+                 else GlassSdfShader +
+                     atlas.samplingFunctions + NativeGlassRefractionFunctions + NativeGlassEdgeFunctions +
+                     NativeControlDisplacementFunctions +
+                     (if (heldTab) NativeControlHeldTabSceneFunctions else NativeControlLensSceneFunctions) +
+                     NativeControlSceneAtlasMain
+             }).asAndroidRuntimeShader()
+-        configureLens(sceneShader, highlight = false, scenePass = true)
++        configureLens(sceneShader, highlight = false)
+         val sceneEffect = RenderEffect.createRuntimeShaderEffect(sceneShader, "content")
+         if (separateSceneOutput) atlas.controlSceneEffect = sceneEffect else stages += sceneEffect
+     }

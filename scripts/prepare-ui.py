@@ -6,7 +6,7 @@ import subprocess
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-GLASMIO_COMMIT = "032a88914a582bdcd270b13af7f8566ac9070b01"
+GLASMIO_COMMIT = "1fb05a72334364fe43b472f5a78208b80e23cd62"
 FONT_TAG = "v27.0.1789118100"
 FONTS = {
     "SF-Pro.ttf": "7270e1593be7b88597d8ab302e4d156a33084c85b8161e042ff6510cdaf10e10",
@@ -31,6 +31,18 @@ def prepare(with_fonts):
         git("-C", library, "checkout", "--detach", GLASMIO_COMMIT)
     if git("-C", library, "rev-parse", "HEAD") != GLASMIO_COMMIT:
         raise SystemExit("Existing Glasmio checkout has a different revision; preserve or move it before preparing the pinned version.")
+    tab_bar = library / "glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassBottomBar.kt"
+    geometry = "                        .nativeControlLensGeometry("
+    legacy_clip = "                        .clip(Capsule())\n" + geometry
+    tab_source = tab_bar.read_text(encoding="utf-8")
+    if legacy_clip in tab_source:
+        tab_bar.write_text(tab_source.replace(legacy_clip, geometry), encoding="utf-8")
+    lens = library / "glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NativeControlLens.kt"
+    if "val fieldPlane = if (tab && !fullyResting" in lens.read_text(encoding="utf-8"):
+        git("-C", library, "apply", ROOT / "scripts/glasmio-tab-lens.patch")
+    adaptive = library / "glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt"
+    if "glassTrack: Boolean = false" not in adaptive.read_text(encoding="utf-8"):
+        git("-C", library, "apply", ROOT / "scripts/glasmio-listening-glass.patch")
     print("Glasmio " + GLASMIO_COMMIT)
     properties = ROOT / "local.properties"
     text = properties.read_text(encoding="utf-8") if properties.exists() else ""

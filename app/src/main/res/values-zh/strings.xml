@@ -360,8 +360,10 @@
     <string name="automatic_connection_help">"自动连接帮助"</string>
     <string name="connection_diagnostics">"连接诊断"</string>
     <string name="open_source_licenses">"开源许可"</string>
+    <string name="open_source_projects">开源项目</string>
     <string name="bluetooth_device_settings_suffix">" · 蓝牙设备设置"</string>
     <string name="back">"返回"</string>
+    <string name="ios_sidebar">侧栏</string>
     <string name="connect_earbuds">"连接耳机"</string>
     <string name="rename">"重命名"</string>
     <string name="rename_in_bluetooth">"在系统蓝牙中修改此设备的名称"</string>
@@ -393,9 +395,11 @@
     <string name="waiting_readback">"等待读取"</string>
     <string name="reported_version">"设备报告版本"</string>
     <string name="appearance">"外观"</string>
+    <string name="feature_settings">功能设置</string>
     <string name="switch_ui_style">"切换界面风格"</string>
     <string name="popups_and_alerts">"弹窗与提醒"</string>
     <string name="lid_popup">"开盖弹窗"</string>
+    <string name="battery_alert">电量提醒</string>
     <string name="lid_popup_description">"仅响应已验证的耳机开盖广播"</string>
     <string name="hyperos_native_popup">"HyperOS 原生弹窗"</string>
     <string name="native_popup_description">"优先使用系统弹窗与超级岛"</string>
@@ -480,6 +484,7 @@
     <string name="proximity_identity_matches">"邻近广播 / 身份匹配"</string>
     <string name="case_lid">"盒盖"</string>
     <string name="opened">"已打开"</string>
+    <string name="closed">已关闭</string>
     <string name="waiting_advertisement">"等待广播"</string>
     <string name="reported_settings_count">"设备报告的设置项"</string>
     <string name="wearing_status">"佩戴状态"</string>
@@ -585,4 +590,6 @@
     <string name="more_cancellation">"更降噪"</string>
     <string name="strength_swipe_hint">"向%1$s滑动增强降噪，连续调节。"</string>
     <string name="file_picker_failed">"无法打开文件保存界面，请稍后重试"</string>
+    <string name="tab_earbuds">耳机</string>
+    <string name="tab_connection">连接</string>
 </resources>

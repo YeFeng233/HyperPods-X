@@ -158,6 +158,14 @@ internal object SettingsCatalog {
         SettingsSectionSpec("systemIntegration", "系统集成", listOf("nativeScope", "restartHosts", "overlayPermission", "bluetoothSettings")),
         SettingsSectionSpec("moduleInformation", null, listOf("connection", "diagnostics", "exportLogs", "about")),
     )
+    val tabbedModuleSections = listOf(
+        SettingsSectionSpec("appearance", "外观", listOf("style", "language")),
+        SettingsSectionSpec("earbudControls", "功能设置", listOf("audio", "controls", "accessibility")),
+        SettingsSectionSpec("popups", "弹窗与提醒", popupToggles.map(SettingsToggle::key)),
+        SettingsSectionSpec("previews", null, listOf("islandPreview")),
+        SettingsSectionSpec("moduleInformation", null, listOf("diagnostics", "exportLogs", "about")),
+    )
+
     fun moduleSection(key: String): SettingsSectionSpec = moduleSections.first { it.key == key }
     private val moduleLabels = mapOf(
         "style" to "UI 风格", "language" to "应用语言", "batteryPreview" to "电量卡片预览", "islandPreview" to "超级岛预览",
@@ -172,6 +180,7 @@ internal object SettingsCatalog {
         R.string.setting_send_failed -> strings(R.string.earbud_setting_update_failed)
         R.string.connect_earbuds_first, R.string.control_not_connected -> strings(R.string.earbuds_disconnected_retry)
         R.string.select_adaptive_before_adjusting -> strings(R.string.switch_adaptive_first)
+        R.string.start_earbud_service_first -> strings(state.messageCode)
         R.string.wait_adaptive_readback -> strings(R.string.reading_settings_retry)
         R.string.wait_strength_confirmation -> strings(R.string.updating_adaptive_wait)
         R.string.wait_noise_command -> strings(R.string.sending_adaptive_wait)

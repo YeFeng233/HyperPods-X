@@ -1,0 +1,207 @@
+diff --git a/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt b/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt
+index c55de67..e8c15e5 100644
+--- a/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt
++++ b/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt
+@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.util.lerp
+ import io.github.neoruaa.glasmio.glass.render.Backdrop
++import io.github.neoruaa.glasmio.glass.render.drawPlainBackdrop
+ import io.github.neoruaa.glasmio.glass.render.backdrops.layerBackdrop
+ import io.github.neoruaa.glasmio.glass.render.backdrops.rememberCombinedBackdrop
+ import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
+@@ -67,7 +68,7 @@ fun GlasmioAdaptiveSlider(
+     hiddenItems = emptySet(), onAdaptiveValueChangeFinished = onValueChangeFinished,
+     backdrop = backdrop, showLabels = showLabels, captionOverride = captionOverride,
+     adaptiveLabels = labels, itemContent = null, thumbContent = thumbContent, standalone = true,
+-    discrete = discrete,
++    discrete = discrete, glassTrack = false,
+ )
+
+ /**
+@@ -96,10 +97,11 @@ fun <T> GlasmioSegmentedControl(
+     itemContent: (@Composable BoxScope.(value: T, selected: Boolean) -> Unit)? = null,
+     adaptiveDiscrete: Boolean = false,
+     thumbContent: (@Composable () -> Unit)? = null,
++    glassTrack: Boolean = false,
+ ) = AdaptiveSegmentedRenderer(
+     items, selected, onSelected, adaptiveItem, adaptiveValue, onAdaptiveValueChange, modifier,
+     enabled, adaptiveEnabled, deferSelection, hiddenItems, onAdaptiveValueChangeFinished,
+-    backdrop, showLabels, captionOverride, adaptiveLabels, itemContent, thumbContent, false, adaptiveDiscrete,
++    backdrop, showLabels, captionOverride, adaptiveLabels, itemContent, thumbContent, false, adaptiveDiscrete, glassTrack,
+ )
+
+ private fun adaptiveInteractionValue(value: Float, discrete: Boolean): Float = when {
+@@ -172,7 +174,7 @@ private fun <T> AdaptiveSegmentedRenderer(
+     hiddenItems: Set<T>, onAdaptiveValueChangeFinished: (() -> Unit)?, backdrop: Backdrop,
+     showLabels: Boolean, captionOverride: String?, adaptiveLabels: List<String>,
+     itemContent: (@Composable BoxScope.(T, Boolean) -> Unit)?, thumbContent: (@Composable () -> Unit)?,
+-    standalone: Boolean, discrete: Boolean,
++    standalone: Boolean, discrete: Boolean, glassTrack: Boolean,
+ ) {
+     require(items.isNotEmpty() && items.map { it.first }.distinct().size == items.size)
+     require(items.any { it.first == adaptiveItem } && items.any { it.first !in hiddenItems })
+@@ -183,6 +185,8 @@ private fun <T> AdaptiveSegmentedRenderer(
+     val selectedIndex = if (selected == null || selected in hiddenItems) -1 else items.indexOfFirst { it.first == selected }
+     val expanded = standalone || selectedIndex == adaptiveIndex
+     val colors = GlasmioTheme.colors
++    val appearance = LocalGlassAppearance.current
++    val glass = glassTrack && appearance.usesBackdrop
+     val density = LocalDensity.current
+     val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+     val expansion = remember { AdaptiveSpring(if (expanded) 1f else 0f, AdaptiveExpansionSpring) }
+@@ -191,7 +195,9 @@ private fun <T> AdaptiveSegmentedRenderer(
+     var lastOrdinaryIndex by remember { mutableIntStateOf(if (selectedIndex >= 0 && !expanded) selectedIndex else -1) }
+     val child = remember { AdaptiveSpring(actualValue ?: .5f, AdaptiveSnapSpring) }
+     val scale = remember { AdaptiveSpring(1f, AdaptiveScaleSpring) }
+-    val restingFill = remember { AdaptiveSpring(.8f, AdaptiveSnapSpring) }
++    val press = remember { AdaptiveSpring(0f, AdaptiveScaleSpring) }
++    val thumbFill = if (glass) .38f else .8f
++    val restingFill = remember { AdaptiveSpring(thumbFill, AdaptiveSnapSpring) }
+     val visibility = remember { mutableMapOf<T, AdaptiveSpring>() }
+     items.forEach { (key, _) -> visibility.getOrPut(key) { AdaptiveSpring(if (key in hiddenItems) 0f else 1f, AdaptiveVisibilitySpring) } }
+     var dragKind by remember { mutableIntStateOf(0) }
+@@ -236,10 +242,12 @@ private fun <T> AdaptiveSegmentedRenderer(
+         }
+         ordinaryOpacity.target(if (selectedIndex >= 0 && selectedIndex != adaptiveIndex) 1f else 0f)
+         if (dragKind != 1) (childPreview ?: actualValue)?.let { child.target(it) }
+-        restingFill.target(if (dragKind != 0) 0f else .8f)
++        restingFill.target(if (dragKind != 0) 0f else thumbFill)
+     }
+     val source = rememberLayerBackdrop()
+-    val combined = rememberCombinedBackdrop(backdrop, source)
++    val track = rememberLayerBackdrop()
++    val indicatorBackdrop = rememberCombinedBackdrop(backdrop, track)
++    val combined = rememberCombinedBackdrop(if (glass) indicatorBackdrop else backdrop, source)
+     val trackColor = colors.systemGray5
+     BoxWithConstraints(modifier.swipeBackExcluded(enabled).fillMaxWidth().then(if (standalone) Modifier.semantics(mergeDescendants = true) { } else Modifier)) {
+         val weights = items.map { (key, _) ->
+@@ -259,7 +267,7 @@ private fun <T> AdaptiveSegmentedRenderer(
+                 bounds.getValue(key).second.target(targetGeometry.cells[index].width)
+             }
+         }
+-        val tracks = listOf(expansion, ordinaryOpacity, position, child, scale, restingFill, unit) +
++        val tracks = listOf(expansion, ordinaryOpacity, position, child, scale, press, restingFill, unit) +
+             items.flatMap { (key, _) -> bounds.getValue(key).let { listOf(visibility.getValue(key), it.first, it.second) } }
+         val running = tracks.any { it.running }
+         LaunchedEffect(running, tracks) {
+@@ -278,7 +286,7 @@ private fun <T> AdaptiveSegmentedRenderer(
+         val currentAdaptiveIndex by rememberUpdatedState(adaptiveIndex)
+         val currentLtr by rememberUpdatedState(ltr)
+         fun childCenter(): Float = geometry.cells[adaptiveIndex].left + geometry.unit * (.5f + 2f * child.value)
+-        val centers = items.indices.filter { it != adaptiveIndex && items[it].first !in hiddenItems }
++        val centers = items.indices.filter { (it != adaptiveIndex || glass && !expanded) && items[it].first !in hiddenItems }
+             .map { it to geometry.cells[it].center }.ifEmpty { listOf(adaptiveIndex to geometry.cells[adaptiveIndex].center) }
+         val before = centers.lastOrNull { it.first <= position.value } ?: centers.first()
+         val after = centers.firstOrNull { it.first >= position.value } ?: centers.last()
+@@ -310,7 +318,7 @@ private fun <T> AdaptiveSegmentedRenderer(
+         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+             Box(
+                 Modifier.fillMaxWidth().height(56.dp).alpha(if (enabled) 1f else .45f)
+-                    .pointerInput(enabled, adaptiveEnabled, ltr, adaptiveItem, discrete) {
++                    .pointerInput(enabled, adaptiveEnabled, ltr, adaptiveItem, discrete, glass) {
+                         if (!enabled) return@pointerInput
+                         fun logical(x: Float) = if (currentLtr) x else size.width - x
+                         fun indexAt(x: Float): Int {
+@@ -349,6 +357,11 @@ private fun <T> AdaptiveSegmentedRenderer(
+                             val initialIndex = indexAt(logical(down.position.x))
+                             val childGesture = initialIndex == currentAdaptiveIndex && currentExpanded
+                             val modeGesture = !standalone && !currentExpanded && initialIndex == currentSelectedIndex
++                            val pressLens = glass && !currentExpanded && currentSelectedIndex >= 0
++                            if (pressLens) {
++                                position.target(initialIndex.toFloat())
++                                press.target(1f)
++                            }
+                             val modeStartCenter = currentGeometry.cells[initialIndex].center
+                             var modeTarget = initialIndex
+                             fun updateMode(x: Float) {
+@@ -425,6 +438,11 @@ private fun <T> AdaptiveSegmentedRenderer(
+                                     }
+                                 }
+                             } finally {
++                                if (pressLens) {
++                                    // Short taps still show a lift even when down and up share a frame.
++                                    if (completed && press.value < .45f) press.snap(.45f)
++                                    press.target(0f)
++                                }
+                                 val modeDrag = dragKind == 2
+                                 dragKind = 0
+                                 scale.target(1f)
+@@ -446,24 +464,46 @@ private fun <T> AdaptiveSegmentedRenderer(
+                         }
+                     },
+             ) {
+-                Box(Modifier.fillMaxSize().clip(Capsule()).background(trackColor))
++                if (glass) {
++                    GlassSurface(
++                        modifier = Modifier.fillMaxSize(), backdrop = backdrop, shape = Capsule(),
++                        material = NavigationGlassMaterial.Clear, exportedBackdrop = track,
++                    ) {}
++                } else Box(Modifier.fillMaxSize().clip(Capsule()).background(trackColor))
+                 Box(
+                     Modifier.fillMaxSize().clearAndSetSemantics { }.alpha(0f).layerBackdrop(source)
+-                        .clip(Capsule()).background(trackColor),
++                        .then(if (glass) Modifier else Modifier.clip(Capsule()).background(trackColor)),
+                 ) {
+                     AdaptiveContents(items, selectedIndex, adaptiveIndex, geometry, expansion.value,
+-                        itemContent, thumbContent, Modifier.fillMaxSize())
++                        itemContent, thumbContent, Modifier.fillMaxSize(), showSelected = glass)
+                 }
+-                // Ordinary cells share a matched background pill. The adaptive glass thumb is separate.
+-                if (lastOrdinaryIndex >= 0 && items.getOrNull(lastOrdinaryIndex)?.first !in hiddenItems && ordinaryOpacity.value > .0001f) {
+-                    Box(Modifier.align(AbsoluteAlignment.TopLeft)
+-                        .absoluteOffset { androidx.compose.ui.unit.IntOffset(ordinaryPhysicalLeft.roundToInt(), with(density) { 2.dp.roundToPx() }) }
+-                        .width(with(density) { thumbWidth.toDp() }).height(52.dp)
+-                        .alpha(ordinaryOpacity.value.coerceIn(0f, 1f)).clip(Capsule()).background(colors.elevatedBackground))
++                val showOrdinaryIndicator = lastOrdinaryIndex >= 0 &&
++                    items.getOrNull(lastOrdinaryIndex)?.first !in hiddenItems && ordinaryOpacity.value > .0001f
++                val ordinaryIndicator = Modifier.align(AbsoluteAlignment.TopLeft)
++                    .absoluteOffset { androidx.compose.ui.unit.IntOffset(ordinaryPhysicalLeft.roundToInt(), with(density) { 2.dp.roundToPx() }) }
++                    .width(with(density) { thumbWidth.toDp() }).height(52.dp)
++                    .alpha(ordinaryOpacity.value.coerceIn(0f, 1f))
++                if (!glass && showOrdinaryIndicator) {
++                    Box(ordinaryIndicator.clip(Capsule()).background(colors.elevatedBackground))
+                 }
+                 AdaptiveContents(items, selectedIndex, adaptiveIndex, geometry, expansion.value,
+-                    itemContent, thumbContent, Modifier.fillMaxSize().clearAndSetSemantics { })
+-                AdaptiveCells(geometry, Modifier.fillMaxSize().clearAndSetSemantics { }) { index ->
++                    itemContent, thumbContent, Modifier.fillMaxSize().clearAndSetSemantics { }, showSelected = glass)
++                if (glass && showOrdinaryIndicator) {
++                    val lensStyle = NativeControlLensStyle.TabBarIndicator
++                    val lift = remember(appearance.usesRefraction, press) {
++                        { if (appearance.usesRefraction) press.value else 0f }
++                    }
++                    val lens = remember(indicatorBackdrop, source, lift, colors.isDark) {
++                        Modifier.nativeControlLensGeometry(lensStyle, horizontalProgress = lift)
++                            .drawPlainBackdrop(backdrop = indicatorBackdrop, shape = { Capsule() }, effects = {
++                                nativeControlLens(lensStyle, lift(), colors.isDark, liftedContent = source)
++                            })
++                    }
++                    Box(ordinaryIndicator) {
++                        Box(Modifier.fillMaxSize().then(lens))
++                    }
++                }
++                if (!glass) AdaptiveCells(geometry, Modifier.fillMaxSize().clearAndSetSemantics { }) { index ->
+                     if (index == selectedIndex && index != adaptiveIndex) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                         if (itemContent != null) itemContent(items[index].first, true)
+                         else Text(items[index].second, style = GlasmioTheme.textStyles.caption1, color = colors.content)
+@@ -591,7 +631,7 @@ private fun <T> AdaptiveContents(
+     items: List<Pair<T, String>>, selectedIndex: Int, adaptiveIndex: Int, geometry: AdaptiveGeometry,
+     expansion: Float,
+     itemContent: (@Composable BoxScope.(T, Boolean) -> Unit)?, thumbContent: (@Composable () -> Unit)?,
+-    modifier: Modifier,
++    modifier: Modifier, showSelected: Boolean,
+ ) = AdaptiveCells(geometry, modifier) { index ->
+     val colors = GlasmioTheme.colors
+     Box(Modifier.fillMaxSize().alpha(if (geometry.cells[index].width > 0f) 1f else 0f), contentAlignment = Alignment.Center) {
+@@ -601,8 +641,8 @@ private fun <T> AdaptiveContents(
+             if (index != selectedIndex) Box(Modifier.alpha((1f - expansion).coerceIn(0f, 1f))) { AdaptiveThumbGlyph(thumbContent) }
+             AdaptiveGlyphAt(geometry.unit / 2f, Modifier.alpha(alpha)) { SfIcon("circle.dotted", null, size = 22.dp, tint = Color(0xFF8E8E93)) }
+             AdaptiveGlyphAt(geometry.cells[index].width - geometry.unit / 2f, Modifier.alpha(alpha)) { SfIcon("circle", null, size = 22.dp, tint = Color(0xFF8E8E93)) }
+-        } else if (index != selectedIndex) {
+-            if (itemContent != null) itemContent(items[index].first, false)
++        } else if (showSelected || index != selectedIndex) {
++            if (itemContent != null) itemContent(items[index].first, index == selectedIndex)
+             else Text(items[index].second, style = GlasmioTheme.textStyles.caption1, color = colors.content, maxLines = 1)
+         }
+     }

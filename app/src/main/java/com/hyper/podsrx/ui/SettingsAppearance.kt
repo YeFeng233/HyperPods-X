@@ -28,7 +28,7 @@ fun HyperPodsScreen(
     }) {
         key(style.name) {
             if (style == UiStyle.IOS) {
-                IosSettingsScreen(externalSettings, entryPage, onConnect, onOverlay, onSystemBluetooth, onFinish)
+                IosSettingsScreen(externalSettings, entryPage, onConnect, onSystemBluetooth, onFinish)
             } else {
                 MiuixSettingsScreen(externalSettings, entryPage, onConnect, onOverlay, onSystemBluetooth, onFinish)
             }
