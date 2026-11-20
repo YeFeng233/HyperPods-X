@@ -48,6 +48,7 @@ final class ScanEngine {
     private static final long TICK_MS = 10_000;
 
     private final Context context;
+    private final boolean aosp;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final PresenceTracker presence = new PresenceTracker(SystemClock.elapsedRealtime(), PresenceTracker.IDLE_AFTER_MS);
@@ -78,6 +79,7 @@ final class ScanEngine {
 
     ScanEngine(Context context, Listener listener) {
         this.context = context;
+        aosp = HubWire.AOSP_HOST.equals(context.getPackageName());
         this.listener = listener;
     }
 
@@ -166,7 +168,7 @@ final class ScanEngine {
             boolean idle = presence.shouldIdle(SystemClock.elapsedRealtime(), listener.controlConnected());
             if (live != null && liveIdle != idle) stopLive();
             if (scanner != null) {
-                if (live == null) startLive(scanner, idle);
+                if (live == null) startLive(scanner, idle, !aosp || !adapter.isLeExtendedAdvertisingSupported());
                 if (box == null) startBox(scanner);
             }
         }
@@ -185,9 +187,9 @@ final class ScanEngine {
      * The proximity message carries the lid; LOW_POWER missed short lid advertisements, so it is
      * only used while the headset is away. Batch scans would report 5-20 s late.
      */
-    private void startLive(BluetoothLeScanner scanner, boolean idle) {
+    private void startLive(BluetoothLeScanner scanner, boolean idle, boolean legacyOnly) {
         if (!due(liveStartedAt)) return;
-        byte[] pattern = new byte[27], mask = new byte[27];
+        byte[] pattern = new byte[aosp ? 2 : 27], mask = new byte[pattern.length];
         pattern[0] = 7; pattern[1] = 25; mask[0] = -1; mask[1] = -1;
         ScanCallback callback = new Callback(HookStrings.get(context, R.string.hook_scan_live)) {
             @Override boolean current() { return live == this; }
@@ -199,7 +201,7 @@ final class ScanEngine {
         try {
             scanner.startScan(Collections.singletonList(new ScanFilter.Builder().setManufacturerData(0x004c, pattern, mask).build()),
                 new ScanSettings.Builder().setScanMode(idle ? ScanSettings.SCAN_MODE_LOW_POWER : ScanSettings.SCAN_MODE_LOW_LATENCY)
-                    .setLegacy(true).setReportDelay(0).build(), callback);
+                    .setLegacy(legacyOnly).setReportDelay(0).build(), callback);
             starts++;
         } catch (RuntimeException error) {
             live = null;

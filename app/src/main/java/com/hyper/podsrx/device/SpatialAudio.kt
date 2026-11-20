@@ -6,6 +6,7 @@ import android.media.*
 import android.os.*
 import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.SpatialWire
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.UiText
 import com.hyper.podsrx.i18n.stringResolver
@@ -138,7 +139,8 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
         remote?.takeIf{it.isBinderAlive}?.let{return@withContext it}
         FrameworkBridge.publish()
         val deferred=CompletableDeferred<IBinder?>()
-        context.sendOrderedBroadcast(Intent(SpatialWire.ACTION).setPackage("com.xiaomi.bluetooth")
+        val host=if(HubWire.isAosp(context))HubWire.SYSTEM_UI else HubWire.HOST
+        context.sendOrderedBroadcast(Intent(SpatialWire.ACTION).setPackage(host)
             .putExtra("created",SystemClock.elapsedRealtime()).addFlags(Intent.FLAG_RECEIVER_FOREGROUND),null,
             object:BroadcastReceiver(){override fun onReceive(c:Context,i:Intent){
                 val binder=if(resultCode==1)getResultExtras(false)?.getBinder("bridge")else null

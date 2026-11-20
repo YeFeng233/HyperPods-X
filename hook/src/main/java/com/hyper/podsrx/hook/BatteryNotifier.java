@@ -23,7 +23,7 @@ final class BatteryNotifier {
     private static final String TAG = "HyperPods-Battery";
     private static final String NOTIFICATION_TAG = "hyperpods_battery";
     private static final String FALLBACK_CHANNEL = "hyperpods_battery_alerts";
-    private static final int LOW = 1, FULL = 2;
+    private static final int LOW = 1, FULL = 2, LID = 3, DOCKED = 4;
     private final Context context;
     private final NotificationManager manager;
     private final SharedPreferences store;
@@ -61,7 +61,9 @@ final class BatteryNotifier {
                     BatteryAlert.Docked docked = (BatteryAlert.Docked) alert;
                     // The island is gone within seconds; a later, more precise level is not worth another.
                     if (docked.getUpdate()) continue;
-                    PopupDriver.caseIsland(context, model, product, docked.getCaseLevel(), launch());
+                    if (HubWire.AOSP_HOST.equals(context.getPackageName())) {
+                        post(DOCKED, name, HookStrings.get(context, R.string.hook_case_battery, docked.getCaseLevel()), 8000);
+                    } else PopupDriver.caseIsland(context, model, product, docked.getCaseLevel(), launch());
                 }
                 DiagnosticLog.i(TAG, "Alert " + alert);
             } catch (Exception error) {
@@ -71,20 +73,47 @@ final class BatteryNotifier {
     }
 
     private void post(int id, String title, String text) {
+        post(id, title, text, 0);
+    }
+
+    boolean showLid(HubBundles.State state, String name, boolean preview) {
+        if (state.address.isEmpty()) return false;
+        String text = preview ? HookStrings.get(context, R.string.hook_lid_preview) : HookStrings.get(context, R.string.hook_lid_open);
+        List<String> levels = new java.util.ArrayList<>();
+        addLevel(levels, state, 4, R.string.hook_left_battery);
+        addLevel(levels, state, 2, R.string.hook_right_battery);
+        addLevel(levels, state, 8, R.string.hook_case_battery);
+        try { return post(LID, name, levels.isEmpty() ? text : String.join(" · ", levels), 8000); }
+        catch (RuntimeException error) {
+            DiagnosticLog.w(TAG, "Lid notification unavailable", error);
+            return false;
+        }
+    }
+
+    private void addLevel(List<String> levels, HubBundles.State state, int component, int label) {
+        var reading = state.readings.get(component);
+        if (reading != null && reading.getLevel() != null) levels.add(HookStrings.get(context, label, reading.getLevel()));
+    }
+
+    void closeLid() { cancel(LID); }
+
+    private boolean post(int id, String title, String text, long timeout) {
         try {
             if (manager.canNotifyAsPackage(HubWire.APP)) {
-                manager.notifyAsPackage(HubWire.APP, NOTIFICATION_TAG, id, build(HubWire.ALERT_CHANNEL, title, text));
-                return;
+                manager.notifyAsPackage(HubWire.APP, NOTIFICATION_TAG, id, build(HubWire.ALERT_CHANNEL, title, text, timeout));
+                return true;
             }
             DiagnosticLog.w(TAG, "Not the app's notification delegate; posting as the host");
         } catch (RuntimeException error) {
             DiagnosticLog.w(TAG, "Delegated alert refused; posting as the host", error);
         }
+        if (!manager.areNotificationsEnabled()) return false;
         if (!fallbackChannel) {
             manager.createNotificationChannel(new NotificationChannel(FALLBACK_CHANNEL, "AirPods 电量提醒", NotificationManager.IMPORTANCE_HIGH));
             fallbackChannel = true;
         }
-        manager.notify(NOTIFICATION_TAG, id, build(FALLBACK_CHANNEL, title, text));
+        manager.notify(NOTIFICATION_TAG, id, build(FALLBACK_CHANNEL, title, text, timeout));
+        return true;
     }
 
     private void cancel(int id) {
@@ -93,10 +122,11 @@ final class BatteryNotifier {
         manager.cancel(NOTIFICATION_TAG, id);
     }
 
-    private Notification build(String channel, String title, String text) {
+    private Notification build(String channel, String title, String text, long timeout) {
         Notification.Builder builder = new Notification.Builder(context, channel)
             .setSmallIcon(icon()).setContentTitle(title).setContentText(text)
             .setCategory(Notification.CATEGORY_STATUS).setAutoCancel(true);
+        if (timeout > 0) builder.setTimeoutAfter(timeout);
         PendingIntent launch = launch();
         if (launch != null) builder.setContentIntent(launch);
         return builder.build();

@@ -29,6 +29,8 @@ internal fun listeningPresentation(state: PodsState, strings: Strings): Listenin
             0x2e in state.pending -> strings(R.string.sending_noise_strength)
             !state.connected -> strings(R.string.connect_to_change_listening)
             mode == null -> strings(R.string.waiting_listening_modes)
+            state.messageControl == 0x0d && state.messageCode == R.string.setting_unconfirmed ->
+                strings(R.string.listening_update_failed)
             mode == 4 && Controls.adaptiveStrength(state.controls) == null -> strings(R.string.adaptive_strength_not_reported)
             else -> ""
         }
@@ -55,8 +57,20 @@ internal data class BatteryPresentation(
     val label: String,
     val note: String,
     val level: Int?,
-    val charging: Boolean
-)
+    val charging: Boolean,
+    val historical: Boolean = false,
+) {
+    fun title(name: String, strings: Strings): String =
+        if (historical) strings(R.string.battery_last_read, name) else name
+}
+
+internal fun PodsState.homeBattery(component: Int, strings: Strings): BatteryPresentation {
+    val live = batteryPresentation(batteries[component], strings)
+    val saved = lastCaseBattery?.level
+    return if (component == 8 && live.level == null && saved != null) {
+        BatteryPresentation("${saved}%", "", saved, charging = false, historical = true)
+    } else live
+}
 
 internal fun batteryPresentation(reading: Reading?, strings: Strings): BatteryPresentation {
     val level = reading?.level?.takeIf { it in 0..100 }

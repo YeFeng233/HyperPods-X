@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.app.Application;
 import android.app.Activity;
+import android.app.Instrumentation;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
@@ -16,6 +17,7 @@ import android.view.View;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.function.Consumer;
 import io.github.libxposed.api.XposedModule;
 
 /** Scoped Settings and Bluetooth adapters; reflected interfaces determine availability. */
@@ -83,8 +85,48 @@ public final class HyperPodsModule extends XposedModule {
 
     private void installPackage(String pkg, ClassLoader loader, Application runningApp) {
         if (!ReloadLifecycle.isActive()) return;
+        if (pkg.equals(HubWire.AOSP_HOST) && pkg.equals(processName)) {
+            afterApplication(loader, runningApp, app -> {
+                if (HubWire.isAosp(app)) installBluetooth(app, pkg);
+            });
+            return;
+        }
         if (pkg.equals("com.android.systemui")) {
             if (!processName.equals(pkg)) return;
+            afterApplication(loader, runningApp, app -> installSystemUi(app, loader));
+            return;
+        }
+        if (pkg.equals(HubWire.SETTINGS)) {
+            installDiagnosticBridge();
+            afterApplication(loader, runningApp, app -> installSettings(loader, HubWire.isAosp(app)));
+            return;
+        }
+        installHyperOsPackage(pkg, loader, runningApp);
+    }
+
+    private void afterApplication(ClassLoader loader, Application runningApp, Consumer<Application> install) {
+        try {
+            if (runningApp != null) { install.accept(runningApp); return; }
+            hook(Instrumentation.class.getMethod("callApplicationOnCreate", Application.class)).intercept(chain -> {
+                Object result = chain.proceed();
+                Application app = (Application) chain.getArg(0);
+                if (ReloadLifecycle.isActive() && app.getClassLoader() == loader) {
+                    try { install.accept(app); }
+                    catch (Throwable error) { installationFailure("Host startup", error); }
+                }
+                return result;
+            });
+        } catch (Throwable error) { installationFailure("Host startup", error); }
+    }
+
+    private void installSystemUi(Application app, ClassLoader loader) {
+        if (HubWire.isAosp(app)) {
+            installDiagnosticBridge();
+            try {
+                SpatialHost.install(app, getRemotePreferences("device_state"));
+                installed("AOSP spatial bridge");
+            } catch (Throwable error) { installationFailure("AOSP spatial bridge", error); }
+        } else {
             try {
                 SystemUiHandleIconHook.install(this, loader);
                 installed("SystemUI handle battery icon");
@@ -93,9 +135,11 @@ public final class HyperPodsModule extends XposedModule {
             } catch (Throwable error) {
                 installationFailure("SystemUI handle battery icon", error);
             }
-            return;
         }
-        if (pkg.equals("com.android.settings") || pkg.equals("com.xiaomi.bluetooth") || pkg.equals("com.milink.service")) {
+    }
+
+    private void installHyperOsPackage(String pkg, ClassLoader loader, Application runningApp) {
+        if (pkg.equals("com.xiaomi.bluetooth") || pkg.equals("com.milink.service")) {
             installDiagnosticBridge();
         }
         if (pkg.equals("com.milink.service")) {
@@ -120,7 +164,6 @@ public final class HyperPodsModule extends XposedModule {
             catch (Throwable error) { installationFailure("Widget headset battery", error); }
             return;
         }
-        if (!pkg.equals("com.android.settings") && !pkg.equals("com.xiaomi.bluetooth")) return;
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
             try {
@@ -136,13 +179,15 @@ public final class HyperPodsModule extends XposedModule {
                     });
                 }
             } catch (Throwable error) { installationFailure("Native popup host", error); }
-            return;
         }
+    }
+
+    private void installSettings(ClassLoader loader, boolean aosp) {
         try {
-            preferences = HubReader.remote();
+            preferences = aosp ? getRemotePreferences("device_state") : HubReader.remote();
             listener = (p, key) -> { if (ReloadLifecycle.isActive()) main.post(this::refreshSummary); };
             preferences.registerOnSharedPreferenceChangeListener(listener);
-            try {
+            if (!aosp) try {
                 Class<?> devicePreference=Class.forName("com.android.settings.bluetooth.BluetoothDevicePreference",false,loader);
                 Method click=devicePreference.getDeclaredMethod("onClick",View.class);
                 hook(click).intercept(chain->{
@@ -158,15 +203,16 @@ public final class HyperPodsModule extends XposedModule {
             int detailHooks = 0;
             for (String name : new String[]{"com.android.settings.bluetooth.DeviceProfilesSettings", "com.android.settings.bluetooth.BluetoothDeviceDetailsFragment"}) {
                 try {
-                Class<?> page = Class.forName(name, false, loader);
-                Method resume = page.getDeclaredMethod("onResume");
-                hook(resume).intercept(chain -> {
-                    Object result = chain.proceed();
-                    try { if (ReloadLifecycle.isActive()) inject(chain.getThisObject(), loader); }
-                    catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Detail entry unavailable", error); }
-                    return result;
-                });
-                detailHooks++;
+                    Class<?> page = Class.forName(name, false, loader);
+                    injectAfter(page.getDeclaredMethod("onResume"), page, loader);
+                    detailHooks++;
+                    if (aosp) {
+                        // Android 17 can rebuild the entire preference screen asynchronously.
+                        for (Method method : page.getSuperclass().getDeclaredMethods()) {
+                            if (method.getName().equals("constructLayout") && method.getParameterCount() == 1)
+                                injectAfter(method, page, loader);
+                        }
+                    }
                 } catch (ReflectiveOperationException error) { moduleLog(Log.WARN, "HyperPods-X", "Settings page unavailable: " + name, error); }
             }
             if (detailHooks == 0) throw new IllegalStateException("No supported Bluetooth details page");
@@ -175,14 +221,32 @@ public final class HyperPodsModule extends XposedModule {
         } catch (Throwable error) { installationFailure("Settings adapter", error); }
     }
 
+    private void injectAfter(Method method, Class<?> page, ClassLoader loader) {
+        hook(method).intercept(chain -> {
+            Object result = chain.proceed();
+            Object fragment = chain.getThisObject();
+            try { if (ReloadLifecycle.isActive() && page.isInstance(fragment)) inject(fragment, loader); }
+            catch (Throwable error) { moduleLog(Log.WARN, "HyperPods-X", "Detail entry unavailable", error); }
+            return result;
+        });
+    }
+
     private void installBluetooth(Application host, String pkg) {
         if (bluetoothInstalled || !ReloadLifecycle.isActive()) return;
         bluetoothInstalled = true;
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
-            SharedPreferences config = preferences;
+            boolean aosp = HubWire.AOSP_HOST.equals(pkg);
+            SharedPreferences config = aosp ? getRemotePreferences("device_state") : preferences;
             try { preferences = HubHost.install(this, host, config).reader; installed("State hub"); }
             catch (Throwable error) { installationFailure("State hub", error); }
+            try { ConversationAudioHost.install(host, config); installed("Conversation bridge"); }
+            catch (Throwable error) { installationFailure("Conversation bridge", error); }
+            if (aosp) {
+                try { AospHeadTracker.install(host); installed("AOSP head tracker bridge"); }
+                catch (Throwable error) { installationFailure("AOSP head tracker bridge", error); }
+                return;
+            }
             try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); installed("ROM AirPods connection island filter"); }
             catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
             try { LidRelayHost.install(this, host.getClassLoader()); installed("Apple advertisement relay"); }
@@ -192,8 +256,6 @@ public final class HyperPodsModule extends XposedModule {
             // The bound address is configuration; the spatial and conversation bridges need nothing live.
             try { SpatialHost.install(host, config); installed("Spatial bridge"); }
             catch (Throwable error) { installationFailure("Spatial bridge", error); }
-            try { ConversationAudioHost.install(host, config); installed("Conversation bridge"); }
-            catch (Throwable error) { installationFailure("Conversation bridge", error); }
         } else {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
@@ -286,24 +348,36 @@ public final class HyperPodsModule extends XposedModule {
         if (target == null || target.isEmpty()) return;
         Object address = field(fragment, "deviceAddress");
         if (address == null) address = field(fragment, "mDeviceMacAddress");
+        if (address == null) address = field(fragment, "mDeviceAddress");
+        if (address == null && call(fragment, "getArguments") instanceof Bundle args)
+            address = args.getString("device_address");
         if (address == null || !target.equalsIgnoreCase(address.toString())) return;
         Object screen = call(fragment, "getPreferenceScreen");
         if (screen == null) return;
         Object preference = screen.getClass().getMethod("findPreference", CharSequence.class).invoke(screen, KEY);
         Class<?> preferenceClass = Class.forName("androidx.preference.Preference", false, loader);
+        Method add = screen.getClass().getMethod("addPreference", preferenceClass);
         if (preference == null) {
             Context context = (Context) call(fragment, "getContext");
             if (context == null) return;
             preference = preferenceClass.getConstructor(Context.class).newInstance(context);
             preferenceClass.getMethod("setKey", String.class).invoke(preference, KEY);
             preferenceClass.getMethod("setTitle", CharSequence.class).invoke(preference, HookStrings.get(context, R.string.hook_advanced_settings));
-            preferenceClass.getMethod("setOrder", int.class).invoke(preference, 2);
             preferenceClass.getMethod("setPersistent", boolean.class).invoke(preference, false);
             Intent intent = new Intent().setClassName("com.hyper.podsrx", "com.hyper.podsrx.DeviceSettingsActivity");
             intent.putExtra("device_address", target);
             preferenceClass.getMethod("setIntent", Intent.class).invoke(preference, intent);
-            screen.getClass().getMethod("addPreference", preferenceClass).invoke(screen, preference);
+            add.invoke(screen, preference);
+            DiagnosticLog.i("HyperPods-X", "Added the bound AirPods settings entry");
+        } else {
+            // Android 17 moves preferences it doesn't manage into a hidden category on rebuild.
+            Object parent = preferenceClass.getMethod("getParent").invoke(preference);
+            if (parent != null && parent != screen) {
+                parent.getClass().getMethod("removePreference", preferenceClass).invoke(parent, preference);
+                add.invoke(screen, preference);
+            }
         }
+        preferenceClass.getMethod("setOrder", int.class).invoke(preference, Integer.MAX_VALUE - 1);
         lastPreference = new WeakReference<>(preference);
         refreshSummary();
     }
@@ -312,8 +386,7 @@ public final class HyperPodsModule extends XposedModule {
         Object preference = lastPreference.get();
         if (preference == null || preferences == null) return;
         try {
-            Context context = (Context) call(preference, "getContext");
-            String summary = preferences.getString("summary", HookStrings.get(context, R.string.hook_settings_summary));
+            String summary = preferences.getString("summary", null);
             preference.getClass().getMethod("setSummary", CharSequence.class).invoke(preference, summary);
         } catch (Throwable ignored) { /* a destroyed settings page is harmless */ }
     }

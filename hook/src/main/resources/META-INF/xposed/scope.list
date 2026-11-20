@@ -1,5 +1,6 @@
 com.android.settings
 com.android.systemui
+com.android.bluetooth
 com.xiaomi.bluetooth
 com.milink.service
 com.miui.securitycenter

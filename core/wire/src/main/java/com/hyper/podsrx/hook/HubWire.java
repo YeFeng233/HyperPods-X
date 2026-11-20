@@ -1,5 +1,9 @@
 package com.hyper.podsrx.hook;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Process;
+
 /**
  * Versioned Binder protocol between the app and the Bluetooth host's state hub. Payloads are
  * Bundles built and read by {@link HubBundles}; transactions carry one Bundle each way.
@@ -8,6 +12,23 @@ public final class HubWire {
     private HubWire() {}
     public static final String APP = "com.hyper.podsrx";
     public static final String HOST = "com.xiaomi.bluetooth";
+    public static final String AOSP_HOST = "com.android.bluetooth";
+    public static final String SYSTEM_UI = "com.android.systemui";
+    public static final String SETTINGS = "com.android.settings";
+
+    public static String bluetoothHost(Context context) {
+        try {
+            int uid = context.getPackageManager().getPackageUid(HOST, 0);
+            if (uid % 100000 == Process.BLUETOOTH_UID) return HOST;
+        } catch (PackageManager.NameNotFoundException absent) {
+            // The Bluetooth stack is the host on AOSP.
+        }
+        return AOSP_HOST;
+    }
+
+    public static boolean isAosp(Context context) {
+        return AOSP_HOST.equals(bluetoothHost(context));
+    }
     /** Ordered broadcast from the app; the hub answers with its binder in the result extras. */
     public static final String CONNECT = APP + ".HUB_CONNECT";
     /** Sent to the app once a hub is installed, so a running app reconnects at once. */
@@ -16,6 +37,7 @@ public final class HubWire {
     public static final String CHANGED = APP + ".HUB_CHANGED";
     /** Each scoped process reports which of its hooks installed; see GET_DIAGNOSTICS. */
     public static final String CAPABILITIES = APP + ".HUB_CAPABILITIES";
+    public static final String WIDGET_BATTERY = APP + ".WIDGET_BATTERY";
     public static final String PERMISSION = NativeControlWire.PERMISSION;
     public static final String DESCRIPTOR = APP + ".Hub.v1";
     public static final String CALLBACK_DESCRIPTOR = APP + ".HubCallback.v1";
@@ -38,7 +60,7 @@ public final class HubWire {
 
     // app -> hub
     public static final int HELLO = 1, PUSH_CONTROL = 2, PUSH_KEYS = 3, REQUEST_POPUP = 4,
-        GET_STATE = 5, GET_DIAGNOSTICS = 6;
+        GET_STATE = 5, GET_DIAGNOSTICS = 6, LEAVE = 7;
     // REQUEST_POPUP replies with "shown" once the popup is submitted.
     // hub -> app, oneway
     public static final int ON_STATE = 101, ON_LID = 102;

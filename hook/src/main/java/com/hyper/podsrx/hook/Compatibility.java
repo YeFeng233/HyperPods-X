@@ -62,7 +62,7 @@ final class Compatibility {
             if (app == null) { schedule(); return; }
             BroadcastOptions options = BroadcastOptions.makeBasic();
             options.setShareIdentityEnabled(true);
-            app.sendBroadcast(new Intent(HubWire.CAPABILITIES).setPackage(HubWire.HOST)
+            app.sendBroadcast(new Intent(HubWire.CAPABILITIES).setPackage(HubWire.bluetoothHost(app))
                 .putExtra("process", name).putExtra("results", copy), null, options.toBundle());
         } catch (ReflectiveOperationException | RuntimeException error) {
             DiagnosticLog.w("HyperPods-X", "Compatibility report skipped", error);

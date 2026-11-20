@@ -75,7 +75,7 @@ class PodsService: Service() {
                 // The hub's state notice may still be on its way; the card checks this.
                 DeviceRepository.update{it.copy(lidOpen=true)}
                 DeviceRepository.log(strings(R.string.lid_verified_open))
-                if(nativeShown)DeviceRepository.log(strings(R.string.native_popup_lid_submitted))
+                if(nativeShown)DeviceRepository.log(strings(if(FrameworkBridge.aosp) R.string.aosp_lid_notification else R.string.native_popup_lid_submitted))
                 else if(DeviceRepository.state.value.popupEnabled)popup.showFallback()
             }
             HubBundles.LID_EVENT_CONFIRMED -> {

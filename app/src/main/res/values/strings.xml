@@ -192,6 +192,13 @@
     <string name="host_process_read_failed">"Unable to read host processes or confirm the restart result"</string>
     <string name="host_process_parse_failed">"Unable to parse host processes or confirm the restart result"</string>
     <string name="host_xiaomi_bluetooth">"Xiaomi Bluetooth"</string>
+    <string name="host_aosp_bluetooth">System Bluetooth</string>
+    <string name="aosp_scope_description">Allow Bluetooth, Settings, and System UI in LSPosed</string>
+    <string name="hyperos_scope_description">Allow the HyperOS system hosts in LSPosed</string>
+    <string name="aosp_notification_preview">Battery notification preview</string>
+    <string name="aosp_lid_notification">System battery notification</string>
+    <string name="battery_widget_label">AirPods battery</string>
+    <string name="battery_widget_readings">Left %1$s   Right %2$s   Case %3$s</string>
     <string name="host_interconnectivity">"Device Interconnectivity"</string>
     <string name="host_settings">"Settings"</string>
     <string name="host_system_ui">"System UI"</string>
@@ -336,6 +343,7 @@
     <string name="strength_balanced">"Balanced"</string>
     <string name="strength_cancellation">"More Noise Cancellation"</string>
     <string name="not_read">"Not Read"</string>
+    <string name="battery_last_read">%1$s · Last read</string>
     <string name="charging">"Charging"</string>
     <string name="spatial_fixed">"Fixed"</string>
     <string name="spatial_head_tracking">"Head Tracking"</string>

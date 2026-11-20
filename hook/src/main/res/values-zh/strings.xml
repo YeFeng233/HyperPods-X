@@ -34,7 +34,6 @@
     <string name="hook_system_channel">"系统通道"</string>
     <string name="hook_approximately">"约"</string>
     <string name="hook_advanced_settings">"HyperPods-X 高级设置"</string>
-    <string name="hook_settings_summary">"查看耳机电量与高级设置"</string>
     <string name="hook_previous_reading">"（上次）"</string>
     <string name="hook_popup_preview">"弹窗预览"</string>
     <string name="hook_connected">"已连接"</string>
@@ -64,4 +63,10 @@
     <string name="hook_left">左</string>
     <string name="hook_right">右</string>
     <string name="hook_case">盒</string>
+    <string name="hook_lid_open">AirPods 充电盒已打开</string>
+    <string name="hook_lid_preview">电量通知预览</string>
+    <string name="hook_left_battery">左耳 %1$d%%</string>
+    <string name="hook_right_battery">右耳 %1$d%%</string>
+    <string name="hook_case_battery">充电盒 %1$d%%</string>
+    <string name="hook_spatial_effect_unavailable">当前 ROM 未提供 Spatializer 音效</string>
 </resources>

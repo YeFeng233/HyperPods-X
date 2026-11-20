@@ -53,6 +53,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     private static volatile HubHost instance;
 
     private final Context context;
+    private final boolean aosp;
     private final SharedPreferences preferences;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final int appUid;
@@ -117,11 +118,13 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
         };
         context.registerReceiver(host.capabilityReceiver, new IntentFilter(HubWire.CAPABILITIES), null, host.main, Context.RECEIVER_EXPORTED);
-        hookProvider(module, context.getClassLoader());
-        try { hookAirCore(module, context.getClassLoader()); Compatibility.installed("ROM AACP channel guard"); }
-        catch (Exception | LinkageError error) {
-            Compatibility.failed("ROM AACP channel guard", error);
-            DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error);
+        if (!host.aosp) {
+            hookProvider(module, context.getClassLoader());
+            try { hookAirCore(module, context.getClassLoader()); Compatibility.installed("ROM AACP channel guard"); }
+            catch (Exception | LinkageError error) {
+                Compatibility.failed("ROM AACP channel guard", error);
+                DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error);
+            }
         }
         instance = host;
         host.scan.start();
@@ -134,6 +137,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     private HubHost(Context context, SharedPreferences preferences) throws PackageManager.NameNotFoundException {
         this.context = context;
+        aosp = HubWire.AOSP_HOST.equals(context.getPackageName());
         this.preferences = preferences;
         appUid = context.getPackageManager().getPackageUid(HubWire.APP, 0);
         int milink;
@@ -144,7 +148,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         address = preferences.getString("address", "");
         if (address.isEmpty()) address = keys.address();
         scan = new ScanEngine(context, this);
-        widget = new WidgetDriver(context);
+        widget = aosp ? null : new WidgetDriver(context);
         notifier = new BatteryNotifier(context);
         alerts = notifier.restore(address);
         attachInterface(null, HubWire.DESCRIPTOR);
@@ -232,7 +236,8 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         unlinkCallback();
         scan.close();
         lid.close();
-        widget.close();
+        if (widget != null) widget.close();
+        if (aosp) notifier.closeLid();
         main.removeCallbacksAndMessages(null);
     }
 
@@ -290,6 +295,19 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     }
 
     @Override public void opened() {
+        if (aosp) {
+            publish();
+            if (preferences.getBoolean("auto_connect", true) && appForeground()) PopupDriver.reconnectProfiles(context, address);
+            main.post(() -> {
+                HubBundles.State current = state;
+                if (closed || current.lid != HubBundles.LID_OPEN) return;
+                boolean shown = preferences.getBoolean("popup_enabled", true)
+                    && (!current.appAlive || preferences.getBoolean("native_popup", true))
+                    && notifier.showLid(current, headsetName(current), false);
+                callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
+            });
+            return;
+        }
         boolean shown = false;
         boolean wanted = preferences.getBoolean("popup_enabled", true);
         boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
@@ -319,7 +337,10 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     }
 
     @Override public void closed(boolean changed, boolean repeat) {
-        if (changed) PopupDriver.close(context);
+        if (changed) {
+            if (aosp) notifier.closeLid();
+            else PopupDriver.close(context);
+        }
         if (changed && !repeat) {
             callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CLOSED, false));
             publish();
@@ -350,7 +371,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             + ", control " + (controlConnected() ? "up" : "down"));
         publish();
         // The widget forgets the grip on a launcher restart; this repeats it slowly.
-        widget.update(state);
+        if (widget != null) widget.update(state);
     }
 
     @Override public void onModeChanged(int mode) {
@@ -432,7 +453,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         synchronized (this) {
             if (closed) return;
             boolean bound = !address.isEmpty();
-            boolean replace = bound && preferences.getBoolean("popup_enabled", true) && preferences.getBoolean("native_popup", true);
+            boolean replace = !aosp && bound && preferences.getBoolean("popup_enabled", true) && preferences.getBoolean("native_popup", true);
             Boolean open = lid.open();
             int lidState = open == null ? HubBundles.LID_UNKNOWN : open ? HubBundles.LID_OPEN : HubBundles.LID_CLOSED;
             int model = product >= 0 ? product : preferences.getInt("panel_product", -1);
@@ -458,7 +479,16 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     private void notifyConsumers(HubBundles.State current) {
         Bundle options = shareIdentity();
-        for (String consumer : CONSUMERS) {
+        if (aosp) {
+            try {
+                context.sendBroadcast(new Intent(HubWire.WIDGET_BATTERY)
+                    .setClassName(HubWire.APP, HubWire.APP + ".device.AirPodsBatteryWidget")
+                    .putExtra("left", level(current.readings, 4)).putExtra("right", level(current.readings, 2))
+                    .putExtra("case", level(current.readings, 8)), null, options);
+            } catch (RuntimeException error) {
+                DiagnosticLog.w(TAG, "Battery widget update unavailable", error);
+            }
+        } else for (String consumer : CONSUMERS) {
             try {
                 context.sendBroadcast(new Intent(HubWire.CHANGED).setPackage(consumer).addFlags(Intent.FLAG_RECEIVER_FOREGROUND), null, options);
             } catch (RuntimeException error) {
@@ -466,7 +496,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             }
         }
         reader.changed();
-        widget.update(current);
+        if (widget != null) widget.update(current);
         callApp(HubWire.ON_STATE, current.toBundle());
     }
 
@@ -556,6 +586,11 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
         }
         switch (code) {
             case HubWire.HELLO: return hello(HubBundles.Hello.from(request), response);
+            case HubWire.LEAVE: {
+                IBinder leaving = request.getBinder("callback");
+                if (leaving != null) appDied(leaving);
+                return HubWire.OK;
+            }
             case HubWire.PUSH_CONTROL: {
                 HubBundles.Control next = HubBundles.Control.from(request);
                 synchronized (this) {
@@ -594,6 +629,12 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
                 return HubWire.OK;
             case HubWire.REQUEST_POPUP: {
                 if (state.address.isEmpty()) return HubWire.FAILED;
+                if (aosp) {
+                    boolean notification = request.getBoolean("island");
+                    if (notification) main.post(() -> notifier.showLid(state, headsetName(state), true));
+                    response.putBoolean("shown", notification);
+                    return HubWire.OK;
+                }
                 PopupDriver.Request popup = popupRequest(request.getBoolean("preview"), request.getBoolean("island"));
                 response.putBoolean("shown", PopupDriver.show(context, popup));
                 return HubWire.OK;

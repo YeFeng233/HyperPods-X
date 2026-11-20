@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -33,6 +34,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import org.json.JSONObject
 
 data class PodsState(
@@ -65,6 +67,7 @@ data class PodsState(
     ,val hubStatus: UiText = text(R.string.hub_disconnected)
     /** Process to component to "" when its hook installed, or the failure's class name. */
     ,val hostCapabilities:Map<String,Map<String,String>> = emptyMap()
+    ,val lastCaseBattery: Reading? = null
 ) {
     val displayName:String get()=localName.ifBlank{name}
     val headset:HeadsetModels.Model get()=HeadsetModels.of(model,product)
@@ -101,10 +104,17 @@ object DeviceRepository {
         app = application
         keys = SecureKeys(app)
         val p = app.getSharedPreferences("app", Context.MODE_PRIVATE)
-        update { it.copy(address = p.getString("address", "")!!, name = p.getString("name", "AirPods")!!,
+        val address = p.getString("address", "").orEmpty()
+        val legacy = app.getSharedPreferences("battery_history", Context.MODE_PRIVATE)
+        val previousCase = p.lastCaseBattery(address) ?: legacy.getInt("level_8", -1)
+            .takeIf { it >= 0 && legacy.getString("address", null) == address }
+            ?.let { level ->
+                p.edit().putInt(caseBatteryKey(address), level).apply()
+                Reading(level, false, true, 0L)
+            }
+        update { it.copy(address = address, name = p.getString("name", "AirPods")!!,
+            lastCaseBattery = previousCase,
             popupEnabled = p.getBoolean("popup",true), earAutomation = p.getBoolean("earAutomation",false),connectionPopup=p.getBoolean("connectionPopup",true),autoConnect=p.getBoolean("autoConnect",true),nativePopup=p.getBoolean("nativePopup",true),batteryAlerts=p.getBoolean("batteryAlerts",true),product=p.getInt("product",-1)) }
-        // The case advertises its status even with the lid closed, so readings are never restored from disk.
-        app.deleteSharedPreferences("battery_history")
     }
     fun update(block: (PodsState) -> PodsState) { mutable.update(block) }
     fun message(value: String) = message(text(value))
@@ -167,8 +177,16 @@ object DeviceRepository {
     @Suppress("MissingPermission")
     fun bind(device: BluetoothDevice) {
         if (state.value.running) stop()
-        app.getSharedPreferences("app",Context.MODE_PRIVATE).edit().putString("address",device.address).putString("name",device.name ?: "AirPods").remove("product").apply()
-        update { PodsState(name=device.name ?: "AirPods", address=device.address,framework=it.framework,frameworkApi=it.frameworkApi,popupEnabled=it.popupEnabled,earAutomation=it.earAutomation,connectionPopup=it.connectionPopup,autoConnect=it.autoConnect,nativePopup=it.nativePopup,batteryAlerts=it.batteryAlerts) }
+        val address = device.address
+        val name = device.name ?: "AirPods"
+        val prefs = app.getSharedPreferences("app", Context.MODE_PRIVATE)
+        synchronized(prefs) {
+            prefs.edit().putString("address", address).putString("name", name).remove("product").apply()
+            update { PodsState(name = name, address = address, framework = it.framework, frameworkApi = it.frameworkApi,
+                popupEnabled = it.popupEnabled, earAutomation = it.earAutomation, connectionPopup = it.connectionPopup,
+                autoConnect = it.autoConnect, nativePopup = it.nativePopup, batteryAlerts = it.batteryAlerts,
+                lastCaseBattery = prefs.lastCaseBattery(address)) }
+        }
         refreshLocalName()
         FrameworkBridge.publish()
         start()
@@ -212,7 +230,7 @@ object DeviceRepository {
     fun batteries(values:List<Battery>, precise:Boolean, control:Boolean=false) {
         val now=System.currentTimeMillis()
         var changed=false
-        update { s ->
+        updateBatteries { s ->
             val result=BatteryLedger.merged(s.batteries,values,precise,control,now)
             changed=result.content()!=s.batteries.content()
             s.copy(batteries=result)
@@ -227,12 +245,36 @@ object DeviceRepository {
     fun hub(h:HubBundles.State) {
         val offset=System.currentTimeMillis()-android.os.SystemClock.elapsedRealtime()
         val readings=h.readings.mapValues{it.value.copy(updated=it.value.updated+offset)}
-        update{it.copy(hub=h,batteries=if(h.address.equals(it.address,true))readings else it.batteries,
+        updateBatteries{it.copy(hub=h,batteries=if(h.address.equals(it.address,true))readings else it.batteries,
             lidOpen=when(h.lid){HubBundles.LID_OPEN->true;HubBundles.LID_CLOSED->false;else->null},
             broadcasts=h.broadcasts,trustedBroadcasts=h.trusted,proximityCandidates=h.candidates,identityMatches=h.matches)}
         if(h.product>=0)product(h.product)
         saveDiagnostics()
     }
+
+    /** Keep the last case reading for the device page. Live readings still drive alerts and charging indicators. */
+    private fun updateBatteries(change: (PodsState) -> PodsState) {
+        val prefs = app.getSharedPreferences("app", Context.MODE_PRIVATE)
+        synchronized(prefs) {
+            val next = mutable.updateAndGet { current ->
+                val updated = change(current)
+                val case = updated.batteries[8]
+                val last = current.lastCaseBattery
+                if (case?.level != null && (last == null || case.updated >= last.updated)) {
+                    updated.copy(lastCaseBattery = case)
+                } else updated
+            }
+            val level = next.lastCaseBattery?.level ?: return
+            val key = caseBatteryKey(next.address)
+            if (prefs.getInt(key, -1) != level) prefs.edit().putInt(key, level).apply()
+        }
+    }
+
+    private fun SharedPreferences.lastCaseBattery(address: String): Reading? =
+        getInt(caseBatteryKey(address), -1).takeIf { it >= 0 }?.let { Reading(it, false, true, 0L) }
+
+    private fun caseBatteryKey(address: String) = "last_case_battery/$address"
+
     fun batterySummary():String = listOf(4 to strings(R.string.left),2 to strings(R.string.right),8 to strings(R.string.case_short)).joinToString(" · ") { (id,label) ->
         val b=state.value.batteries[id]
         "${label} ${b?.level?.let { "${if(b.precise) "" else strings(R.string.approximately)}${it}%" } ?: "—"}"

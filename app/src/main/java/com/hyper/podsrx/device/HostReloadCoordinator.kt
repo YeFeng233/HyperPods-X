@@ -33,7 +33,7 @@ object HostReloadCoordinator {
     fun onServiceBound(service: XposedService) = schedule(service, emptySet())
 
     fun onScopeApproved(service: XposedService, approved: List<String>) =
-        schedule(service, approved.intersect(HostReloadPolicy.hosts.toSet()))
+        schedule(service, approved.intersect(FrameworkBridge.scopePackages.toSet()))
 
     fun onServiceDied() { status = text(R.string.module_service_wait_reconnect) }
 
@@ -69,8 +69,8 @@ object HostReloadCoordinator {
         val installation = HostReloadPolicy.installation(info.lastUpdateTime, info.longVersionCode)
         val preferences = app.getSharedPreferences("host_reload", Context.MODE_PRIVATE)
         val policy = HostReloadPolicy(installation, preferences.getString("installation", "") ?: "",
-            preferences.getStringSet("attempted_processes", emptySet()) ?: emptySet())
-        val granted = service.scope.toSet().intersect(HostReloadPolicy.hosts.toSet())
+            preferences.getStringSet("attempted_processes", emptySet()) ?: emptySet(), FrameworkBridge.aosp)
+        val granted = service.scope.toSet().intersect(FrameworkBridge.scopePackages.toSet())
         var targets = stableTargets(service, granted)
         if (FrameworkBridge.service !== service) return
         reportTargets(targets)
@@ -83,11 +83,11 @@ object HostReloadCoordinator {
         // Snapshot handles are always obtained from the framework. Process names are only used
         // to order work and to impose a conservative attempt budget; never fabricate an identity.
         val processes = targets.map { it.processName }.distinct()
-            .sortedWith(compareBy<String> { HostReloadPolicy.order(it) }.thenBy { it })
+            .sortedWith(compareBy<String> { HostReloadPolicy.order(it, FrameworkBridge.aosp) }.thenBy { it })
         for (process in processes) {
             if (FrameworkBridge.service !== service) return
             val target = service.runningTargets.firstOrNull {
-                it.processName == process && HostReloadPolicy.hostFor(it.processName)?.let(granted::contains) == true
+                it.processName == process && HostReloadPolicy.hostFor(it.processName, FrameworkBridge.aosp)?.let(granted::contains) == true
             } ?: continue
             if (target.state == HookedTarget.State.RELOADING || target.state == HookedTarget.State.FAILED) break
             if (target.state != HookedTarget.State.STALE) continue
@@ -127,7 +127,7 @@ object HostReloadCoordinator {
         targets = stableTargets(service, granted)
         if (FrameworkBridge.service !== service) return
         reportTargets(targets)
-        val missing = justApproved.filter { host -> targets.none { HostReloadPolicy.hostFor(it.processName) == host } }
+        val missing = justApproved.filter { host -> targets.none { HostReloadPolicy.hostFor(it.processName, FrameworkBridge.aosp) == host } }
         status = when {
             targets.any { it.state == HookedTarget.State.RELOADING } -> text(R.string.host_update_in_progress)
             targets.any { it.state == HookedTarget.State.FAILED || it.state == HookedTarget.State.STALE } ->
@@ -147,7 +147,7 @@ object HostReloadCoordinator {
         var targets = emptyList<HookedTarget>()
         repeat(6) { attempt ->
             if (FrameworkBridge.service !== service) return emptyList()
-            targets = service.runningTargets.filter { HostReloadPolicy.hostFor(it.processName)?.let(granted::contains) == true }
+            targets = service.runningTargets.filter { HostReloadPolicy.hostFor(it.processName, FrameworkBridge.aosp)?.let(granted::contains) == true }
             if (targets.none { it.state == HookedTarget.State.RELOADING } || attempt == 5) return targets
             delay(1_000)
         }

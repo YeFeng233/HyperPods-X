@@ -44,6 +44,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean)->Unit) {
     private val strings = context.stringResolver()
     private val context=context.applicationContext
+    private val host=HubWire.bluetoothHost(this.context)
     private val main=Handler(Looper.getMainLooper())
     // One transaction at a time, in the order they were asked for.
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -130,7 +131,10 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
         // The hub keeps the control readings but stops trusting the session at once.
         val binder=hub
         scope.cancel()
-        if(binder!=null)runCatching{transact(binder,HubWire.PUSH_CONTROL,HubBundles.Control.DISCONNECTED.toBundle())}
+        if(binder!=null)runCatching{
+            val (status, _)=transact(binder,HubWire.LEAVE,Bundle().apply{putBinder("callback",callback)})
+            if(status!=HubWire.OK)transact(binder,HubWire.PUSH_CONTROL,HubBundles.Control.DISCONNECTED.toBundle())
+        }
         drop()
         DeviceRepository.update{it.copy(hub=null,hubStatus=text(R.string.hub_disconnected))}
     }
@@ -169,7 +173,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
     private suspend fun handshake():IBinder? = withTimeoutOrNull(HANDSHAKE_TIMEOUT_MS) {
         suspendCancellableCoroutine{continuation->
             runCatching {
-                context.sendOrderedBroadcast(Intent(HubWire.CONNECT).setPackage(HubWire.HOST)
+                context.sendOrderedBroadcast(Intent(HubWire.CONNECT).setPackage(host)
                     .putExtra(HubWire.EXTRA_CREATED,SystemClock.elapsedRealtime()).addFlags(Intent.FLAG_RECEIVER_FOREGROUND),null,
                     object:BroadcastReceiver(){
                         override fun onReceive(context:Context,intent:Intent){
@@ -187,6 +191,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
      * hub then refuses this caller and announces HUB_READY, which reconnects at once.
      */
     private fun wakeHost() {
+        if(host!=HubWire.HOST)return
         runCatching{context.contentResolver.call(android.net.Uri.parse(HubWire.PROVIDER_URI),HubWire.STATE_METHOD,null,null)}
     }
 
