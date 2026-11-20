@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <queries>
         <package android:name="com.android.settings" />
+        <package android:name="com.android.bluetooth" />
+        <package android:name="com.android.systemui" />
         <package android:name="com.xiaomi.bluetooth" />
         <package android:name="com.milink.service" />
     </queries>
@@ -31,6 +33,11 @@
         <activity android:name=".DeviceSettingsActivity" android:exported="true" />
         <service android:name=".device.PodsService" android:foregroundServiceType="connectedDevice" android:exported="false" />
         <receiver android:name=".device.NativeControlReceiver" android:exported="false" />
+        <receiver android:name=".device.AirPodsBatteryWidget" android:enabled="false" android:exported="true"
+            android:label="@string/battery_widget_label" android:permission="android.permission.BLUETOOTH_PRIVILEGED">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/airpods_battery_widget" />
+        </receiver>
         <receiver android:name=".device.BootReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>

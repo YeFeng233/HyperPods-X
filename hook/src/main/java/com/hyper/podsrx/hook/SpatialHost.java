@@ -3,6 +3,7 @@ package com.hyper.podsrx.hook;
 import android.bluetooth.*;
 import android.content.*;
 import android.hardware.SensorManager;
+import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.*;
@@ -11,7 +12,10 @@ import java.util.List;
 
 /** Owns only the explicitly requested, bound-device virtual head tracker. */
 final class SpatialHost extends Binder {
+    private static final AudioAttributes MEDIA = new AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
     private final Context context;
+    private final boolean aosp;
     private final android.content.SharedPreferences preferences;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final AudioManager audio;
@@ -51,7 +55,7 @@ final class SpatialHost extends Binder {
         try {
             context.registerReceiver(host.receiver,new IntentFilter(SpatialWire.ACTION),SpatialWire.PERMISSION,host.handler,Context.RECEIVER_EXPORTED);
             host.receiverRegistered=true;
-            host.connectProfile();
+            if (!host.aosp) host.connectProfile();
         } catch (RuntimeException error) {
             host.close();
             throw error;
@@ -60,6 +64,7 @@ final class SpatialHost extends Binder {
     }
     private SpatialHost(Context c,android.content.SharedPreferences p)throws Exception {
         context=c;lastStatus=HookStrings.get(c,R.string.hook_motion_bridge_ready);preferences=p;audio=c.getSystemService(AudioManager.class);
+        aosp=HubWire.SYSTEM_UI.equals(c.getPackageName());
         spatializer=audio.getSpatializer();attributesClass=Class.forName("android.media.AudioDeviceAttributes");
         appUid=c.getPackageManager().getPackageUid(SpatialWire.APP,0);
         attachInterface(null,SpatialWire.DESCRIPTOR);
@@ -107,6 +112,10 @@ final class SpatialHost extends Binder {
         return spatializer.getClass().getMethod(name,types).invoke(spatializer,values);
     }
     private boolean routeMatches(String address){
+        if (aosp) {
+            return audio.getAudioDevicesForAttributes(MEDIA).stream().anyMatch(device ->
+                device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP && address.equalsIgnoreCase(device.getAddress()));
+        }
         try {
             BluetoothProfile profile=a2dp;
             if(profile==null)return false;
@@ -131,6 +140,11 @@ final class SpatialHost extends Binder {
         String address=request.getString("address","");
         if(!BluetoothAdapter.checkBluetoothAddress(address)||!address.equalsIgnoreCase(preferences.getString("address","")))
             throw new SecurityException(HookStrings.get(context, R.string.hook_bound_earbuds_only));
+        if(aosp&&audio.getSpatializer().getImmersiveAudioLevel()==0&&code!=SpatialWire.STOP){
+            Bundle unavailable=new Bundle();
+            unavailable.putString("status",HookStrings.get(context, R.string.hook_spatial_effect_unavailable));
+            return unavailable;
+        }
         Object attr=attrs(address);
         if(code==SpatialWire.QUERY){
             Bundle b=new Bundle();b.putBoolean("ok",true);
@@ -158,14 +172,16 @@ final class SpatialHost extends Binder {
             IBinder token=request.getBinder("client");if(token==null)throw new SecurityException(HookStrings.get(context, R.string.hook_session_owner_missing));
             previousTracker=(Boolean)call("isHeadTrackerEnabled",new Class<?>[]{attributesClass},attr);
             previousMode=(Integer)call("getDesiredHeadTrackingMode",new Class<?>[0]);
-            Class<?> nativeClass=Class.forName("com.android.bluetooth.ble.app.headset.Spatialcontroller",true,context.getClassLoader());
-            nativeController=nativeClass.getConstructor().newInstance();
             activeAddress=address;lastPose=SystemClock.elapsedRealtime();sequence=-1;
             try {
-                // On this exact ROM the JNI boolean is an error flag: false after a full
-                // UHID_CREATE write, true on open/write failure (verified in libspatial).
-                boolean failed=(Boolean)nativeClass.getMethod("createspatialhid",String.class).invoke(nativeController,hidAddress(address));
-                if(failed)throw new IllegalStateException(HookStrings.get(context, R.string.hook_virtual_sensor_creation_failed));
+                if(aosp)nativeController=AospHeadTracker.start(context,address);
+                else {
+                    Class<?> nativeClass=Class.forName("com.android.bluetooth.ble.app.headset.Spatialcontroller",true,context.getClassLoader());
+                    nativeController=nativeClass.getConstructor().newInstance();
+                    // HyperOS reports true on a UHID creation failure.
+                    boolean failed=(Boolean)nativeClass.getMethod("createspatialhid",String.class).invoke(nativeController,hidAddress(address));
+                    if(failed)throw new IllegalStateException(HookStrings.get(context, R.string.hook_virtual_sensor_creation_failed));
+                }
                 client=token;death=this::stopAsync;
                 token.linkToDeath(death,0);
                 call("setHeadTrackerEnabled",new Class<?>[]{boolean.class,attributesClass},true,attr);
@@ -182,11 +198,13 @@ final class SpatialHost extends Binder {
             if(age<0||age>250||next<=sequence||v==null||v.length!=3)throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_stale_invalid));
             double n=0;for(float x:v){if(!Float.isFinite(x))throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_invalid));n+=x*x;}
             if(n>10.0)throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_pose_out_of_range));
-            // ROM native code scales integer degrees to signed HID rotation-vector values.
-            // It reorders [yaw,pitch,roll] to [X,Y,Z]; provide the rotation vector in that order.
-            float degrees=(float)(180.0/Math.PI);
-            float[] nativeInput=new float[]{v[2]*degrees,v[0]*degrees,v[1]*degrees};
-            nativeController.getClass().getMethod("sendspatialdata",String.class,float[].class).invoke(nativeController,hidAddress(address),nativeInput);
+            if(nativeController instanceof AospHeadTracker.Client tracker)tracker.pose(v);
+            else {
+                // HyperOS converts degrees to signed HID rotation-vector values.
+                float degrees=(float)(180.0/Math.PI);
+                float[] nativeInput=new float[]{v[2]*degrees,v[0]*degrees,v[1]*degrees};
+                nativeController.getClass().getMethod("sendspatialdata",String.class,float[].class).invoke(nativeController,hidAddress(address),nativeInput);
+            }
             sequence=next;lastPose=SystemClock.elapsedRealtime();
         }else if(code==SpatialWire.STOP){stop();}
         else throw new IllegalArgumentException(HookStrings.get(context, R.string.hook_unknown_bridge_command));
@@ -214,7 +232,10 @@ final class SpatialHost extends Binder {
         if(client!=null&&death!=null){try{client.unlinkToDeath(death,0);}catch(RuntimeException ignored){}}
         client=null;death=null;
         if(address.isEmpty())return;
-        try {nativeController.getClass().getMethod("destroyspatialhid",String.class).invoke(nativeController,hidAddress(address));}
+        try {
+            if(nativeController instanceof AospHeadTracker.Client tracker)tracker.stop();
+            else if(nativeController!=null)nativeController.getClass().getMethod("destroyspatialhid",String.class).invoke(nativeController,hidAddress(address));
+        }
         catch(Throwable e){DiagnosticLog.w("HyperPods-X","Native head tracker cleanup failed",e);}
         finally {nativeController=null;}
         try {

@@ -249,12 +249,13 @@ private fun MiuixBatteryCard(state: PodsState) {
         Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf(4 to "左", 2 to "右", 8 to "充电盒").forEachIndexed { index, (id, label) ->
                 if (index > 0) Box(Modifier.width(.5.dp).height(cellHeight * 3).background(MiuixTheme.colorScheme.dividerLine))
-                val battery = batteryPresentation(state.batteries[id], strings)
+                val battery = state.homeBattery(id, strings)
+                val title = battery.title(label, strings)
                 Column(Modifier.weight(1f).clearAndSetSemantics {
-                    contentDescription = label + "，" + battery.label + if (battery.note.isBlank()) "" else "，" + battery.note
+                    contentDescription = title + "，" + battery.label + if (battery.note.isBlank()) "" else "，" + battery.note
                 }, horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.fillMaxWidth().height(cellHeight), contentAlignment = Alignment.Center) {
-                        Text(label, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
+                        Text(title, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
                     }
                     Box(Modifier.fillMaxWidth().height(cellHeight), contentAlignment = Alignment.Center) {
                         Text(battery.label, fontSize = 12.sp, lineHeight = 20.sp, maxLines = 1,

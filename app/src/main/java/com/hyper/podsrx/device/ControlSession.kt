@@ -147,8 +147,14 @@ class ControlSession(private val context:Context,private val scope:CoroutineScop
     }
 
     fun onControl(event:Event.Control,session:Long) {
-        DeviceRepository.update{it.copy(controls=it.controls+(event.id to event.value),
-            controlRefreshUntil=if(commands.endsReadback(event.id,session))0 else it.controlRefreshUntil)}
+        DeviceRepository.update { state ->
+            val updated = state.copy(controls = state.controls + (event.id to event.value),
+                controlRefreshUntil = if (commands.endsReadback(event.id, session)) 0 else state.controlRefreshUntil)
+            if (event.id == ControlCommands.MODE && state.messageControl == event.id &&
+                state.controls[event.id]?.firstOrNull() != event.value.firstOrNull()) {
+                updated.copy(message = "", messageCode = 0, messageControl = null, messageText = text(""))
+            } else updated
+        }
         val report=commands.onControl(event.id,event.value)
         traceControl(event.id,"readback",report.expected?.token,session) {
             "actual=${event.value} target=${report.expected?.values} matched=${if(report.expected==null)"n/a" else report.matched.toString()}"

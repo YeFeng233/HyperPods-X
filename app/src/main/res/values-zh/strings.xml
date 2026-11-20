@@ -189,6 +189,13 @@
     <string name="host_process_read_failed">"无法读取宿主进程，未能确认重启结果"</string>
     <string name="host_process_parse_failed">"无法解析宿主进程，未能确认重启结果"</string>
     <string name="host_xiaomi_bluetooth">"小米蓝牙"</string>
+    <string name="host_aosp_bluetooth">系统蓝牙</string>
+    <string name="aosp_scope_description">在 LSPosed 中授权系统蓝牙、系统设置和系统界面</string>
+    <string name="hyperos_scope_description">在 LSPosed 中授权 HyperOS 系统宿主</string>
+    <string name="aosp_notification_preview">电量通知预览</string>
+    <string name="aosp_lid_notification">系统电量通知</string>
+    <string name="battery_widget_label">AirPods 电量</string>
+    <string name="battery_widget_readings">左耳 %1$s   右耳 %2$s   充电盒 %3$s</string>
     <string name="host_interconnectivity">"设备互联"</string>
     <string name="host_settings">"系统设置"</string>
     <string name="host_system_ui">"系统界面"</string>
@@ -333,6 +340,7 @@
     <string name="strength_balanced">"均衡"</string>
     <string name="strength_cancellation">"偏降噪"</string>
     <string name="not_read">"未读取"</string>
+    <string name="battery_last_read">%1$s · 上次读取</string>
     <string name="charging">"充电中"</string>
     <string name="spatial_fixed">"固定"</string>
     <string name="spatial_head_tracking">"头部追踪"</string>

@@ -133,7 +133,7 @@ final class PopupDriver {
             return;
         }
         BluetoothDevice device = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(address);
-        try {
+        if (!HubWire.AOSP_HOST.equals(context.getPackageName())) try {
             Class<?> serviceType = Class.forName("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectService", false, context.getClassLoader());
             Object service = serviceType.getMethod("getInstance").invoke(null);
             Object cached = service == null ? null : serviceType.getMethod("getCachedDevice", BluetoothDevice.class).invoke(service, device);

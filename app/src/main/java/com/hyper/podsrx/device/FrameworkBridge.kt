@@ -1,11 +1,15 @@
 package com.hyper.podsrx.device
 
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.text
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 
 object FrameworkBridge {
+    internal val aosp get() = HubWire.isAosp(DeviceRepository.app)
+    internal val scopePackages get() = if (aosp) listOf(HubWire.AOSP_HOST, HubWire.SETTINGS, HubWire.SYSTEM_UI)
+        else listOf(HubWire.SETTINGS, HubWire.SYSTEM_UI, HubWire.HOST, "com.milink.service", "com.miui.securitycenter")
     @Volatile var service: XposedService? = null
         private set
     fun initialize() {
@@ -48,7 +52,7 @@ object FrameworkBridge {
     }
     fun requestNativeScope() {
         val bound = service ?: return DeviceRepository.message(R.string.enable_module_first)
-        bound.requestScope(listOf("com.android.settings","com.android.systemui","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
+        bound.requestScope(scopePackages,object:XposedService.OnScopeEventListener{
             override fun onScopeRequestApproved(approved:MutableList<String>){
                 DeviceRepository.message(R.string.scope_authorized_checking)
                 HostReloadCoordinator.onScopeApproved(bound, approved)

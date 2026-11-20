@@ -34,7 +34,6 @@
     <string name="hook_system_channel">"System channel"</string>
     <string name="hook_approximately">"About "</string>
     <string name="hook_advanced_settings">"HyperPods-X Advanced Settings"</string>
-    <string name="hook_settings_summary">"View battery levels and advanced earbud settings"</string>
     <string name="hook_previous_reading">" (previous)"</string>
     <string name="hook_popup_preview">"Popup Preview"</string>
     <string name="hook_connected">"Connected"</string>
@@ -64,4 +63,10 @@
     <string name="hook_left">Left</string>
     <string name="hook_right">Right</string>
     <string name="hook_case">Case</string>
+    <string name="hook_lid_open">AirPods case opened</string>
+    <string name="hook_lid_preview">Battery notification preview</string>
+    <string name="hook_left_battery">Left %1$d%%</string>
+    <string name="hook_right_battery">Right %1$d%%</string>
+    <string name="hook_case_battery">Case %1$d%%</string>
+    <string name="hook_spatial_effect_unavailable">This ROM does not provide a Spatializer effect</string>
 </resources>

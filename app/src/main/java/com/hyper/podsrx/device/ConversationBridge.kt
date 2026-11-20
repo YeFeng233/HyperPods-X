@@ -12,6 +12,7 @@ import android.os.Parcel
 import android.os.SystemClock
 import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.ConversationWire
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.stringResolver
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -34,7 +35,6 @@ class ConversationBridge(context: Context) {
     private val strings = context.stringResolver()
     companion object {
         private val sessions = AtomicLong(SystemClock.elapsedRealtimeNanos())
-        private const val HOST = "com.xiaomi.bluetooth"
     }
 
     private class Session(
@@ -52,6 +52,7 @@ class ConversationBridge(context: Context) {
     private class Endpoint(val binder: IBinder, val death: IBinder.DeathRecipient)
 
     private val context = context.applicationContext
+    private val host = HubWire.bluetoothHost(this.context)
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val transactions = Mutex()
@@ -347,7 +348,7 @@ class ConversationBridge(context: Context) {
             FrameworkBridge.publish()
             val reply = CompletableDeferred<IBinder?>()
             context.sendOrderedBroadcast(
-                Intent(ConversationWire.ACTION).setPackage(HOST)
+                Intent(ConversationWire.ACTION).setPackage(host)
                     .putExtra("created", SystemClock.elapsedRealtime())
                     .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
                 null,

@@ -88,6 +88,7 @@ internal data class ListeningIntentState(
     val inFlight: ListeningFlight? = null,
     val modeFailure: Int = 0,
     val strengthFailure: Int = 0,
+    val lastReportedMode: Int? = null,
 ) {
     val hasWork get() = mode != null || strength != null || inFlight != null
 }
@@ -146,7 +147,10 @@ internal fun syncListeningIntent(intent: ListeningIntentState, state: PodsState)
         modeFailure = if (intent.mode != null) R.string.earbuds_disconnected_retry else intent.modeFailure,
         strengthFailure = if (intent.mode == null && intent.strength != null) R.string.earbuds_disconnected_retry else intent.strengthFailure,
     )
-    var next = intent
+    val reportedMode = state.controls[0x0d]?.firstOrNull()
+    var next = if (reportedMode != null && reportedMode != intent.lastReportedMode) {
+        intent.copy(lastReportedMode = reportedMode, modeFailure = 0)
+    } else intent
     intent.inFlight?.let { flight ->
         val pending = flight.target.control in state.pending
         val updated = flight.copy(sawPending = flight.sawPending || pending)

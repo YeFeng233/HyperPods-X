@@ -45,7 +45,7 @@ import com.hyper.podsrx.device.*
 import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.rememberStrings
 import com.hyper.podsrx.ui.BatteryPresentation
-import com.hyper.podsrx.ui.batteryPresentation
+import com.hyper.podsrx.ui.homeBattery
 import com.hyper.podsrx.ui.SettingsCatalog
 import com.hyper.podsrx.ui.SettingsPageLink
 import io.github.neoruaa.glasmio.core.GlasmioTheme
@@ -344,9 +344,9 @@ private fun FeatureLink(link: SettingsPageLink, separator: Boolean = true, onCli
 @Composable
 private fun DeviceProducts(state: PodsState) {
     val strings = rememberStrings()
-    val left = batteryPresentation(state.batteries[4], strings = strings)
-    val right = batteryPresentation(state.batteries[2], strings = strings)
-    val case = batteryPresentation(state.batteries[8], strings = strings)
+    val left = state.homeBattery(4, strings)
+    val right = state.homeBattery(2, strings)
+    val case = state.homeBattery(8, strings)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(state.headset.pairArtwork), "AirPods", contentScale = ContentScale.Fit,
@@ -362,7 +362,7 @@ private fun DeviceProducts(state: PodsState) {
             Image(painterResource(state.headset.caseArtwork), strings(R.string.charging_case), contentScale = ContentScale.Fit,
                 modifier = Modifier.size(width = 132.dp, height = 110.dp))
             Spacer(Modifier.height(8.dp))
-            BatteryCircle(case, strings(R.string.charging_case))
+            BatteryCircle(case, case.title(strings(R.string.charging_case), strings))
         }
     }
 }

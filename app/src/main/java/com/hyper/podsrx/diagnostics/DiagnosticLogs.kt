@@ -14,9 +14,11 @@ import android.widget.Toast
 import com.hyper.podsrx.BuildConfig
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.DeviceRepository
+import com.hyper.podsrx.device.FrameworkBridge
 import com.hyper.podsrx.device.HostReloadCoordinator
 import com.hyper.podsrx.device.HostReloadPolicy
 import com.hyper.podsrx.hook.DiagnosticLog
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.hook.LogRedactor
 import com.hyper.podsrx.i18n.UiText
 import com.hyper.podsrx.i18n.stringResolver
@@ -53,7 +55,9 @@ object DiagnosticLogs {
     private val records = Channel<String>(256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private lateinit var store: RotatingLogStore
     @Volatile private var storageError: String? = null
-    private val hosts = listOf("com.android.settings", "com.xiaomi.bluetooth", "com.milink.service", "com.miui.securitycenter")
+    private val hosts get() = FrameworkBridge.scopePackages.filter {
+        FrameworkBridge.aosp || it != HubWire.SYSTEM_UI
+    }
     private val exportRunning = AtomicBoolean(false)
     private val mutableExportState = MutableStateFlow(LogExportState())
     val exportState = mutableExportState.asStateFlow()

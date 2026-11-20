@@ -38,7 +38,8 @@ object HostRestartCoordinator {
             try {
                 val service = FrameworkBridge.service
                     ?: error(strings(R.string.enable_and_authorize_module))
-                val hosts = HostRestartPolicy.hosts.filter { it.pkg in service.scope }
+                val aosp = FrameworkBridge.aosp
+                val hosts = HostRestartPolicy.hosts.filter { it.pkg in FrameworkBridge.scopePackages && it.pkg in service.scope }
                 check(hosts.isNotEmpty()) { strings(R.string.enable_system_integration_first) }
                 RootCommandSession().use { root ->
                     root.authorize()
@@ -52,18 +53,18 @@ object HostRestartCoordinator {
                         check(uid / 100000 == android.os.Process.myUid() / 100000) { strings(R.string.cannot_restart_other_user) }
                         val names = (info.activities.orEmpty().map { it.processName } + info.services.orEmpty().map { it.processName } +
                             info.providers.orEmpty().map { it.processName } + info.receivers.orEmpty().map { it.processName } + host.pkg)
-                            .filterNotNull().filter { HostRestartPolicy.acceptsName(host.pkg, it) }.toSet()
+                            .filterNotNull().filter { HostRestartPolicy.acceptsName(host.pkg, it, aosp) }.toSet()
                         Target(host, uid, names)
                     }
                     check(targets.isNotEmpty()) { strings(R.string.scope_authorization_revoked) }
                     mutable.value = HostRestartState(true, text(R.string.restarting_authorized_scopes))
                     FrameworkBridge.publish()
                     val before = snapshot(root)
-                    val previous = before.filter { process -> targets.any { HostRestartPolicy.matches(process, it.host.pkg, it.uid, it.names) } }
+                    val previous = before.filter { process -> targets.any { HostRestartPolicy.matches(process, it.host.pkg, it.uid, it.names, aosp) } }
                     DiagnosticLog.i(TAG, "Manual restart: hosts=${targets.joinToString { it.host.pkg }} processes=${previous.size}")
                     submitted = true
                     for (process in previous) {
-                        val result = root.execute(HostRestartPolicy.stopCommand(process))
+                        val result = root.execute(HostRestartPolicy.stopCommand(process, aosp))
                         check(result.code == 0 && result.output.none { it.startsWith("FAILED:") }) { strings(R.string.scope_stop_failed) }
                     }
                     var after = snapshot(root)
