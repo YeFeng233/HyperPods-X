@@ -33,13 +33,21 @@ class HostReloadPolicyTest {
         assertTrue(policy.claim(bluetooth, "STALE", setOf(bluetooth)))
     }
 
-    @Test fun scopeIsExactAndLimitedToOurThreeHosts() {
+    @Test fun scopeIsExactAndLimitedToSupportedHosts() {
         val policy = HostReloadPolicy("100:20", "", emptySet())
         assertFalse(policy.claim(milink, "STALE", setOf(bluetooth)))
         assertFalse(policy.claim("com.android.bluetooth", "STALE", setOf("com.android.bluetooth")))
         assertFalse(policy.claim("$bluetooth.fake", "STALE", setOf(bluetooth)))
         assertTrue(policy.claim("$bluetooth:ui", "STALE", setOf(bluetooth)))
         assertTrue(policy.claim("$milink:core", "STALE", setOf(milink)))
+    }
+
+    @Test fun soundSettingsReloadRequiresMainProcessAndApprovedScope() {
+        val policy = HostReloadPolicy("100:20", "", emptySet())
+        val sound = "com.miui.misound"
+        assertFalse(policy.claim(sound, "STALE", setOf(bluetooth)))
+        assertFalse(policy.claim("$sound:remote", "STALE", setOf(sound)))
+        assertTrue(policy.claim(sound, "STALE", setOf(sound)))
     }
 
     @Test fun onlyTheWidgetProviderProcessOfTheSecurityCenterIsAHost() {

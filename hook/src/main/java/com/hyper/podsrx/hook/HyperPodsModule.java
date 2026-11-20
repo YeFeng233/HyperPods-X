@@ -95,6 +95,19 @@ public final class HyperPodsModule extends XposedModule {
             }
             return;
         }
+        if (pkg.equals(HubWire.SOUND_SETTINGS)) {
+            if (!pkg.equals(processName)) return;
+            installDiagnosticBridge();
+            String component = "MiSound immersive sound";
+            try {
+                MiSoundSpatialAdapter.install(this, loader, getRemotePreferences("device_state"));
+                installed(component);
+            } catch (Exception | LinkageError error) {
+                Compatibility.failed(component, error);
+                moduleLog(Log.WARN, "HyperPods-X", component + " unavailable", error);
+            }
+            return;
+        }
         if (pkg.equals("com.android.settings") || pkg.equals("com.xiaomi.bluetooth") || pkg.equals("com.milink.service")) {
             installDiagnosticBridge();
         }

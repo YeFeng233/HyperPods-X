@@ -56,12 +56,13 @@ HyperPods-X 读取 AirPods 运动传感器的六轴姿态数据，并桥接至 H
 ## 安装与配置
 
 1. **配对与安装**：在系统蓝牙中完成耳机配对，从 [Releases](https://github.com/YeFeng233/HyperPods-X/releases) 下载并安装最新 APK。
-2. **启用模块作用域**：在支持 libxposed API 102 的 LSPosed 中激活 HyperPods-X，并勾选以下 5 个作用域：
+2. **启用模块作用域**：在支持 libxposed API 102 的 LSPosed 中激活 HyperPods-X，并勾选以下作用域：
    - **系统设置** (`com.android.settings`)
    - **系统界面** (`com.android.systemui`)
    - **小米蓝牙** (`com.xiaomi.bluetooth`)
    - **设备互联** (`com.milink.service`)
    - **手机管家** (`com.miui.securitycenter`)
+   - **音质音效** (`com.miui.misound`)
    > 首次启用或升级模块后，请重启设备或在「更多设置」中点击「重启作用域」，确保各系统宿主加载最新代码。
 3. **授予权限**：打开 HyperPods-X，授予「附近设备」与「通知」权限，并允许后台运行，以维持 AACP 控制通道、入耳检测与空间音频服务。
 4. **连接使用**：点击「连接耳机」即可开始使用；后续可从 App 首页或系统蓝牙列表直接进入设置。

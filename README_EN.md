@@ -56,12 +56,13 @@ For first-time Head Tracking use, complete the guided 3-axis calibration (turn r
 ## Installation & Setup
 
 1. **Pair & Install**: Pair your AirPods in System Bluetooth Settings, then download and install the latest APK from [Releases](https://github.com/YeFeng233/HyperPods-X/releases).
-2. **Enable LSPosed Scopes**: Activate HyperPods-X in an LSPosed build supporting libxposed API 102 and select all 5 scopes:
+2. **Enable LSPosed Scopes**: Activate HyperPods-X in an LSPosed build supporting libxposed API 102 and select the following scopes:
    - **Settings** (`com.android.settings`)
    - **System UI** (`com.android.systemui`)
    - **Xiaomi Bluetooth** (`com.xiaomi.bluetooth`)
    - **Device Interconnectivity** (`com.milink.service`)
    - **Security** (`com.miui.securitycenter`)
+   - **Sound Effects** (`com.miui.misound`)
    > After first activation or module updates, reboot your device or tap **Restart Scopes** in **More Settings** so system hosts load the updated code.
 3. **Grant Permissions**: Open HyperPods-X, grant **Nearby Devices** and **Notifications** permissions, and allow unrestricted background execution for AACP control, ear detection, and Spatial Audio services.
 4. **Connect**: Tap **Connect Earbuds** to begin. Afterwards, you can also open settings directly from System Bluetooth Settings.

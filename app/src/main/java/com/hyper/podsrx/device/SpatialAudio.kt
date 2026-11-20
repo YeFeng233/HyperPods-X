@@ -5,6 +5,7 @@ import android.content.*
 import android.media.*
 import android.os.*
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.SpatialWire
 import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.UiText
@@ -68,6 +69,11 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Default)
     private val audio=context.getSystemService(AudioManager::class.java)
     private val spatial=audio.spatializer
+    private val spatializerListener = object : Spatializer.OnSpatializerStateChangedListener {
+        override fun onSpatializerEnabledChanged(spatializer: Spatializer, enabled: Boolean) = refreshNow()
+        override fun onSpatializerAvailableChanged(spatializer: Spatializer, available: Boolean) = refreshNow()
+    }
+    private var observingSpatializer = false
     private val transactionMutex=Mutex()
     @Volatile private var remote:IBinder?=null
     private val owner=Binder()
@@ -104,6 +110,12 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
     private fun state(block:(SpatialState)->SpatialState){DeviceRepository.update{it.copy(spatial=block(it.spatial))}}
 
     fun start(){
+        try {
+            spatial.addOnSpatializerStateChangedListener(context.mainExecutor, spatializerListener)
+            observingSpatializer = true
+        } catch (error: RuntimeException) {
+            DiagnosticLog.w("HyperPods-X", "Spatializer state listener unavailable", error)
+        }
         scope.launch {
             for((captured,vector)in poseQueue){
                 if(!forwarding||SystemClock.elapsedRealtime()-captured>250)continue
@@ -179,15 +191,20 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
         if(!active&&!current.spatial.calibrationMode&&current.model.isNotBlank()&&current.firmware.isNotBlank())loadCalibration()
         val queriedSession=session;val wasForwarding=forwarding
         val b=request(SpatialWire.QUERY)
+        val bridgeReady=b.getBoolean("ok")
+        val compatible=b.getBoolean("compatible")
         runCatching {
             val format=AudioFormat.Builder().setSampleRate(48000).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_5POINT1).build()
             val hasHead=spatial.isHeadTrackerAvailable
             synchronized(this){
             if(session!=queriedSession||forwarding!=wasForwarding)return
-            if(forwarding&&!b.getBoolean("nativeActive")){stopMotion(text(R.string.tracking_stopped_restart));return}
+            if (bridgeReady && !compatible &&
+                (forwarding || trackingRequested && DeviceRepository.state.value.spatial.compatible)) {
+                stopMotion(text(R.string.system_spatial_disabled))
+            } else if(forwarding&&!b.getBoolean("nativeActive")){stopMotion(text(R.string.tracking_stopped_restart));return}
             state{it.copy(capable=spatial.immersiveAudioLevel>0,available=spatial.isAvailable,enabled=spatial.isEnabled,
                 can51=spatial.canBeSpatialized(attributes(),format),headAvailable=hasHead,
-                route=b.getBoolean("route"),compatible=b.getBoolean("compatible"),bridge=b.getBoolean("ok"),
+                route=b.getBoolean("route"),compatible=compatible,bridge=bridgeReady,
                 actualMode=b.getInt("actualMode",-2),desiredMode=b.getInt("desiredMode",-2),nativeActive=forwarding&&b.getBoolean("nativeActive"),
                 status=if(forwarding&&b.getBoolean("nativeActive")&&hasHead)strings(R.string.earbud_motion_connected)else b.getString("status", strings(R.string.spatial_query_failed)))}
             }
@@ -200,7 +217,7 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
         if(mode==SpatialMode.HEAD_TRACKING){startTracking();return}
         val canStop=mode==SpatialMode.OFF&&(active||trackingRequested||forwarding)
         if((!current.bridge||!current.route)&&!canStop){notice(text(R.string.wait_system_spatial_ready));return}
-        if(current.mode==mode&&(mode==SpatialMode.OFF||current.desiredMode==-1)&&!active&&!trackingRequested&&!forwarding)return
+        if(current.mode==mode&&(mode==SpatialMode.OFF||current.enabled&&current.desiredMode==-1)&&!active&&!trackingRequested&&!forwarding)return
         if(active||trackingRequested||forwarding)stopMotion(text(R.string.switching_spatial_mode))
         val cleanup=cleanupJob
         state{it.copy(modeChanging=true,requestedMode=mode,notice=text(""))}
@@ -214,7 +231,8 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
                 check(answer.getBoolean("ok")){answer.getString("status",strings(R.string.spatial_mode_update_failed))}
                 refresh()
                 val reported=DeviceRepository.state.value.spatial
-                check(reported.bridge&&reported.compatible==enabled&&!reported.nativeActive){strings(R.string.spatial_mode_unconfirmed)}
+                check(reported.bridge&&reported.compatible==enabled&&!reported.nativeActive&&
+                    (!enabled||!reported.available||reported.enabled)){strings(R.string.spatial_mode_unconfirmed)}
             }catch(error:CancellationException){throw error}
             catch(error:Exception){notice(error.message?.let(::text) ?:text(R.string.spatial_mode_update_failed));refresh()}
             finally{
@@ -523,6 +541,14 @@ class SpatialAudio(private val context:Service,private val write:(ByteArray)->Bo
         finally{withContext(NonCancellable){request(SpatialWire.STOP)};selfTesting=false;state{it.copy(selfTesting=false)};refresh()}
     }}
     fun close(){
+        if (observingSpatializer) {
+            observingSpatializer = false
+            try {
+                spatial.removeOnSpatializerStateChangedListener(spatializerListener)
+            } catch (error: RuntimeException) {
+                DiagnosticLog.w("HyperPods-X", "Spatializer state listener removal failed", error)
+            }
+        }
         if(active)write(MotionCodec.subscription(profileService,0,++requestSequence))
         if(ownershipTouched&&ownershipBefore==0)write(Aacp.control(6,listOf(0)))
         ownershipTouched=false;active=false;forwarding=false;trackingRequested=false

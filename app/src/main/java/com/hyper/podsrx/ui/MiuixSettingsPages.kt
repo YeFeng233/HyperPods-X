@@ -305,7 +305,9 @@ private fun LazyListScope.moduleSettings(state: PodsState, onOverlay: () -> Unit
                 }
                 "batteryPreview" -> RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewPopup() }
                 "islandPreview" -> RowItem(SettingsCatalog.moduleLabel(key)) { PodsService.previewIsland() }
-                "nativeScope" -> RowItem(SettingsCatalog.moduleLabel(key), "在 LSPosed 中授权系统设置、小米蓝牙、设备互联和手机管家") { FrameworkBridge.requestNativeScope() }
+                "nativeScope" -> RowItem(SettingsCatalog.moduleLabel(key), strings(R.string.native_scope_description)) {
+                    FrameworkBridge.requestNativeScope()
+                }
                 "restartHosts" -> {
                     val restart by HostRestartCoordinator.state.collectAsStateWithLifecycle()
                     RowItem(if (restart.running) "正在重启作用域…" else SettingsCatalog.moduleLabel(key),

@@ -48,7 +48,7 @@ object FrameworkBridge {
     }
     fun requestNativeScope() {
         val bound = service ?: return DeviceRepository.message(R.string.enable_module_first)
-        bound.requestScope(listOf("com.android.settings","com.android.systemui","com.xiaomi.bluetooth","com.milink.service","com.miui.securitycenter"),object:XposedService.OnScopeEventListener{
+        bound.requestScope(HostReloadPolicy.hosts,object:XposedService.OnScopeEventListener{
             override fun onScopeRequestApproved(approved:MutableList<String>){
                 DeviceRepository.message(R.string.scope_authorized_checking)
                 HostReloadCoordinator.onScopeApproved(bound, approved)

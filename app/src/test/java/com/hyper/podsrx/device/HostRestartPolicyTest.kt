@@ -84,5 +84,12 @@ class HostRestartPolicyTest {
         assertFalse(HostRestartPolicy.acceptsName(center, "$center:ui"))
     }
 
+    @Test fun soundSettingsRestartIsLimitedToItsMainProcess() {
+        val sound = "com.miui.misound"
+        val declared = setOf(sound, "$sound:remote")
+        assertTrue(HostRestartPolicy.matches(process(10_183, sound), sound, 10_183, declared))
+        assertFalse(HostRestartPolicy.matches(process(10_183, "$sound:remote"), sound, 10_183, declared))
+    }
+
     private fun process(uid: Int, name: String) = HostRestartPolicy.Process(4321, uid, name)
 }

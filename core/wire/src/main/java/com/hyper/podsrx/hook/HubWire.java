@@ -8,6 +8,7 @@ public final class HubWire {
     private HubWire() {}
     public static final String APP = "com.hyper.podsrx";
     public static final String HOST = "com.xiaomi.bluetooth";
+    public static final String SOUND_SETTINGS = "com.miui.misound";
     /** Ordered broadcast from the app; the hub answers with its binder in the result extras. */
     public static final String CONNECT = APP + ".HUB_CONNECT";
     /** Sent to the app once a hub is installed, so a running app reconnects at once. */

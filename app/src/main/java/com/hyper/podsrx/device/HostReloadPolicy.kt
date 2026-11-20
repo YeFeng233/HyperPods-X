@@ -1,5 +1,7 @@
 package com.hyper.podsrx.device
 
+import com.hyper.podsrx.hook.HubWire
+
 /** A persisted attempt budget, independent of process IDs and displayed version numbers. */
 internal class HostReloadPolicy(
     val installation: String,
@@ -17,10 +19,13 @@ internal class HostReloadPolicy(
     }
 
     companion object {
-        val hosts = listOf("com.xiaomi.bluetooth", "com.milink.service", "com.android.settings", "com.android.systemui", "com.miui.securitycenter")
+        val hosts = listOf("com.xiaomi.bluetooth", "com.milink.service", "com.android.settings", "com.android.systemui",
+            "com.miui.securitycenter", HubWire.SOUND_SETTINGS)
         // The security center names its widget provider process "<package>.remote".
         const val WIDGET_PROCESS = "com.miui.securitycenter.remote"
-        fun hostFor(process: String): String? = hosts.firstOrNull { process == it || process.startsWith("$it:") }
+        fun hostFor(process: String): String? = hosts.firstOrNull {
+            process == it || it != HubWire.SOUND_SETTINGS && process.startsWith("$it:")
+        }
             ?: "com.miui.securitycenter".takeIf { process == WIDGET_PROCESS }
         fun order(process: String): Int = hostFor(process)?.let(hosts::indexOf) ?: Int.MAX_VALUE
         fun installation(lastUpdateTime: Long, versionCode: Long): String = "$lastUpdateTime:$versionCode"

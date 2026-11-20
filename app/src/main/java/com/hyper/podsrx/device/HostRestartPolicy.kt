@@ -1,6 +1,7 @@
 package com.hyper.podsrx.device
 
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.HubWire
 
 internal object HostRestartPolicy {
     data class Host(val pkg: String, val labelRes: Int, val service: String? = null)
@@ -11,6 +12,7 @@ internal object HostRestartPolicy {
         Host("com.android.settings", R.string.host_settings),
         Host("com.android.systemui", R.string.host_system_ui),
         Host("com.miui.securitycenter", R.string.host_security),
+        Host(HubWire.SOUND_SETTINGS, R.string.host_sound_settings),
     )
     private val auxiliary = setOf("com.milink.runtime", "com.milink.crossdeviceservice", "com.xiaomi.vtcamera")
 
@@ -18,6 +20,7 @@ internal object HostRestartPolicy {
         name.matches(Regex("[A-Za-z0-9_.:]+")) &&
         // Only the widget provider process of the security center is hooked.
         if (pkg == "com.miui.securitycenter") name == HostReloadPolicy.WIDGET_PROCESS
+        else if (pkg == HubWire.SOUND_SETTINGS) name == pkg
         else name == pkg || name.startsWith("${pkg}:") || pkg == "com.milink.service" && name in auxiliary
 
     fun parse(line: String): Process? {
