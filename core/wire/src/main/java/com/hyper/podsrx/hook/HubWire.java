@@ -35,6 +35,7 @@ public final class HubWire {
     public static final String HEADSET_BATTERY_SHOW = "android.intent.extra.show_bluetooth_handsfree_battery";
     public static final String HEADSET_BATTERY_LEVEL = "android.intent.extra.bluetooth_handsfree_battery_level";
     public static final String HEADSET_BATTERY_COMPONENT = APP + ".HEADSET_BATTERY_COMPONENT";
+    public static final String HEADSET_BATTERY_REFRESH = APP + ".HEADSET_BATTERY_REFRESH";
 
     /**
      * The app's channel for the battery alerts. The app makes {@link #HOST} its notification

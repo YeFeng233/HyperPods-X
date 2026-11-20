@@ -1,6 +1,7 @@
 package com.hyper.podsrx.hook;
 
 import android.app.Application;
+import android.app.BroadcastOptions;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -133,6 +134,14 @@ final class SystemUiHandleIconHook {
             } catch (ReflectiveOperationException | RuntimeException error) {
                 app = null;
                 DiagnosticLog.w(TAG, "SystemUI headset side receiver unavailable", error);
+                return;
+            }
+            try {
+                BroadcastOptions options = BroadcastOptions.makeBasic().setShareIdentityEnabled(true);
+                app.sendBroadcast(new Intent(HubWire.HEADSET_BATTERY_REFRESH).setPackage(HubWire.HOST),
+                    null, options.toBundle());
+            } catch (RuntimeException error) {
+                DiagnosticLog.w(TAG, "SystemUI headset battery refresh request failed", error);
             }
         }
 

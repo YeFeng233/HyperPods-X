@@ -124,6 +124,7 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             DiagnosticLog.w(TAG, "ROM AACP channel guard unavailable", error);
         }
         instance = host;
+        host.widget.start();
         host.scan.start();
         host.sight();
         host.publish();
