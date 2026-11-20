@@ -360,6 +360,7 @@
     <string name="automatic_connection_help">"自动连接帮助"</string>
     <string name="connection_diagnostics">"连接诊断"</string>
     <string name="open_source_licenses">"开源许可"</string>
+    <string name="open_source_projects">开源项目</string>
     <string name="bluetooth_device_settings_suffix">" · 蓝牙设备设置"</string>
     <string name="back">"返回"</string>
     <string name="connect_earbuds">"连接耳机"</string>
@@ -531,6 +532,8 @@
     <string name="auto_connect">"自动连接到此设备"</string>
     <string name="auto_connect_description">"启用后，AirPods 将尝试自动连接到此设备。否则，它们将仅在上次连接时尝试自动连接。"</string>
     <string name="clear_text">"清除文本"</string>
+    <string name="floating_bottom_bar">悬浮底栏</string>
+    <string name="glass_bottom_bar">玻璃底栏</string>
     <string name="personalized_volume_footnote">"根据所处环境调整整体音量。"</string>
     <string name="conversation_footnote">"开始与他人讲话时降低媒体音量并减少背景噪声。"</string>
     <string name="custom">"自定"</string>
@@ -585,4 +588,6 @@
     <string name="more_cancellation">"更降噪"</string>
     <string name="strength_swipe_hint">"向%1$s滑动增强降噪，连续调节。"</string>
     <string name="file_picker_failed">"无法打开文件保存界面，请稍后重试"</string>
+    <string name="tab_earbuds">耳机</string>
+    <string name="tab_connection">连接</string>
 </resources>

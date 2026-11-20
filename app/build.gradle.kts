@@ -69,7 +69,9 @@ androidComponents.onVariants { variant ->
 
 android {
     namespace = "com.hyper.podsrx"
-    compileSdk = 37
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
     buildToolsVersion = "37.0.0"
     defaultConfig {
         applicationId = "com.hyper.podsrx"
@@ -119,11 +121,14 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.0")
     implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.0")
-    implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-navigation3-ui:0.9.3")
+    val miuixVersion = "0.9.5-beta01"
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-glass-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-glass-icons-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-nav-android:$miuixVersion")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.2")

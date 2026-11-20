@@ -2,8 +2,10 @@ package com.hyper.podsrx.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,80 +17,101 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.runtime.NavEntry
-import androidx.navigation3.ui.NavDisplay
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
 import com.hyper.podsrx.i18n.rememberStrings
+import com.hyper.podsrx.ui.liquid.LiquidGlassBottomBar
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Clear
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
-import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.glass.*
+import top.yukonga.miuix.kmp.icon.glass.BluetoothDiscovery
+import top.yukonga.miuix.kmp.icon.glass.BluetoothHeadphones
+import top.yukonga.miuix.kmp.icon.glass.SettingsOutline
+import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
+import top.yukonga.miuix.kmp.nav.core.NavKey
+import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
+import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
+import top.yukonga.miuix.kmp.utils.PagerNavigationSpringSpec
+import top.yukonga.miuix.kmp.utils.springAnimateToPage
+
+private data class PodsRoute(val path: String) : NavKey
+private const val RootPage = "root"
+private val tabs = listOf(SettingsPage.DEVICE, SettingsPage.CONNECTION, SettingsPage.MODULE)
+
 
 @Composable
 internal fun MiuixSettingsScreen(
     externalSettings: Boolean,
     initialPage: String? = null,
     onConnect: () -> Unit,
-    onOverlay: () -> Unit,
     onSystemBluetooth: () -> Unit,
     onFinish: () -> Unit,
 ) {
     val strings = rememberStrings()
     val state by DeviceRepository.state.collectAsStateWithLifecycle()
-    var confirmedControls by remember(state.address, state.running) { mutableStateOf<Map<Int, List<Int>>>(emptyMap()) }
-    var confirmedEqualizer by remember(state.address, state.running) { mutableStateOf<List<Int>?>(null) }
-    SideEffect {
-        if (state.running) {
-            if (state.controls.isNotEmpty()) confirmedControls = confirmedControls + state.controls
-            state.equalizer?.let { confirmedEqualizer = it }
-        }
-    }
-    val retainingReadback = state.running && state.pending.isNotEmpty()
-    val visibleControls = if (retainingReadback) confirmedControls + state.controls else state.controls
-    val cachedEqualizer = retainingReadback && state.equalizer == null && confirmedEqualizer != null
-    val displayState = if (retainingReadback) state.copy(
-        controls = visibleControls,
-        equalizer = state.equalizer ?: confirmedEqualizer,
-        pending = state.pending + (visibleControls.keys - state.controls.keys) +
-            if (cachedEqualizer) setOf(PodsService.EQ_COMMAND) else emptySet(),
-    ) else state
+    val displayState = rememberReportedControls(state)
     val currentDisplayState = rememberUpdatedState(displayState)
-    val context = LocalContext.current
-    val volumeController = remember(context) { MediaVolumeController(context) }
-    val volume by volumeController.state.collectAsStateWithLifecycle()
-    DisposableEffect(volumeController) { onDispose { volumeController.close() } }
     val view = LocalView.current
     DisposableEffect(view, state.spatial.calibrationMode) {
         val previous = view.keepScreenOn
         view.keepScreenOn = state.spatial.calibrationMode
         onDispose { view.keepScreenOn = previous }
     }
+    val windowSize = LocalWindowInfo.current.containerSize
+    val wide = with(LocalDensity.current) { windowSize.width.toDp() >= 600.dp }
+    val expandable = !wide && with(LocalDensity.current) { windowSize.height.toDp() >= 480.dp }
+    val initial = SettingsCatalog.initialPage(initialPage)?.takeUnless { it == SettingsPage.BATTERY }
+    val initialTab = tabs.indexOf(initial).coerceAtLeast(0)
+    val pager = rememberPagerState(initialPage = initialTab) { tabs.size }
+    val pagerScope = rememberCoroutineScope()
+    var tabMotion by remember { mutableStateOf<Job?>(null) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab) }
+    LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { selectedTab = it } }
+    val switchTab: (Int) -> Unit = { index ->
+        tabMotion?.cancel()
+        selectedTab = index
+        tabMotion = pagerScope.launch {
+            if (wide) pager.scrollToPage(index) else pager.springAnimateToPage(index)
+        }
+    }
     val backStack = rememberSaveable(
-        saver = listSaver<SnapshotStateList<String>, String>(save = { it.toList() }, restore = { it.toMutableStateList() }),
+        saver = listSaver<SnapshotStateList<NavKey>, String>(
+            save = { routes -> routes.map { (it as PodsRoute).path } },
+            restore = { paths -> paths.filterNot { it == "battery" }
+                .map<String, NavKey>(::PodsRoute).toMutableStateList() },
+        ),
     ) {
-        mutableStateListOf(SettingsPage.DEVICE.route).apply {
-            SettingsCatalog.initialPage(initialPage)?.takeIf { it != SettingsPage.DEVICE }?.let { add(it.route) }
+        mutableStateListOf<NavKey>(PodsRoute(if (externalSettings) SettingsPage.DEVICE.route else RootPage)).apply {
+            if (initial != null && initial != SettingsPage.DEVICE && (externalSettings || initial !in tabs))
+                add(PodsRoute(initial.route))
         }
     }
     var nameValue by rememberSaveable(state.address, stateSaver = TextFieldValue.Saver) {
@@ -106,12 +129,18 @@ internal fun MiuixSettingsScreen(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val navigate: (String) -> Unit = { destination ->
-        if (backStack.lastOrNull() != destination) {
+        val route = PodsRoute(destination)
+        val tab = tabs.indexOfFirst { it.route == destination }
+        if (!externalSettings && backStack.last() == PodsRoute(RootPage) && tab >= 0) {
+            switchTab(tab)
+        } else if (backStack.last() != route) {
             if (destination == SettingsPage.NAME.route) {
                 nameValue = TextFieldValue(state.displayName, selection = TextRange(state.displayName.length))
                 nameError = null
             }
-            backStack.add(destination)
+            val existing = backStack.indexOf(route)
+            if (existing < 0) backStack.add(route)
+            else while (backStack.last() != route) backStack.removeAt(backStack.lastIndex)
         }
     }
     val saveName: (Boolean) -> Boolean = { showError ->
@@ -129,23 +158,39 @@ internal fun MiuixSettingsScreen(
     val leavePage: () -> Unit = {
         focusManager.clearFocus()
         keyboard?.hide()
-        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) else onFinish()
+        when {
+            backStack.size > 1 -> backStack.removeAt(backStack.lastIndex)
+            !externalSettings && selectedTab != 0 -> switchTab(0)
+            else -> onFinish()
+        }
     }
     val back: () -> Unit = {
-        if (backStack.lastOrNull() == SettingsPage.NAME.route && nameError == null) saveName(false)
+        if (backStack.last() == PodsRoute(SettingsPage.NAME.route) && nameError == null) saveName(false)
         leavePage()
     }
     val finishName: () -> Unit = { if (saveName(true)) leavePage() }
     BackHandler(enabled = backStack.size == 1, onBack = back)
+    val useFloatingBar by AppearancePreferences.floatingBottomBar.collectAsStateWithLifecycle()
+    val useGlassBar by AppearancePreferences.glassBottomBar.collectAsStateWithLifecycle()
     val theme = remember { ThemeController(ColorSchemeMode.System) }
+    val swipe = if (LocalLayoutDirection.current == LayoutDirection.Rtl)
+        NavSwipeDirection.RightToLeft else NavSwipeDirection.LeftToRight
     MiuixTheme(controller = theme) {
-        MiuixListeningIntentHost(displayState) {
-            NavDisplay(
-                backStack = backStack,
-                modifier = Modifier.fillMaxSize(),
-                onBack = back,
-                entryProvider = { page ->
-                    NavEntry(key = page, contentKey = page) {
+        PageBackdropBox {
+            Scaffold(contentWindowInsets = WindowInsets(0)) {
+                ListeningIntentHost(displayState) {
+                    val rail = if (wide && !externalSettings) rememberGlassNavigationRailState() else null
+                    val railBackdrop = if (rail != null) rememberSurfaceBackdrop() else null
+                    val railInset: () -> Dp = {
+                        if (rail != null) (GlassNavigationRailDefaults.Margin + GlassNavigationRailDefaults.ExpandedWidth) *
+                            rail.progress else 0.dp
+                    }
+                    val navigation = listOf(
+                        GlassNavigationItem(icon = MiuixIcons.Glass.BluetoothHeadphones, label = strings(R.string.tab_earbuds)),
+                        GlassNavigationItem(icon = MiuixIcons.Glass.BluetoothDiscovery, label = strings(R.string.tab_connection)),
+                        GlassNavigationItem(icon = MiuixIcons.Glass.SettingsOutline, label = strings(R.string.settings)),
+                    )
+                    val pageContent: @Composable (String, Dp?) -> Unit = { page, bottom ->
                         val entryState = currentDisplayState.value
                         LaunchedEffect(page) {
                             if (page == SettingsPage.SPATIAL.route) PodsService.spatialRefresh()
@@ -153,116 +198,162 @@ internal fun MiuixSettingsScreen(
                         DisposableEffect(page) {
                             onDispose { if (page == SettingsPage.SPATIAL.route) PodsService.spatialCancelCalibration() }
                         }
-                        MiuixPageScaffold(
-                            title = SettingsCatalog.title(page, entryState, strings),
-                            onBack = back,
-                            onMore = if (page == SettingsPage.DEVICE.route) ({ navigate(SettingsPage.MODULE.route) }) else null,
+                        if (page == SettingsPage.ABOUT.route) {
+                            AboutPage(wide, railInset, back) { navigate(SettingsPage.LICENSES.route) }
+                        } else MiuixPageScaffold(
+                            title = if (page == SettingsPage.MODULE.route) strings(R.string.settings)
+                                else if (page == SettingsPage.CONNECTION.route) strings(R.string.tab_connection)
+                                else SettingsCatalog.title(page, entryState, strings),
+                            expandable = expandable,
+                            railInset = railInset,
+                            onBack = if (bottom == null) back else null,
+                            onSettings = if (externalSettings && page == SettingsPage.DEVICE.route)
+                                ({ navigate(SettingsPage.MODULE.route) }) else null,
                             startsWithHeading = when (page) {
                                 "controls" -> SettingsCatalog.gesturePresenceIds.any { it in entryState.controls }
                                 "accessibility" -> SettingsCatalog.accessibilityPresenceIds.any { it in entryState.controls }
-                                else -> page in setOf("spatial", "equalizer", "battery", "module", "diagnostics", "licenses")
+                                else -> page in setOf("spatial", "equalizer", "diagnostics", "licenses")
                             },
+                            tabBottomPadding = bottom,
                         ) {
                             when (page) {
-                                SettingsPage.DEVICE.route -> miuixDevicePage(entryState, volume,
-                                    volumeController::setFraction, volumeController::refresh, onConnect, navigate)
+                                SettingsPage.DEVICE.route -> miuixDevicePage(entryState, strings, onConnect, navigate)
                                 SettingsPage.NAME.route -> miuixItem("name.editor") {
                                     MiuixNameEditor(nameValue, { nameValue = it; nameError = null }, nameError, finishName)
                                 }
-                                else -> miuixSettingsPageContent(page, entryState, onConnect, onOverlay, onSystemBluetooth, navigate, strings)
-                            }
-                            if (page in setOf("module", "connection", "diagnostics")) {
-                                miuixFootnote("page.message", entryState.message)
+                                else -> miuixSettingsPageContent(page, entryState, onConnect, onSystemBluetooth, navigate, strings, useFloatingBar, useGlassBar)
                             }
                         }
                     }
-                },
-            )
+                    Box(Modifier.fillMaxSize()) {
+                        NavDisplay(
+                            backStack = backStack,
+                            modifier = Modifier.fillMaxSize().then(if (railBackdrop != null)
+                                Modifier.layerBackdrop(railBackdrop) else Modifier),
+                            onBack = back,
+                            effects = NavDisplayEffects(cornerClipRadius = if (rail == null)
+                                rememberNavSystemCornerRadius() else 0.dp),
+                        ) {
+                            entry<PodsRoute>(swipeDismiss = swipe) { route ->
+                                if (route.path == RootPage) {
+                                    val barBackdrop = if (rail == null && useGlassBar && isRuntimeShaderSupported())
+                                        rememberSurfaceBackdrop() else null
+                                    val fling = PagerDefaults.flingBehavior(pager, snapAnimationSpec = PagerNavigationSpringSpec)
+                                    Scaffold(
+                                        contentWindowInsets = WindowInsets(0),
+                                        bottomBar = {
+                                            if (rail == null) {
+                                                PodsBottomBar(navigation, selectedTab, switchTab, useFloatingBar, barBackdrop)
+                                            }
+                                        },
+                                    ) { padding ->
+                                        val bottom = if (rail == null) padding.calculateBottomPadding()
+                                            else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                                        HorizontalPager(
+                                            state = pager,
+                                            modifier = if (barBackdrop == null) Modifier.fillMaxSize()
+                                                else Modifier.fillMaxSize().layerBackdrop(barBackdrop),
+                                            flingBehavior = fling,
+                                            verticalAlignment = Alignment.Top,
+                                            overscrollEffect = null,
+                                        ) { index -> pageContent(tabs[index].route, bottom) }
+                                    }
+                                } else pageContent(route.path, null)
+                            }
+                        }
+                        if (rail != null) GlassNavigationRail(
+                            items = navigation,
+                            selectedIndex = if (backStack.size == 1) selectedTab else -1,
+                            onSelect = { index ->
+                                while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+                                switchTab(index)
+                            },
+                            backdrop = railBackdrop,
+                            state = rail,
+                        )
+                    }
+                }
+                GlassDialog(show = actionError != null, backdrop = LocalPageBackdrop.current,
+                    summary = actionError, onDismissRequest = { actionError = null }) {
+                    GlassDialogButton(onClick = { actionError = null }, modifier = Modifier.fillMaxWidth(),
+                        role = GlassDialogButtonRole.Primary) {
+                        Text(strings(R.string.ok), style = MiuixTheme.textStyles.button)
+                    }
+                }
+            }
         }
-        WindowDialog(show = actionError != null, title = "未能完成操作", summary = actionError,
-            onDismissRequest = { actionError = null }) {
-            TextButton("好", { actionError = null }, Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.textButtonColorsPrimary())
+    }
+}
+
+@Composable
+private fun PodsBottomBar(
+    items: List<GlassNavigationItem>,
+    selected: Int,
+    select: (Int) -> Unit,
+    floating: Boolean,
+    backdrop: LayerBackdrop?,
+) {
+    if (floating || backdrop != null) {
+        val destinations = remember(items) { items.map { NavigationItem(label = it.label.orEmpty(), icon = it.icon) } }
+        LiquidGlassBottomBar(destinations, selected, select, backdrop, floating)
+    } else NavigationBar {
+        items.forEachIndexed { index, item ->
+            NavigationBarItem(
+                selected = index == selected, onClick = { select(index) }, icon = item.icon,
+                label = item.label.orEmpty(),
+            )
         }
     }
 }
 
 private fun LazyListScope.miuixDevicePage(
     state: PodsState,
-    volume: MediaVolumeState,
-    onVolumeChange: (Float) -> Unit,
-    onVolumeFinished: () -> Unit,
+    strings: com.hyper.podsrx.i18n.Strings,
     onConnect: () -> Unit,
     navigate: (String) -> Unit,
 ) {
     miuixItem("device.product") {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Image(painterResource(R.drawable.miuix_airpods_open_case), state.headset.name, contentScale = ContentScale.Fit,
+            Image(painterResource(state.headset.caseArtwork), null, contentScale = ContentScale.Fit,
                 modifier = Modifier.size(266.dp))
         }
     }
     miuixItem("device.batteries") { MiuixBatteryCard(state) }
-    miuixGroupedItems("device.name", listOf(Unit)) {
-        RowItem("名称", value = state.displayName,
-            enabled = state.address.isNotBlank() && DeviceRepository.permissionsGranted()) { navigate(SettingsPage.NAME.route) }
-    }
-    miuixHeader("device.listening.title", "聆听模式")
-    miuixItem("device.listening") { ListeningControls(state) }
-    miuixHeader("device.volume.title", "音量")
-    miuixItem("device.volume") {
-        SettingsCard {
-            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                Slider(
-                    value = volume.fraction, onValueChange = onVolumeChange, enabled = volume.maximum > 0,
-                    onValueChangeFinished = onVolumeFinished,
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "音量" },
-                )
+    if (!state.running) {
+        miuixGroupedItems("device.connect", listOf(Unit)) {
+            RowItem(strings(R.string.connect_airpods)) {
+                navigate(SettingsPage.CONNECTION.route)
+                onConnect()
             }
         }
     }
-    miuixGroupedItems("device.features", SettingsCatalog.rootFeatureLinks, itemKey = { it.page.route }) { link ->
-        RowItem(link.title) { navigate(link.page.route) }
+    miuixGroupedItems("device.name", listOf(Unit)) {
+        RowItem(strings(R.string.name), value = state.displayName,
+            enabled = state.address.isNotBlank() && DeviceRepository.permissionsGranted()) { navigate(SettingsPage.NAME.route) }
     }
-    miuixGroupedItems("device.battery", listOf(SettingsCatalog.batteryLink), itemKey = { it.page.route }) { link ->
-        RowItem(link.title) { navigate(link.page.route) }
-    }
-    if (!state.running) miuixGroupedItems("device.connection", listOf(Unit)) {
-        RowItem("连接 AirPods") { navigate(SettingsPage.CONNECTION.route); onConnect() }
-    }
-    miuixGroupedItems("device.information", listOf("model", "number", "firmware"), title = "关于") { row ->
-        when (row) {
-            "model" -> InfoRow("型号名称", state.headset.name)
-            "number" -> InfoRow("型号号码", state.model.ifBlank { "—" })
-            else -> InfoRow("版本", state.firmware.ifBlank { "—" })
-        }
-    }
-    miuixGroupedItems("device.settings", SettingsCatalog.rootSettingsLinks, itemKey = { it.page.route }) { link ->
-        RowItem(link.title) { navigate(link.page.route) }
-    }
+    miuixHeader("device.listening.title", strings(R.string.listening_mode))
+    miuixItem("device.listening") { ListeningControls(state) }
 }
 
 @Composable
 private fun MiuixBatteryCard(state: PodsState) {
     val strings = rememberStrings()
-    val cellHeight = with(LocalDensity.current) { 20.sp.toDp() }.coerceAtLeast(21.dp)
     SettingsCard {
-        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf(4 to "左", 2 to "右", 8 to "充电盒").forEachIndexed { index, (id, label) ->
-                if (index > 0) Box(Modifier.width(.5.dp).height(cellHeight * 3).background(MiuixTheme.colorScheme.dividerLine))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            listOf(4 to R.string.left, 2 to R.string.right, 8 to R.string.charging_case).forEach { (id, labelRes) ->
                 val battery = batteryPresentation(state.batteries[id], strings)
-                Column(Modifier.weight(1f).clearAndSetSemantics {
-                    contentDescription = label + "，" + battery.label + if (battery.note.isBlank()) "" else "，" + battery.note
-                }, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.fillMaxWidth().height(cellHeight), contentAlignment = Alignment.Center) {
-                        Text(label, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
-                    }
-                    Box(Modifier.fillMaxWidth().height(cellHeight), contentAlignment = Alignment.Center) {
-                        Text(battery.label, fontSize = 12.sp, lineHeight = 20.sp, maxLines = 1,
-                            color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                    }
-                    Box(Modifier.fillMaxWidth().height(cellHeight), contentAlignment = Alignment.Center) {
-                        BatteryGlyph(battery)
-                    }
+                val label = strings(labelRes)
+                Column(
+                    Modifier.weight(1f).clearAndSetSemantics {
+                        contentDescription = listOf(label, battery.label, battery.note).filter(String::isNotBlank).joinToString(" · ")
+                    },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    BatteryGlyph(battery)
+                    Text(battery.label, style = MiuixTheme.textStyles.headline1)
+                    Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                 }
             }
         }
