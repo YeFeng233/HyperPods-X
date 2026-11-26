@@ -35,6 +35,7 @@ class PodsService: Service() {
         fun previewIsland() {instance?.popup?.show(PopupReason.ISLAND_PREVIEW,preview=true)?:DeviceRepository.message(R.string.start_earbud_service_first)}
         fun spatialRefresh(){instance?.spatial?.refreshNow()}
         fun refreshHubDiagnostics(){instance?.hubClient?.refreshDiagnostics()}
+        suspend fun setAlias(address: String, name: String): Boolean = instance?.hubClient?.setAlias(address, name) ?: false
         fun spatialBeginCalibration(){instance?.spatial?.beginCalibration()}
         fun spatialCancelCalibration(){instance?.spatial?.cancelCalibration()}
         fun spatialCalibrate(){instance?.spatial?.calibrate()}

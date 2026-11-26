@@ -3,8 +3,10 @@ package com.hyper.podsrx.hook;
 import android.app.BroadcastOptions;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothStatusCodes;
 import android.bluetooth.le.ScanResult;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -385,13 +387,12 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
             level(r, 4), level(r, 2), level(r, 8), charging, target);
     }
 
-    /** The name the control channel reports, else the system alias. */
+    /** The system alias, with the control channel's name as a fallback. */
     private String headsetName(HubBundles.State s) {
-        String name = s.control.name;
-        if (name.isEmpty()) {
-            try { name = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(s.address).getAlias(); }
-            catch (RuntimeException unavailable) { name = null; }
-        }
+        String name;
+        try { name = context.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(s.address).getAlias(); }
+        catch (RuntimeException unavailable) { name = null; }
+        if (name == null || name.isEmpty()) name = s.control.name;
         return name == null || name.isEmpty() ? "AirPods" : name;
     }
 
@@ -606,9 +607,31 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
                 response.putBoolean("shown", PopupDriver.show(context, popup));
                 return HubWire.OK;
             }
+            case HubWire.SET_ALIAS:
+                return setAlias(HubBundles.Alias.from(request), response);
             default:
                 return HubWire.FAILED;
         }
+    }
+
+    private synchronized int setAlias(HubBundles.Alias alias, Bundle response) {
+        if (closed || callback == null || alias.address.isEmpty() || !address.equalsIgnoreCase(alias.address)) {
+            return HubWire.DENIED;
+        }
+        if (alias.name.isBlank() || alias.name.length() > HubWire.MAX_ALIAS_LENGTH) return HubWire.FAILED;
+
+        BluetoothManager manager = context.getSystemService(BluetoothManager.class);
+        BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
+        int result;
+        if (adapter == null || !adapter.isEnabled()) {
+            result = BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED;
+        } else {
+            BluetoothDevice device = adapter.getRemoteDevice(address);
+            result = device.getBondState() == BluetoothDevice.BOND_BONDED
+                ? device.setAlias(alias.name) : BluetoothStatusCodes.ERROR_DEVICE_NOT_BONDED;
+        }
+        response.putInt(HubWire.BLUETOOTH_STATUS, result);
+        return result == BluetoothStatusCodes.SUCCESS ? HubWire.OK : HubWire.FAILED;
     }
 
     private int hello(HubBundles.Hello hello, Bundle response) throws RemoteException {

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -47,7 +48,8 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
     private val main=Handler(Looper.getMainLooper())
     // One transaction at a time, in the order they were asked for.
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO.limitedParallelism(1))
+    private val dispatcher=Dispatchers.IO.limitedParallelism(1)
+    private val scope=CoroutineScope(SupervisorJob()+dispatcher)
     private val controlBatteries=MutableStateFlow<List<Battery>>(emptyList())
     @Volatile private var hub:IBinder?=null
     private var hubDeath:IBinder.DeathRecipient?=null
@@ -122,6 +124,22 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
             }.getOrDefault(false)
             main.post{onResult(shown)}
         }
+    }
+
+    suspend fun setAlias(address: String, name: String): Boolean = withContext(dispatcher) {
+        val binder = hub ?: return@withContext false
+        val (status, reply) = runCatching {
+            transact(binder, HubWire.SET_ALIAS, HubBundles.Alias(address, name).toBundle())
+        }.getOrElse {
+            DeviceRepository.log("Bluetooth alias write failed: ${it.javaClass.simpleName}")
+            return@withContext false
+        }
+        if (status == HubWire.OK) return@withContext true
+        val reason = if (reply.containsKey(HubWire.BLUETOOTH_STATUS)) {
+            "Bluetooth status ${reply.getInt(HubWire.BLUETOOTH_STATUS)}"
+        } else reply.getString("status") ?: "hub status $status"
+        DeviceRepository.log("Bluetooth alias write failed: $reason")
+        false
     }
 
     fun close() {

@@ -46,8 +46,11 @@ public final class HubWire {
 
     // app -> hub
     public static final int HELLO = 1, PUSH_CONTROL = 2, PUSH_KEYS = 3, REQUEST_POPUP = 4,
-        GET_STATE = 5, GET_DIAGNOSTICS = 6;
+        GET_STATE = 5, GET_DIAGNOSTICS = 6, SET_ALIAS = 7;
     // REQUEST_POPUP replies with "shown" once the popup is submitted.
+    // SET_ALIAS replies with the BluetoothStatusCodes value when available.
+    public static final String BLUETOOTH_STATUS = "bluetoothStatus";
+    public static final int MAX_ALIAS_LENGTH = 100;
     // hub -> app, oneway
     public static final int ON_STATE = 101, ON_LID = 102;
 

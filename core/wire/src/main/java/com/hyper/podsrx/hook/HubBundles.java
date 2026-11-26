@@ -258,6 +258,27 @@ public final class HubBundles {
         return out;
     }
 
+    /** SET_ALIAS, for the currently bound Bluetooth device. */
+    public static final class Alias {
+        public final String address, name;
+
+        public Alias(String address, String name) {
+            this.address = address;
+            this.name = name;
+        }
+
+        public Bundle toBundle() {
+            Bundle out = new Bundle();
+            out.putString("address", address);
+            out.putString("name", name);
+            return out;
+        }
+
+        public static Alias from(Bundle in) {
+            return new Alias(in.getString("address", ""), in.getString("name", ""));
+        }
+    }
+
     // hub -> app and other hosts
 
     public static final int LID_UNKNOWN = -1, LID_CLOSED = 0, LID_OPEN = 1;

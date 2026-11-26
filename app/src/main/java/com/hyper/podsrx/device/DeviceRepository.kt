@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,6 +15,7 @@ import com.hyper.podsrx.R
 import com.hyper.podsrx.hook.DiagnosticLog
 import com.hyper.podsrx.hook.HeadsetModels
 import com.hyper.podsrx.hook.HubBundles
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.hook.LogRedactor
 import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.UiText
@@ -136,26 +136,17 @@ object DeviceRepository {
         val name=runCatching{app.getSystemService(BluetoothManager::class.java).adapter?.getRemoteDevice(address)?.alias.orEmpty()}.getOrNull()?:return
         update{if(it.address==address)it.copy(localName=name)else it}
     }
-    @Suppress("MissingPermission")
-    fun rename(name: String): Boolean {
+    suspend fun rename(name: String): Boolean {
         val cleaned = name.trim()
         val address = state.value.address
-        if (cleaned.isEmpty() || cleaned.length > 100 || address.isBlank() || !permissionsGranted()) return false
-        return runCatching {
-            val device = app.getSystemService(BluetoothManager::class.java).adapter?.getRemoteDevice(address)
-                ?: return false
-            if (device.setAlias(cleaned) != BluetoothStatusCodes.SUCCESS) {
-                message(R.string.rename_failed)
-                false
-            } else {
-                refreshLocalName()
-                FrameworkBridge.publish()
-                true
-            }
-        }.getOrElse {
+        if (cleaned.isEmpty() || cleaned.length > HubWire.MAX_ALIAS_LENGTH || address.isBlank() || !permissionsGranted()) return false
+        if (!PodsService.setAlias(address, cleaned)) {
             message(R.string.rename_failed)
-            false
+            return false
         }
+        update { if (it.address == address) it.copy(localName = cleaned) else it }
+        FrameworkBridge.publish()
+        return true
     }
     @Suppress("MissingPermission")
     fun candidates(): List<BluetoothDevice> {

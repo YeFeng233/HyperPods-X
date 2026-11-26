@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.Strings
 import com.hyper.podsrx.i18n.rememberStrings
 import com.hyper.podsrx.ui.BatteryPresentation
@@ -62,6 +63,7 @@ import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavDisplay
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavHeaderMotion
 import io.github.neoruaa.glasmio.ui.*
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 private val LocalSettingsBodyPadding = staticCompositionLocalOf<PaddingValues> { PaddingValues() }
 
@@ -121,6 +123,8 @@ internal fun IosSettingsScreen(
         mutableStateOf(TextFieldValue(state.displayName, selection = TextRange(state.displayName.length)))
     }
     var nameError by rememberSaveable(state.address) { mutableStateOf<Int?>(null) }
+    var savingName by remember { mutableStateOf(false) }
+    val nameScope = rememberCoroutineScope()
     var actionError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(strings) {
         var previous = DeviceRepository.state.value
@@ -142,18 +146,6 @@ internal fun IosSettingsScreen(
             backStack.add(settingsEntryKey(destination))
         }
     }
-    val saveName: (Boolean) -> Boolean = { showError ->
-        val cleaned = nameValue.text.trim()
-        val error = when {
-            cleaned.isEmpty() -> R.string.enter_name
-            cleaned.length > 100 -> R.string.name_length_limit
-            cleaned == state.displayName -> null
-            DeviceRepository.rename(cleaned) -> null
-            else -> R.string.rename_failed_retry
-        }
-        if (showError) nameError = error
-        error == null
-    }
     val leavePage: () -> Unit = {
         focusManager.clearFocus()
         keyboard?.hide()
@@ -161,13 +153,31 @@ internal fun IosSettingsScreen(
             backStack.removeAt(backStack.lastIndex)
         } else onFinish()
     }
+    fun saveName(fromBack: Boolean) {
+        if (savingName) return
+        val cleaned = nameValue.text.trim()
+        when {
+            cleaned.isEmpty() -> if (fromBack) leavePage() else nameError = R.string.enter_name
+            cleaned.length > HubWire.MAX_ALIAS_LENGTH -> if (fromBack) leavePage() else nameError = R.string.name_length_limit
+            cleaned == state.displayName -> leavePage()
+            else -> {
+                savingName = true
+                nameScope.launch {
+                    try {
+                        if (DeviceRepository.rename(cleaned)) leavePage()
+                        else nameError = R.string.rename_failed_retry
+                    } finally {
+                        savingName = false
+                    }
+                }
+            }
+        }
+    }
     val back: () -> Unit = {
-        if (backStack.lastOrNull()?.settingsRouteName() == "name" && nameError == null) saveName(false)
-        leavePage()
+        if (backStack.lastOrNull()?.settingsRouteName() == "name" && nameError == null) saveName(true)
+        else if (!savingName) leavePage()
     }
-    val finishName: () -> Unit = {
-        if (saveName(true)) leavePage()
-    }
+    val finishName: () -> Unit = { saveName(false) }
     BackHandler(enabled = backStack.size == 1) { back() }
     ListeningIntentHost(state) {
         GlasmioAppTheme {
@@ -294,7 +304,17 @@ internal fun IosSettingsScreen(
                                                                         DeviceNameEditor(nameValue, {
                                                                             nameValue = it
                                                                             nameError = null
-                                                                        }, nameError?.let { strings(it) }, finishName)
+                                                                        }, nameError?.let { strings(it) }, savingName, finishName)
+                                                                    }
+                                                                    if (nameError == R.string.rename_failed_retry && !savingName) {
+                                                                        item("nameBluetoothSettings") {
+                                                                            SettingsCard {
+                                                                                GlasmioListRow(title = strings(R.string.system_bluetooth_settings), onClick = {
+                                                                                    onSystemBluetooth()
+                                                                                    leavePage()
+                                                                                })
+                                                                            }
+                                                                        }
                                                                     }
                                                                 } else IosSettingsPageContent(page, entryDisplayState, onConnect, onOverlay, onSystemBluetooth, navigate, strings)
                                                                 if (page in setOf("module", "connection", "diagnostics") && entryDisplayState.message.isNotBlank()) {
@@ -403,6 +423,7 @@ private fun DeviceNameEditor(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     error: String?,
+    saving: Boolean,
     onDone: () -> Unit,
 ) {
     val strings = rememberStrings()
@@ -413,10 +434,11 @@ private fun DeviceNameEditor(
         SettingsCard {
             GlasmioTextField(value, onValueChange,
                 modifier = Modifier.focusRequester(focus).semantics { contentDescription = strings(R.string.name) },
+                enabled = !saving,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onDone() }),
                 trailing = {
-                    if (value.text.isNotEmpty()) Box(
+                    if (!saving && value.text.isNotEmpty()) Box(
                         Modifier.size(44.dp).clickable(role = Role.Button, onClickLabel = strings(R.string.clear_text)) {
                             onValueChange(TextFieldValue())
                             focus.requestFocus()
