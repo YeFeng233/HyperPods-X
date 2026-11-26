@@ -36,7 +36,9 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import com.hyper.podsrx.R
 import com.hyper.podsrx.device.*
+import com.hyper.podsrx.hook.HubWire
 import com.hyper.podsrx.i18n.rememberStrings
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Clear
@@ -94,7 +96,9 @@ internal fun MiuixSettingsScreen(
     var nameValue by rememberSaveable(state.address, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(state.displayName, selection = TextRange(state.displayName.length)))
     }
-    var nameError by rememberSaveable(state.address) { mutableStateOf<String?>(null) }
+    var nameError by rememberSaveable(state.address) { mutableStateOf<Int?>(null) }
+    var savingName by remember { mutableStateOf(false) }
+    val nameScope = rememberCoroutineScope()
     var actionError by remember { mutableStateOf<String?>(null) }
     var observedMessage by remember { mutableLongStateOf(state.messageRevision) }
     LaunchedEffect(state.messageRevision, strings) {
@@ -114,28 +118,36 @@ internal fun MiuixSettingsScreen(
             backStack.add(destination)
         }
     }
-    val saveName: (Boolean) -> Boolean = { showError ->
-        val cleaned = nameValue.text.trim()
-        val error = when {
-            cleaned.isEmpty() -> "请输入名称"
-            cleaned.length > 100 -> "名称最多可包含 100 个字符"
-            cleaned == state.displayName -> null
-            DeviceRepository.rename(cleaned) -> null
-            else -> "无法保存耳机名称，请重试。"
-        }
-        if (showError) nameError = error
-        error == null
-    }
     val leavePage: () -> Unit = {
         focusManager.clearFocus()
         keyboard?.hide()
         if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) else onFinish()
     }
-    val back: () -> Unit = {
-        if (backStack.lastOrNull() == SettingsPage.NAME.route && nameError == null) saveName(false)
-        leavePage()
+    fun saveName(fromBack: Boolean) {
+        if (savingName) return
+        val cleaned = nameValue.text.trim()
+        when {
+            cleaned.isEmpty() -> if (fromBack) leavePage() else nameError = R.string.enter_name
+            cleaned.length > HubWire.MAX_ALIAS_LENGTH -> if (fromBack) leavePage() else nameError = R.string.name_length_limit
+            cleaned == state.displayName -> leavePage()
+            else -> {
+                savingName = true
+                nameScope.launch {
+                    try {
+                        if (DeviceRepository.rename(cleaned)) leavePage()
+                        else nameError = R.string.rename_failed_retry
+                    } finally {
+                        savingName = false
+                    }
+                }
+            }
+        }
     }
-    val finishName: () -> Unit = { if (saveName(true)) leavePage() }
+    val back: () -> Unit = {
+        if (backStack.lastOrNull() == SettingsPage.NAME.route && nameError == null) saveName(true)
+        else if (!savingName) leavePage()
+    }
+    val finishName: () -> Unit = { saveName(false) }
     BackHandler(enabled = backStack.size == 1, onBack = back)
     val theme = remember { ThemeController(ColorSchemeMode.System) }
     MiuixTheme(controller = theme) {
@@ -167,7 +179,12 @@ internal fun MiuixSettingsScreen(
                                 SettingsPage.DEVICE.route -> miuixDevicePage(entryState, volume,
                                     volumeController::setFraction, volumeController::refresh, onConnect, navigate)
                                 SettingsPage.NAME.route -> miuixItem("name.editor") {
-                                    MiuixNameEditor(nameValue, { nameValue = it; nameError = null }, nameError, finishName)
+                                    MiuixNameEditor(nameValue, { nameValue = it; nameError = null },
+                                        nameError?.let { strings(it) }, savingName, finishName)
+                                    if (nameError == R.string.rename_failed_retry && !savingName) {
+                                        TextButton(strings(R.string.system_bluetooth_settings), { onSystemBluetooth(); leavePage() },
+                                            Modifier.fillMaxWidth())
+                                    }
                                 }
                                 else -> miuixSettingsPageContent(page, entryState, onConnect, onOverlay, onSystemBluetooth, navigate, strings)
                             }
@@ -274,17 +291,18 @@ private fun MiuixNameEditor(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     error: String?,
+    saving: Boolean,
     onDone: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     Column {
         TextField(value, onValueChange, modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            label = "名称", singleLine = true,
+            label = "名称", singleLine = true, enabled = !saving,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onDone() }),
             trailingIcon = {
-                if (value.text.isNotEmpty()) IconButton(onClick = {
+                if (!saving && value.text.isNotEmpty()) IconButton(onClick = {
                     onValueChange(TextFieldValue())
                     focus.requestFocus()
                 }) { Icon(MiuixIcons.Clear, "清除文本") }

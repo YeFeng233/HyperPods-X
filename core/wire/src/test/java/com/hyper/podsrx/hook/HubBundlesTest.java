@@ -43,6 +43,17 @@ public class HubBundlesTest {
         assertEquals(readings(), HubBundles.readings(parcel(HubBundles.readings(readings()))));
     }
 
+    @Test public void aliasRequestCarriesTheTargetAndUnicodeName() {
+        HubBundles.Alias alias = new HubBundles.Alias("AA:BB:CC:DD:EE:FF", "测试 AirPods");
+        HubBundles.Alias read = HubBundles.Alias.from(parcel(alias.toBundle()));
+        assertEquals(alias.address, read.address);
+        assertEquals(alias.name, read.name);
+
+        HubBundles.Alias missing = HubBundles.Alias.from(new Bundle());
+        assertEquals("", missing.address);
+        assertEquals("", missing.name);
+    }
+
     @Test public void batteriesKeepUnknownLevelsAndDisconnects() {
         List<Battery> batteries = List.of(new Battery(4, 90, false, true), new Battery(8, null, false, false));
         assertEquals(batteries, HubBundles.batteries(parcel(HubBundles.batteries(batteries))));
