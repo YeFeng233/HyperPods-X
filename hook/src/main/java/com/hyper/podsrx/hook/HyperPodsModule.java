@@ -137,14 +137,14 @@ public final class HyperPodsModule extends XposedModule {
         if (pkg.equals("com.xiaomi.bluetooth")) {
             if (!pkg.equals(processName) && !processName.equals(pkg+":ui")) return;
             try {
-                // The hub reads the app's configuration; everything else reads the hub.
-                preferences=pkg.equals(processName)?getRemotePreferences("device_state"):HubReader.remote();
-                if (runningApp != null) installBluetooth(runningApp, pkg);
+                SharedPreferences config = getRemotePreferences("device_state");
+                preferences=pkg.equals(processName)?config:HubReader.remote();
+                if (runningApp != null) installBluetooth(runningApp, pkg, config);
                 else {
                     Class<?> app = Class.forName("com.android.bluetooth.ble.MiuiApplication", false, loader);
                     hook(app.getDeclaredMethod("onCreate")).intercept(chain -> {
                         Object result = chain.proceed();
-                        if (ReloadLifecycle.isActive()) installBluetooth((Application) chain.getThisObject(), pkg);
+                        if (ReloadLifecycle.isActive()) installBluetooth((Application) chain.getThisObject(), pkg, config);
                         return result;
                     });
                 }
@@ -188,15 +188,14 @@ public final class HyperPodsModule extends XposedModule {
         } catch (Throwable error) { installationFailure("Settings adapter", error); }
     }
 
-    private void installBluetooth(Application host, String pkg) {
+    private void installBluetooth(Application host, String pkg, SharedPreferences config) {
         if (bluetoothInstalled || !ReloadLifecycle.isActive()) return;
         bluetoothInstalled = true;
         DiagnosticLog.install(host);
         if (pkg.equals(processName)) {
-            SharedPreferences config = preferences;
             try { preferences = HubHost.install(this, host, config).reader; installed("State hub"); }
             catch (Throwable error) { installationFailure("State hub", error); }
-            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences); installed("ROM AirPods connection island filter"); }
+            try { NativeAirPodsDialogAdapter.suppressConnectToast(this, host.getClassLoader(), preferences, config); installed("ROM AirPods connection island filter"); }
             catch (Throwable error) { installationFailure("ROM AirPods connection island filter", error); }
             try { LidRelayHost.install(this, host.getClassLoader()); installed("Apple advertisement relay"); }
             catch (Throwable error) { installationFailure("Apple advertisement relay", error); }
@@ -211,7 +210,7 @@ public final class HyperPodsModule extends XposedModule {
             Application.ActivityLifecycleCallbacks callbacks = new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityPreCreated(Activity activity, Bundle saved) {
                     if (!ReloadLifecycle.isActive()) return;
-                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences); installed("Native AirPods dialog adapter"); }
+                    try { NativeAirPodsDialogAdapter.install(HyperPodsModule.this, activity, preferences, config); installed("Native AirPods dialog adapter"); }
                     catch (Throwable error) {
                         Compatibility.failed("Native AirPods dialog adapter", error);
                         moduleLog(Log.WARN, "HyperPods-X", "Native AirPods dialog adapter unavailable", error);

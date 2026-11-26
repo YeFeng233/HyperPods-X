@@ -348,12 +348,20 @@ public final class HubBundles {
     }
 
     public static final int LID_EVENT_OPENED = 1, LID_EVENT_CONFIRMED = 2, LID_EVENT_CLOSED = 3;
+    public static final int LID_POPUP_SILENT = 0, LID_POPUP_NATIVE = 1,
+        LID_POPUP_DESKTOP_CARD = 2, LID_POPUP_NOTIFICATION = 3;
 
-    /** ON_LID. [nativeShown] false on an open asks the app for its fallback card. */
-    public static Bundle lid(int event, boolean nativeShown) {
+    /** ON_LID. Only an explicit desktop result allows the app to add a card. */
+    public static Bundle lid(int event, int popup) {
         Bundle out = new Bundle();
         out.putInt("event", event);
-        out.putBoolean("nativeShown", nativeShown);
+        out.putInt("popup", popup);
+        out.putBoolean("nativeShown", popup == LID_POPUP_NATIVE);
         return out;
+    }
+
+    public static int lidPopup(Bundle in) {
+        int popup = in.getInt("popup", in.getBoolean("nativeShown") ? LID_POPUP_NATIVE : LID_POPUP_SILENT);
+        return popup >= LID_POPUP_SILENT && popup <= LID_POPUP_NOTIFICATION ? popup : LID_POPUP_SILENT;
     }
 }

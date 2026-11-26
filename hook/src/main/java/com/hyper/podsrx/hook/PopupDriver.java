@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioDeviceInfo;
@@ -18,7 +19,12 @@ import org.json.JSONObject;
 /** Shows the bound headset through the same SystemUI endpoints as this ROM's AirPods popup. */
 final class PopupDriver {
     private static final String APP = "com.hyper.podsrx";
-    private static final String DIALOG = "com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity";
+    static final String DIALOG = "com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity";
+    private static final String LAUNCHER = "com.miui.home";
+
+    record Foreground(boolean desktop, boolean dialogOnTop) {
+        static final Foreground UNKNOWN = new Foreground(false, false);
+    }
 
     static final class Request {
         final String address, name, model;
@@ -40,39 +46,60 @@ final class PopupDriver {
 
     private PopupDriver() {}
 
-    /** Returns whether a popup is showing for the request, including the ROM's own. */
+    /** Identifies the foreground behind a ROM fast-connect window, if one is already opening. */
+    static Foreground foreground(Context host) {
+        try {
+            List<ActivityManager.RunningTaskInfo> tasks = host.getSystemService(ActivityManager.class).getRunningTasks(2);
+            if (tasks.isEmpty() || tasks.get(0).topActivity == null) return Foreground.UNKNOWN;
+            ActivityManager.RunningTaskInfo first = tasks.get(0);
+            boolean dialog = DIALOG.equals(first.topActivity.getClassName());
+            ComponentName foreground = first.topActivity;
+            if (dialog) {
+                foreground = tasks.size() > 1 ? tasks.get(1).topActivity : null;
+            }
+            return new Foreground(foreground != null && LAUNCHER.equals(foreground.getPackageName()), dialog);
+        } catch (RuntimeException error) {
+            DiagnosticLog.w("HyperPods-X", "Could not read the foreground for a headset popup", error);
+            return Foreground.UNKNOWN;
+        }
+    }
+
+    /** The existing request path serves the preview buttons and the connection card. */
     static boolean show(Context host, Request request) throws Exception {
-        HeadsetModels.Model headset = HeadsetModels.of(request.model, request.product);
-        if (!request.preview && request.autoConnect) reconnectProfiles(host, request.address);
-        boolean home = false;
-        List<ActivityManager.RunningTaskInfo> tasks = host.getSystemService(ActivityManager.class).getRunningTasks(1);
-        if (!tasks.isEmpty() && tasks.get(0).topActivity != null) home = "com.miui.home".equals(tasks.get(0).topActivity.getPackageName());
-        // The ROM's lid launch may already be showing this state; do not stack a second popup.
-        if (!request.preview && !tasks.isEmpty() && tasks.get(0).topActivity != null
-                && DIALOG.equals(tasks.get(0).topActivity.getClassName())) {
+        if (request.preview) return request.island ? showIsland(host, request) : showDialog(host, request);
+        if (request.autoConnect) reconnectProfiles(host, request.address);
+        Foreground foreground = foreground(host);
+        if (foreground.dialogOnTop()) {
             DiagnosticLog.i("HyperPods-X", "Headset dialog already showing; skipped a second popup");
             return true;
         }
-        if (!request.island && (home || request.preview)) {
-            if (!BluetoothAdapter.checkBluetoothAddress(request.address)) return false;
-            Intent dialog = new Intent("com.android.bluetooth.FAST_CONNECT_DEVICE_AIRPODS")
-                .setClassName("com.xiaomi.bluetooth", DIALOG)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                .putExtra(BluetoothDevice.EXTRA_DEVICE, host.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(request.address))
-                .putExtra("headset_addresses", request.address).putExtra("headset_extra_data", new int[] {-60, 1, 0, 16, 0, 1})
-                .putExtra("device_name_over_write", (request.preview ? HookStrings.get(host, R.string.hook_popup_preview_prefix) : "") + request.name)
-                .putExtra("hyperpods_preview", request.preview)
-                .putExtra("hyperpods_model", request.model)
-                .putExtra("hyperpods_product", request.product)
-                .putExtra("hyperpods_target", request.target)
-                .putExtra("native_left", request.left).putExtra("native_right", request.right)
-                .putExtra("native_box", request.box).putExtra("native_box_history", request.box)
-                .putExtra("native_charging", request.charging)
-                .putExtra("native_connected", request.connected);
-            host.startActivity(dialog);
-            DiagnosticLog.i("HyperPods-X", "Launched built-in AirPods fast-connect dialog");
-            return true;
-        }
+        if (!request.island && foreground.desktop()) return showDialog(host, request);
+        return showIsland(host, request);
+    }
+
+    static boolean showDialog(Context host, Request request) {
+        if (!BluetoothAdapter.checkBluetoothAddress(request.address)) return false;
+        Intent dialog = new Intent("com.android.bluetooth.FAST_CONNECT_DEVICE_AIRPODS")
+            .setClassName("com.xiaomi.bluetooth", DIALOG)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            .putExtra(BluetoothDevice.EXTRA_DEVICE, host.getSystemService(BluetoothManager.class).getAdapter().getRemoteDevice(request.address))
+            .putExtra("headset_addresses", request.address).putExtra("headset_extra_data", new int[] {-60, 1, 0, 16, 0, 1})
+            .putExtra("device_name_over_write", (request.preview ? HookStrings.get(host, R.string.hook_popup_preview_prefix) : "") + request.name)
+            .putExtra("hyperpods_preview", request.preview)
+            .putExtra("hyperpods_model", request.model)
+            .putExtra("hyperpods_product", request.product)
+            .putExtra("hyperpods_target", request.target)
+            .putExtra("native_left", request.left).putExtra("native_right", request.right)
+            .putExtra("native_box", request.box).putExtra("native_box_history", request.box)
+            .putExtra("native_charging", request.charging)
+            .putExtra("native_connected", request.connected);
+        host.startActivity(dialog);
+        DiagnosticLog.i("HyperPods-X", "Launched built-in AirPods fast-connect dialog");
+        return true;
+    }
+
+    static boolean showIsland(Context host, Request request) throws Exception {
+        HeadsetModels.Model headset = HeadsetModels.of(request.model, request.product);
         JSONObject params = new JSONObject();
         params.put("left", area(headset.artwork + "_left", percentage(request.left)));
         params.put("right", area(headset.artwork + "_right", percentage(request.right)));

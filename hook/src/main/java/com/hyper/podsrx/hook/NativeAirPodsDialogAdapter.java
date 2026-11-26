@@ -2,6 +2,7 @@ package com.hyper.podsrx.hook;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
@@ -15,7 +16,8 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
+import android.os.PowerManager;
+import android.os.Process;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -60,10 +62,10 @@ final class NativeAirPodsDialogAdapter {
         });
     }
 
-    static void install(HyperPodsModule module, Activity activity, SharedPreferences preferences) throws Exception {
+    static void install(HyperPodsModule module, Activity activity, SharedPreferences preferences, SharedPreferences config) throws Exception {
         if(!ReloadLifecycle.isActive())return;
         prepareCleanup();
-        if(!activity.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity"))return;
+        if(!activity.getClass().getName().equals(PopupDriver.DIALOG))return;
         ClassLoader loader=activity.getClass().getClassLoader();
         if(installed.contains(loader))return;
         Class<?> controller=Class.forName("com.android.bluetooth.ble.app.fastconnect.airpods.MiuiAirPodsFastConnectController",false,loader);
@@ -87,8 +89,26 @@ final class NativeAirPodsDialogAdapter {
             info.getMethod(setter,int.class);
         module.hook(create).intercept(chain->{
             if(!ReloadLifecycle.isActive())return chain.proceed();
-            Intent request=request(chain.getThisObject(),preferences);
-            if(request==null)request=adopt(chain.getThisObject(),preferences);
+            Intent request;
+            try {
+                Activity owner=(Activity)field(chain.getThisObject(),"mActivityContext").get(chain.getThisObject());
+                Intent launch=owner.getIntent();
+                if(isModuleRequest(launch)){
+                    request=request(chain.getThisObject(),preferences);
+                }else if(managesLidPopup(launch.getStringExtra("headset_addresses"),preferences,config)){
+                    if(!canAdopt(owner,config)){
+                        DiagnosticLog.i("HyperPods-X","Skipped ROM AirPods dialog outside its allowed desktop route");
+                        release(owner);
+                        return create.getReturnType()==boolean.class?false:null;
+                    }
+                    request=adopt(launch,preferences);
+                }else{
+                    request=null;
+                }
+            } catch(Exception | LinkageError error) {
+                report("adopt",error);
+                request=null;
+            }
             if(request==null)return chain.proceed();
             creating.set(request);
             try {
@@ -220,7 +240,7 @@ final class NativeAirPodsDialogAdapter {
         module.hook(finish).intercept(chain->{
             if(!ReloadLifecycle.isActive())return chain.proceed();
             Object owner=chain.getThisObject();
-            if(owner instanceof Activity&&owner.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity")
+            if(owner instanceof Activity&&owner.getClass().getName().equals(PopupDriver.DIALOG)
                     &&slideOut((Activity)owner))return null;
             return chain.proceed();
         });
@@ -247,15 +267,14 @@ final class NativeAirPodsDialogAdapter {
                 && System.currentTimeMillis() - preferences.getLong("app_foreground_at", 0L) < 10_000L;
     }
     /** The ROM's "connecting"/"connection failed" island shares SystemUI's headset_wear_notification slot with ours. */
-    static void suppressConnectToast(HyperPodsModule module,ClassLoader loader,SharedPreferences preferences) throws Exception {
+    static void suppressConnectToast(HyperPodsModule module,ClassLoader loader,SharedPreferences preferences,SharedPreferences config) throws Exception {
         Class<?> notification=Class.forName("com.android.bluetooth.ble.app.MiuiBluetoothNotification",false,loader);
         Method toast=notification.getDeclaredMethod("showConnectToastForAirPods",int.class,BluetoothDevice.class,int.class);
         module.hook(toast).intercept(chain->{
             if(!ReloadLifecycle.isActive())return chain.proceed();
             try {
                 Object device=chain.getArg(1);
-                if(device instanceof BluetoothDevice&&replacing(preferences)
-                        &&((BluetoothDevice)device).getAddress().equalsIgnoreCase(preferences.getString("address",""))){
+                if(device instanceof BluetoothDevice&&managesLidPopup(((BluetoothDevice)device).getAddress(),preferences,config)){
                     DiagnosticLog.i("HyperPods-X","Skipped the ROM's AirPods connection island for the bound device");
                     // The island queues a 10 s "connection failed" check right after this call; if the
                     // lid has closed by then it relaunches the dialog, so it goes with the island.
@@ -277,34 +296,30 @@ final class NativeAirPodsDialogAdapter {
             if(handler instanceof Handler)((Handler)handler).removeMessages(CONNECT_FAIL_SHOW_ISLAND);
         } catch(Exception | LinkageError error) { report("dropConnectFailCheck",error); }
     }
-    /** The bound device keeps one popup: the ROM's own launch for it shows the module's content. */
-    private static Intent adopt(Object controller,SharedPreferences preferences) {
-        try {
-            Activity activity=(Activity)field(controller,"mActivityContext").get(controller);
-            Intent request=activity.getIntent();
-            String address=request.getStringExtra("headset_addresses");
-            if(address==null||!address.equalsIgnoreCase(preferences.getString("address",""))||!replacing(preferences))return null;
-            // The ROM launches when the headset reconnects, sometimes before the module's popup;
-            // that launch keeps its timing and shows the module's last published state.
-            for(String key:new String[]{"left","right","box","box_history","charging"})
-                request.putExtra("native_"+key,preferences.getInt("native_"+key,key.equals("charging")?0:-1));
-            request.putExtra("native_connected",preferences.getBoolean("native_connected",false));
-            String name=null;
-            BluetoothDevice device=request.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice.class);
-            try { if(device!=null)name=device.getAlias(); } catch(SecurityException ignored) { }
-            request.putExtra("device_name_over_write",name!=null?name:"AirPods");
-            request.putExtra(ADOPTED,true);
-            DiagnosticLog.i("HyperPods-X","Showing module state in the ROM's own AirPods dialog for the bound device");
-            return request;
-        } catch(Exception | LinkageError error) { report("adopt",error); return null; }
+    private static boolean managesLidPopup(String address,SharedPreferences preferences,SharedPreferences config) {
+        return preferences instanceof HubReader&&address!=null&&!address.isEmpty()&&address.equalsIgnoreCase(preferences.getString("address",""))
+                &&config.getBoolean("popup_enabled",true);
     }
-    /**
-     * The module only takes over while its service is running. A reboot or a killed process leaves the
-     * last published flag behind, so state written before this boot does not count.
-     */
-    private static boolean replacing(SharedPreferences preferences) {
-        long boot=System.currentTimeMillis()-SystemClock.elapsedRealtime();
-        return preferences.getBoolean("replace_system_popup",false)&&preferences.getLong("updated",0)>=boot;
+
+    private static boolean canAdopt(Activity activity,SharedPreferences config) {
+        return config.getBoolean("native_popup",true)
+                &&activity.getSystemService(PowerManager.class).isInteractive()
+                &&!activity.getSystemService(KeyguardManager.class).isKeyguardLocked()
+                &&PopupDriver.foreground(activity).desktop();
+    }
+
+    /** A ROM dialog launched before the hub uses the same readings as the module's dialog. */
+    private static Intent adopt(Intent request,SharedPreferences preferences) {
+        for(String key:new String[]{"left","right","box","box_history","charging"})
+            request.putExtra("native_"+key,preferences.getInt("native_"+key,key.equals("charging")?0:-1));
+        request.putExtra("native_connected",preferences.getBoolean("native_connected",false));
+        String name=null;
+        BluetoothDevice device=request.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE,BluetoothDevice.class);
+        try { if(device!=null)name=device.getAlias(); } catch(SecurityException ignored) { }
+        request.putExtra("device_name_over_write",name!=null?name:"AirPods");
+        request.putExtra(ADOPTED,true);
+        DiagnosticLog.i("HyperPods-X","Showing module state in the ROM's own AirPods dialog for the bound device");
+        return request;
     }
     /** Returns true when finish() was replaced by a dialog dismissal that will finish the Activity itself. */
     private static boolean slideOut(Activity activity) {
@@ -341,7 +356,7 @@ final class NativeAirPodsDialogAdapter {
     static void followLid(Activity activity,SharedPreferences preferences) {
         if(!ReloadLifecycle.isActive())return;
         prepareCleanup();
-        if(!activity.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity"))return;
+        if(!activity.getClass().getName().equals(PopupDriver.DIALOG))return;
         try {
             String address=activity.getIntent().getStringExtra("headset_addresses");
             if(address==null||!address.equalsIgnoreCase(preferences.getString("address","")))return;
@@ -370,9 +385,12 @@ final class NativeAirPodsDialogAdapter {
         } catch(RuntimeException | LinkageError error) { report("autoDismiss",error); }
     }
     private static boolean isModulePopup(Activity activity) {
-        if(!activity.getClass().getName().equals("com.android.bluetooth.ble.app.fastconnect.MiuiFastConnectActivity"))return false;
-        PendingIntent token=activity.getIntent().getParcelableExtra("hyperpods_target",PendingIntent.class);
-        return token!=null&&APP.equals(token.getCreatorPackage());
+        return activity.getClass().getName().equals(PopupDriver.DIALOG)&&isModuleRequest(activity.getIntent());
+    }
+    private static boolean isModuleRequest(Intent request) {
+        PendingIntent token=request.getParcelableExtra("hyperpods_target",PendingIntent.class);
+        return token!=null&&token.isImmutable()&&(APP.equals(token.getCreatorPackage())
+                ||HubWire.HOST.equals(token.getCreatorPackage())&&token.getCreatorUid()==Process.myUid());
     }
     private static void finishModulePopup(Activity activity) {
         try {
@@ -384,8 +402,7 @@ final class NativeAirPodsDialogAdapter {
         try {
             Activity activity=(Activity)field(controller,"mActivityContext").get(controller);
             Intent request=activity.getIntent();
-            PendingIntent token=request.getParcelableExtra("hyperpods_target",PendingIntent.class);
-            boolean module=token!=null&&APP.equals(token.getCreatorPackage())||request.getBooleanExtra(ADOPTED,false);
+            boolean module=isModuleRequest(request)||request.getBooleanExtra(ADOPTED,false);
             String address=request.getStringExtra("headset_addresses");
             return module&&address!=null&&address.equalsIgnoreCase(preferences.getString("address",""))?request:null;
         } catch(Exception | LinkageError error) { report("request",error); return null; }

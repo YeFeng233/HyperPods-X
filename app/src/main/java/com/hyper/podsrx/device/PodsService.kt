@@ -68,15 +68,14 @@ class PodsService: Service() {
         }
     }
     private val lidHandler=Handler(Looper.getMainLooper())
-    /** The hub follows the lid; the app adds its card where no native popup showed, and its channel. */
-    private fun lid(event:Int,nativeShown:Boolean) { lidHandler.post {
+    /** The hub follows the lid and selects where its opening is presented. */
+    private fun lid(event:Int,presentation:Int) { lidHandler.post {
         when(event) {
             HubBundles.LID_EVENT_OPENED -> {
                 // The hub's state notice may still be on its way; the card checks this.
                 DeviceRepository.update{it.copy(lidOpen=true)}
                 DeviceRepository.log(strings(R.string.lid_verified_open))
-                if(nativeShown)DeviceRepository.log(strings(R.string.native_popup_lid_submitted))
-                else if(DeviceRepository.state.value.popupEnabled)popup.showFallback()
+                popup.onLidOpened(presentation)
             }
             HubBundles.LID_EVENT_CONFIRMED -> {
                 DeviceRepository.log(strings(R.string.lid_open_stable))
