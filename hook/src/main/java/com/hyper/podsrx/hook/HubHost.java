@@ -23,6 +23,7 @@ import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import com.hyper.podsrx.protocol.Battery;
+import com.hyper.podsrx.protocol.LidPresentation;
 import com.hyper.podsrx.protocol.BatteryAlert;
 import com.hyper.podsrx.protocol.BatteryAlerts;
 import com.hyper.podsrx.protocol.BatteryLedger;
@@ -298,22 +299,50 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
     }
 
     @Override public void opened() {
-        boolean shown = false;
-        boolean wanted = preferences.getBoolean("popup_enabled", true);
         boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
         boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
-        boolean phoneInUse = appForeground() && interactive && !locked;
-        if (wanted && preferences.getBoolean("native_popup", true) && phoneInUse) {
-            try { shown = PopupDriver.show(context, popupRequest(false, false)); }
-            catch (Throwable error) { DiagnosticLog.w(TAG, "Native headset popup unavailable", error); }
-        } else if (preferences.getBoolean("auto_connect", true) && phoneInUse) {
-            PopupDriver.reconnectProfiles(context, address);
-        } else if (preferences.getBoolean("auto_connect", true)) {
-            DiagnosticLog.i(TAG, "Skipped automatic profile reconnect while the phone is not in use");
-        }
-        // Without a native popup the app shows its own card, if it is running.
-        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, shown));
+        int popup = showLidPopup(interactive, locked);
+        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_OPENED, popup));
         publish();
+        if (preferences.getBoolean("auto_connect", true)) {
+            if (interactive && !locked && appForeground()) {
+                try { PopupDriver.reconnectProfiles(context, address); }
+                catch (RuntimeException error) { DiagnosticLog.w(TAG, "Automatic profile reconnect failed", error); }
+            } else {
+                DiagnosticLog.i(TAG, "Skipped automatic profile reconnect while the phone is not in use");
+            }
+        }
+    }
+
+    private int showLidPopup(boolean interactive, boolean locked) {
+        boolean enabled = preferences.getBoolean("popup_enabled", true);
+        PopupDriver.Foreground foreground = enabled && interactive && !locked
+            ? PopupDriver.foreground(context) : PopupDriver.Foreground.UNKNOWN;
+        LidPresentation presentation = LidPresentation.select(enabled, interactive, locked,
+            preferences.getBoolean("native_popup", true), foreground.desktop());
+        return switch (presentation) {
+            case SILENT -> HubBundles.LID_POPUP_SILENT;
+            case NOTIFICATION -> HubBundles.LID_POPUP_NOTIFICATION;
+            case COMPATIBILITY_CARD -> HubBundles.LID_POPUP_DESKTOP_CARD;
+            case NATIVE_DIALOG, NATIVE_ISLAND -> showNativeLidPopup(foreground);
+        };
+    }
+
+    private int showNativeLidPopup(PopupDriver.Foreground foreground) {
+        if (foreground.desktop() && foreground.dialogOnTop()) {
+            DiagnosticLog.i(TAG, "Reused the AirPods fast-connect dialog on the desktop");
+            return HubBundles.LID_POPUP_NATIVE;
+        }
+        try {
+            PopupDriver.Request request = popupRequest(false, !foreground.desktop());
+            boolean submitted = foreground.desktop() ? PopupDriver.showDialog(context, request)
+                : PopupDriver.showIsland(context, request);
+            if (submitted) return HubBundles.LID_POPUP_NATIVE;
+            DiagnosticLog.w(TAG, "Native headset popup rejected");
+        } catch (Throwable error) {
+            DiagnosticLog.w(TAG, "Native headset popup unavailable", error);
+        }
+        return foreground.desktop() ? HubBundles.LID_POPUP_NOTIFICATION : HubBundles.LID_POPUP_SILENT;
     }
 
     private boolean appForeground() {
@@ -323,13 +352,13 @@ final class HubHost extends Binder implements ScanEngine.Listener, Advertisement
 
     @Override public void confirmed() {
         // The app reconnects its control channel if it has none.
-        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CONFIRMED, false));
+        callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CONFIRMED, HubBundles.LID_POPUP_SILENT));
     }
 
     @Override public void closed(boolean changed, boolean repeat) {
         if (changed) PopupDriver.close(context);
         if (changed && !repeat) {
-            callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CLOSED, false));
+            callApp(HubWire.ON_LID, HubBundles.lid(HubBundles.LID_EVENT_CLOSED, HubBundles.LID_POPUP_SILENT));
             publish();
         }
     }

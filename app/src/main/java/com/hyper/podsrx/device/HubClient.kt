@@ -41,7 +41,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The app's side of the Bluetooth host's state hub. Pushes the AACP session and the proximity keys
  * as they change; the hub's callbacks are the only thing it listens to. Nothing here is periodic.
  */
-class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean)->Unit) {
+class HubClient(context:Context,private val onLid:(event:Int,popup:Int)->Unit) {
     private val strings = context.stringResolver()
     private val context=context.applicationContext
     private val main=Handler(Looper.getMainLooper())
@@ -70,7 +70,7 @@ class HubClient(context:Context,private val onLid:(event:Int,nativeShown:Boolean
             val payload=data.readBundle(javaClass.classLoader)?:return true
             when(code) {
                 HubWire.ON_STATE -> DeviceRepository.hub(HubBundles.State.from(payload))
-                HubWire.ON_LID -> onLid(payload.getInt("event"),payload.getBoolean("nativeShown"))
+                HubWire.ON_LID -> onLid(payload.getInt("event"),HubBundles.lidPopup(payload))
             }
             return true
         }

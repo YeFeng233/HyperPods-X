@@ -96,6 +96,26 @@ public class HubBundlesTest {
         assertEquals("AA:BB:CC:DD:EE:FF", read.address);
     }
 
+    @Test public void lidPopupResultsSurviveTheTrip() {
+        for (int popup : new int[] {HubBundles.LID_POPUP_SILENT, HubBundles.LID_POPUP_NATIVE,
+                HubBundles.LID_POPUP_DESKTOP_CARD, HubBundles.LID_POPUP_NOTIFICATION}) {
+            Bundle read = parcel(HubBundles.lid(HubBundles.LID_EVENT_OPENED, popup));
+            assertEquals(HubBundles.LID_EVENT_OPENED, read.getInt("event"));
+            assertEquals(popup, HubBundles.lidPopup(read));
+            assertEquals(popup == HubBundles.LID_POPUP_NATIVE, read.getBoolean("nativeShown"));
+        }
+    }
+
+    @Test public void oldLidCallbackCannotAuthorizeADesktopCard() {
+        Bundle legacy = new Bundle();
+        legacy.putInt("event", HubBundles.LID_EVENT_OPENED);
+        assertEquals(HubBundles.LID_POPUP_SILENT, HubBundles.lidPopup(parcel(legacy)));
+        legacy.putBoolean("nativeShown", true);
+        assertEquals(HubBundles.LID_POPUP_NATIVE, HubBundles.lidPopup(parcel(legacy)));
+        legacy.putInt("popup", -1);
+        assertEquals(HubBundles.LID_POPUP_SILENT, HubBundles.lidPopup(parcel(legacy)));
+    }
+
     @Test public void keysSurviveTheTrip() {
         byte[] irk = new byte[16], enc = new byte[16];
         irk[0] = 1; enc[15] = 2;

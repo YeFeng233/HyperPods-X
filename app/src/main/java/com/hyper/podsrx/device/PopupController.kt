@@ -22,9 +22,11 @@ import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.MainThread
 import androidx.core.app.NotificationCompat
 import com.hyper.podsrx.DeviceSettingsActivity
 import com.hyper.podsrx.R
+import com.hyper.podsrx.hook.HubBundles
 import com.hyper.podsrx.i18n.stringResolver
 import com.hyper.podsrx.i18n.text
 import kotlinx.coroutines.*
@@ -48,12 +50,9 @@ class PopupController(private val context:Context,private val native:(preview:Bo
     private var updates:Job?=null
     private var lastAutomatic=Long.MIN_VALUE/2
     private var generation=0L
-    internal fun show(reason:PopupReason=PopupReason.LID_OPEN,preview:Boolean=false) { handler.post {
-        // A closed advertisement may arrive before this queued UI operation executes.
-        if(!preview&&reason==PopupReason.LID_OPEN&&DeviceRepository.state.value.lidOpen!=true)return@post
+    internal fun show(reason:PopupReason,preview:Boolean=false) { handler.post {
         val now=android.os.SystemClock.elapsedRealtime()
-        // Each confirmed lid open is a real reopen; only the connection card is held back after a popup.
-        if(!preview&&reason!=PopupReason.LID_OPEN&&now-lastAutomatic<10000)return@post
+        if(!preview&&now-lastAutomatic<10000)return@post
         if(!preview)lastAutomatic=now
         if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
         close()
@@ -61,19 +60,28 @@ class PopupController(private val context:Context,private val native:(preview:Bo
         if(DeviceRepository.state.value.nativePopup)native(preview,reason==PopupReason.ISLAND_PREVIEW) nativeResult@{shown->
             if(request!=generation)return@nativeResult
             DeviceRepository.update{it.copy(nativePopupStatus=if(shown)text(R.string.native_popup_submitted)else text(R.string.native_popup_fallback))}
-            if(!preview&&reason==PopupReason.LID_OPEN&&DeviceRepository.state.value.lidOpen!=true)return@nativeResult
             if(shown)DeviceRepository.log(strings(R.string.native_popup_submitted_reason, strings(reason.labelRes)))else showOverlay(reason)
             DeviceRepository.saveDiagnostics()
         } else showOverlay(reason)
     } }
-    /** The hub showed no native popup for this lid opening; the card or a notification stands in. */
-    internal fun showFallback(reason:PopupReason=PopupReason.LID_OPEN) { handler.post {
-        if(DeviceRepository.state.value.lidOpen!=true)return@post
-        lastAutomatic=android.os.SystemClock.elapsedRealtime()
-        if(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return@post}
-        close()
-        showOverlay(reason)
-    } }
+    @MainThread
+    internal fun onLidOpened(presentation:Int) {
+        val state = DeviceRepository.state.value
+        if (!state.popupEnabled) return
+        // Treat audio connecting immediately after this lid event as the same opening.
+        lastAutomatic = android.os.SystemClock.elapsedRealtime()
+        when (presentation) {
+            HubBundles.LID_POPUP_NATIVE -> DeviceRepository.log(strings(R.string.native_popup_lid_submitted))
+            HubBundles.LID_POPUP_DESKTOP_CARD -> if (!state.nativePopup) {
+                close()
+                showOverlay(PopupReason.LID_OPEN)
+            }
+            HubBundles.LID_POPUP_NOTIFICATION -> {
+                close()
+                notifyStatus(PopupReason.LID_OPEN)
+            }
+        }
+    }
     private fun showOverlay(reason:PopupReason) {
         if(!Settings.canDrawOverlays(context)||context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){notifyStatus(reason);return}
         val root=LinearLayout(context).apply {
